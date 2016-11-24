@@ -484,11 +484,8 @@ void UpdateBlockAvailability(NodeId nodeid, const uint256 &hash) {
 }
 
 void MaybeSetPeerAsAnnouncingHeaderAndIDs(const CNodeState* nodestate, CNode* pfrom, CConnman& connman) {
-    if (!nodestate->fSupportsDesiredCmpctVersion) {
+    if (nodestate->fSupportsDesiredCmpctVersion && nodestate->fProvidesHeaderAndIDs) {
         // Never ask from peers who can't provide witnesses.
-        return;
-    }
-    if (nodestate->fProvidesHeaderAndIDs) {
         for (std::list<NodeId>::iterator it = lNodesAnnouncingHeaderAndIDs.begin(); it != lNodesAnnouncingHeaderAndIDs.end(); it++) {
             if (*it == pfrom->GetId()) {
                 lNodesAnnouncingHeaderAndIDs.erase(it);
@@ -496,20 +493,17 @@ void MaybeSetPeerAsAnnouncingHeaderAndIDs(const CNodeState* nodestate, CNode* pf
                 return;
             }
         }
-        bool fAnnounceUsingCMPCTBLOCK = false;
         uint64_t nCMPCTBLOCKVersion = (pfrom->GetLocalServices() & NODE_WITNESS) ? 2 : 1;
         if (lNodesAnnouncingHeaderAndIDs.size() >= 3) {
             // As per BIP152, we only get 3 of our peers to announce
             // blocks using compact encodings.
-            bool found = connman.ForNode(lNodesAnnouncingHeaderAndIDs.front(), [fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion](CNode* pnodeStop){
-                pnodeStop->PushMessage(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion);
-                return true;
-            });
-            if(found)
+            connman.ForNode(lNodesAnnouncingHeaderAndIDs.front(), [&lNodesAnnouncingHeaderAndIDs, nCMPCTBLOCKVersion](CNode* pnodeStop){
+                pnodeStop->PushMessage(NetMsgType::SENDCMPCT, false, nCMPCTBLOCKVersion);
                 lNodesAnnouncingHeaderAndIDs.pop_front();
+                return(true);
+            });
         }
-        fAnnounceUsingCMPCTBLOCK = true;
-        pfrom->PushMessage(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion);
+        pfrom->PushMessage(NetMsgType::SENDCMPCT, true, nCMPCTBLOCKVersion);
         lNodesAnnouncingHeaderAndIDs.push_back(pfrom->GetId());
     }
 }
@@ -5214,12 +5208,9 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
             // cmpctblock messages.
             // We send this to non-NODE NETWORK peers as well, because
             // they may wish to request compact blocks from us
-            bool fAnnounceUsingCMPCTBLOCK = false;
-            uint64_t nCMPCTBLOCKVersion = 2;
             if (pfrom->GetLocalServices() & NODE_WITNESS)
-                pfrom->PushMessage(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion);
-            nCMPCTBLOCKVersion = 1;
-            pfrom->PushMessage(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion);
+                pfrom->PushMessage(NetMsgType::SENDCMPCT, false, 2);
+            pfrom->PushMessage(NetMsgType::SENDCMPCT, false, 1);
         }
     }
 
