@@ -954,8 +954,14 @@ UniValue verifychain(const JSONRPCRequest& request)
 
     LOCK(cs_main);
 
-    if (request.params.size() > 0)
-        nCheckLevel = request.params[0].get_int();
+    if (request.params.size() > 0) {
+        if (request.params[0].isNull()) {
+            // If no value is given for checklevel, set it to default.
+            nCheckLevel = DEFAULT_CHECKBLOCKS;
+        } else {
+            nCheckLevel = request.params[0].get_int();
+        }
+    }
     if (request.params.size() > 1)
         nCheckDepth = request.params[1].get_int();
 
