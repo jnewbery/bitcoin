@@ -104,6 +104,7 @@ EXTENDED_SCRIPTS = [
     'p2p-feefilter.py',
     'rpcbind_test.py',
     # vv Tests less than 30s vv
+    'assumevalid.py',
     'bip65-cltv.py',
     'bip65-cltv-p2p.py',
     'bipdersig-p2p.py',
@@ -119,6 +120,11 @@ EXTENDED_SCRIPTS = [
 ]
 
 ALL_SCRIPTS = BASE_SCRIPTS + ZMQ_SCRIPTS + EXTENDED_SCRIPTS
+
+NON_SCRIPTS = [
+    # These are python files that live in the rpc-tests directory, but are not test scripts.
+    "create_cache.py"
+]
 
 def main():
     # Parse arguments and pass through unrecognised args
@@ -202,6 +208,8 @@ def main():
         print("No rpc tests to run. Scripts not found:")
         print(tests)
         sys.exit(0)
+
+    check_script_list(config["environment"]["SRCDIR"])
 
     runtests(test_list, config["environment"]["SRCDIR"], config["environment"]["BUILDDIR"], config["environment"]["EXEEXT"], args.jobs, args.coverage, passon_args)
 
@@ -383,6 +391,16 @@ class RPCCoverage(object):
 
         return all_cmds - covered_cmds
 
+def check_script_list(src_dir):
+    """ Check that there are no scripts in the rpc-tests directory which are
+    not being run by pull-tester.py
+    """
+    script_dir = src_dir + '/qa/rpc-tests/'
+    script_files = set([t for t in os.listdir(script_dir) if t[-3:] == ".py"])
+    missed_tests = list(script_files - set(ALL_SCRIPTS + NON_SCRIPTS))
+    if len(missed_tests) != 0:
+        print("The following scripts are not being run:" + str(missed_tests))
+        print("Check the test lists in rpc-tests.py")
 
 if __name__ == '__main__':
     main()
