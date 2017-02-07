@@ -1664,7 +1664,7 @@ class NodeConn(asyncore.dispatcher):
         try:
             self.close()
         except:
-            pass
+            self.log.debug("MiniNode: Failed to close connection cleanly")
         self.cb.on_close(self)
 
     def handle_read(self):
@@ -1674,7 +1674,7 @@ class NodeConn(asyncore.dispatcher):
                 self.recvbuf += t
                 self.got_data()
         except:
-            pass
+            self.log.debug("MiniNode: Failed to read data from socket")
 
     def readable(self):
         return True

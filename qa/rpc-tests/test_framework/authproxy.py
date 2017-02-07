@@ -76,15 +76,9 @@ class AuthServiceProxy(object):
             port = 80
         else:
             port = self.__url.port
-        (user, passwd) = (self.__url.username, self.__url.password)
-        try:
-            user = user.encode('utf8')
-        except AttributeError:
-            pass
-        try:
-            passwd = passwd.encode('utf8')
-        except AttributeError:
-            pass
+        # username or password may be None. If they exist, encode as utf8
+        user = self.__url.username.encode('utf8') if self.__url.username else None
+        passwd = self.__url.password.encode('utf8') if self.__url.password else None
         authpair = user + b':' + passwd
         self.__auth_header = b'Basic ' + base64.b64encode(authpair)
 
