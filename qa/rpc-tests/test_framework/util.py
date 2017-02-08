@@ -536,20 +536,6 @@ def assert_greater_than_or_equal(thing1, thing2):
     if thing1 < thing2:
         raise AssertionError("%s < %s"%(str(thing1),str(thing2)))
 
-def assert_raises(exc, fun, *args, **kwds):
-    assert_raises_message(exc, None, fun, *args, **kwds)
-
-def assert_raises_message(exc, message, fun, *args, **kwds):
-    try:
-        fun(*args, **kwds)
-    except exc as e:
-        if message is not None and message not in e.error['message']:
-            raise AssertionError("Expected substring not found:"+e.error['message'])
-    except Exception as e:
-        raise AssertionError("Unexpected exception raised: "+type(e).__name__)
-    else:
-        raise AssertionError("No exception raised")
-
 def assert_raises_jsonrpc(code, message, fun, *args, **kwds):
     """Run an RPC and verify that a specific JSONRPC exception code and message is raised.
 

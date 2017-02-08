@@ -908,12 +908,11 @@ class SegWitTest(BitcoinTestFramework):
 
         # Since we haven't delivered the tx yet, inv'ing the same tx from
         # a witness transaction ought not result in a getdata.
-        try:
-            self.test_node.announce_tx_and_wait_for_getdata(tx, timeout=2)
-            print("Error: duplicate tx getdata!")
-            assert(False)
-        except AssertionError as e:
-            pass
+        self.test_node.last_getdata = None
+        self.test_node.send_message(msg_inv(inv=[CInv(1, tx.sha256)]))
+        self.test_node.sync_with_ping(2)
+        print(self.test_node.last_getdata)
+        assert(self.test_node.last_getdata == None)
 
         # Delivering this transaction with witness should fail (no matter who
         # its from)
