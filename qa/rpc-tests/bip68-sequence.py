@@ -51,14 +51,16 @@ class BIP68Test(BitcoinTestFramework):
         print("Running test BIP68 not consensus before versionbits activation")
         self.test_bip68_not_consensus()
 
-        print("Verifying nVersion=2 transactions aren't standard")
-        self.test_version2_relay(before_activation=True)
+        # Note that since version 0.14.1, version 2 transactions are always
+        # standard (even before BIP68 activation).
+        print("Verifying nVersion=2 transactions are standard")
+        self.test_version2_relay()
 
         print("Activating BIP68 (and 112/113)")
         self.activateCSV()
 
         print("Verifying nVersion=2 transactions are now standard")
-        self.test_version2_relay(before_activation=False)
+        self.test_version2_relay()
 
         print("Passed\n")
 
@@ -391,7 +393,7 @@ class BIP68Test(BitcoinTestFramework):
         sync_blocks(self.nodes)
 
     # Use self.nodes[1] to test standardness relay policy
-    def test_version2_relay(self, before_activation):
+    def test_version2_relay(self):
         inputs = [ ]
         outputs = { self.nodes[1].getnewaddress() : 1.0 }
         rawtx = self.nodes[1].createrawtransaction(inputs, outputs)
@@ -399,12 +401,7 @@ class BIP68Test(BitcoinTestFramework):
         tx = FromHex(CTransaction(), rawtxfund)
         tx.nVersion = 2
         tx_signed = self.nodes[1].signrawtransaction(ToHex(tx))["hex"]
-        try:
-            tx_id = self.nodes[1].sendrawtransaction(tx_signed)
-            assert(before_activation == False)
-        except:
-            assert(before_activation)
-
+        tx_id = self.nodes[1].sendrawtransaction(tx_signed)
 
 if __name__ == '__main__':
     BIP68Test().main()
