@@ -3,6 +3,8 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+from collections import defaultdict
+
 from test_framework.mininode import *
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import *
@@ -13,7 +15,7 @@ class TestNode(NodeConnCB):
         self.connection = None
         self.ping_counter = 1
         self.last_pong = msg_pong()
-        self.block_receive_map = {}
+        self.block_receive_map = defaultdict(int)
 
     def add_connection(self, conn):
         self.connection = conn
@@ -28,10 +30,7 @@ class TestNode(NodeConnCB):
 
     def on_block(self, conn, message):
         message.block.calc_sha256()
-        try:
-            self.block_receive_map[message.block.sha256] += 1
-        except KeyError as e:
-            self.block_receive_map[message.block.sha256] = 1
+        self.block_receive_map[message.block.sha256] += 1
 
     # Spin until verack message is received from the node.
     # We use this to signal that our test can begin. This
