@@ -2,13 +2,31 @@
 # Copyright (c) 2016 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
+""" TimeoutsTest -- test various net timeouts (only in extended tests)
+
+- Create three bitcoind nodes:
+    
+    no_verack_node - we never send a verack in response to their version
+    no_version_node - we never send a version (only a ping)
+    no_send_node - we never send any P2P message.
+    
+- Start all three nodes
+- Wait 1 second
+- Assert that we're connected
+- Send a ping to no_verack_node and no_version_node
+- Wait 30 seconds
+- Assert that we're still connected
+- Send a ping to no_verack_node and no_version_node
+- Wait 31 seconds
+- Assert that we're no longer connected (timeout to receive version/verack is 60 seconds)
+"""
+
+from time import sleep
 
 from test_framework.mininode import *
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import *
-from time import sleep
 
-# TestNode: A peer we use to send messages to bitcoind, and store responses.
 class TestNode(SingleNodeConnCB):
     def __init__(self):
         SingleNodeConnCB.__init__(self)
@@ -22,11 +40,14 @@ class TestNode(SingleNodeConnCB):
         self.connected = False
 
     def on_version(self, conn, message):
+        # Don't send a verack in response
         self.received_version = True
 
-'''
-TimeoutsTest -- test various net timeouts (only in extended tests)
-'''
+class NoVersionNodeConn(NodeConn):
+    # Connection which doesn't send a version message on connect.
+    def send_version(self, services):
+        pass
+
 class TimeoutsTest(BitcoinTestFramework):
     def __init__(self):
         super().__init__()
@@ -48,8 +69,8 @@ class TimeoutsTest(BitcoinTestFramework):
 
         connections = []
         connections.append(NodeConn('127.0.0.1', p2p_port(0), self.nodes[0], self.no_verack_node))
-        connections.append(NodeConn('127.0.0.1', p2p_port(0), self.nodes[0], self.no_version_node, send_version=False))
-        connections.append(NodeConn('127.0.0.1', p2p_port(0), self.nodes[0], self.no_send_node, send_version=False))
+        connections.append(NoVersionNodeConn('127.0.0.1', p2p_port(0), self.nodes[0], self.no_version_node))
+        connections.append(NoVersionNodeConn('127.0.0.1', p2p_port(0), self.nodes[0], self.no_send_node))
         self.no_verack_node.add_connection(connections[0])
         self.no_version_node.add_connection(connections[1])
         self.no_send_node.add_connection(connections[2])
