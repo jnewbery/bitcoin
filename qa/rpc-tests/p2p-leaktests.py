@@ -6,102 +6,63 @@
 from test_framework.mininode import *
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import *
-import logging
+
+BANSCORE=10
 
 class CLazyNode(NodeConnCB):
     def __init__(self):
-        NodeConnCB.__init__(self)
-        self.connection = None
-        self.done = False
-        self.unrequested_msg = False
+        super().__init__()
+        self.unexpected_messages = []
 
     def add_connection(self, conn):
         self.connection = conn
 
-    def check(self):
-        def done():
-            return self.done
-        return wait_until(done, timeout=10) and not self.unrequested_msg
-
-    def send_message(self, message):
-        self.connection.send_message(message)
-
-    def bad_message(self, message):
-        self.unrequested_msg = True
-        raise Exception("should not have received message: %s" % message.command)
-
-    def on_version(self, conn, message): self.bad_message(message)
-    def on_verack(self, conn, message): self.bad_message(message)
-    def on_reject(self, conn, message): self.bad_message(message)
-    def on_inv(self, conn, message): self.bad_message(message)
-    def on_addr(self, conn, message): self.bad_message(message)
-    def on_alert(self, conn, message): self.bad_message(message)
-    def on_getdata(self, conn, message): self.bad_message(message)
-    def on_getblocks(self, conn, message): self.bad_message(message)
-    def on_tx(self, conn, message): self.bad_message(message)
-    def on_block(self, conn, message): self.bad_message(message)
-    def on_getaddr(self, conn, message): self.bad_message(message)
-    def on_headers(self, conn, message): self.bad_message(message)
-    def on_getheaders(self, conn, message): self.bad_message(message)
-    def on_ping(self, conn, message): self.bad_message(message)
-    def on_mempool(self, conn): self.bad_message(message)
-    def on_pong(self, conn, message): self.bad_message(message)
-    def on_feefilter(self, conn, message): self.bad_message(message)
-    def on_sendheaders(self, conn, message): self.bad_message(message)
-    def on_sendcmpct(self, conn, message): self.bad_message(message)
-    def on_cmpctblock(self, conn, message): self.bad_message(message)
-    def on_getblocktxn(self, conn, message): self.bad_message(message)
-    def on_blocktxn(self, conn, message): self.bad_message(message)
-
+    def deliver(self, conn, message):
+        # print("received " + message.command.decode('ascii') + " on " + self.__class__.__name__)
+        if message.command not in self.accepted_messages:
+            self.unexpected_messages += message.command.decode('ascii')
 
 # Node that never sends a version. We'll use this to send a bunch of messages
 # anyway, and eventually get disconnected.
 class CNodeNoVersionBan(CLazyNode):
     def __init__(self):
-        CLazyNode.__init__(self)
-
-    def on_close(self, conn):
-        self.done = True
-    def on_reject(self, conn, message): pass
-
+        super().__init__()
+        # This node shouldn't receive any messages
+        self.accepted_messages = []
 
 # Node that never sends a version. This one just sits idle and hopes to receive
 # any message (it shouldn't!)
 class CNodeNoVersionIdle(CLazyNode):
     def __init__(self):
-        CLazyNode.__init__(self)
-        self.done = True
+        super().__init__()
+        # This node shouldn't receive any messages
+        self.accepted_messages = []
 
 # Node that sends a version but not a verack.
 class CNodeNoVerackIdle(CLazyNode):
     def __init__(self):
-        CLazyNode.__init__(self)
+        super().__init__()
+        # It's ok for to receive version and verack messages
+        self.accepted_messages = [b'version', b'verack']
 
-    def on_reject(self, conn, message): pass
-    def on_verack(self, conn, message): pass
+    def deliver(self, conn, message):
+        if message.command == b'version':
+            # with mininode_lock:
+                # When version is received, don't reply with a verack. Instead, see if the
+                # node will give us a message that it shouldn't. This is not an exhaustive
+                # list!
+            conn.send_message(msg_ping())
+            conn.send_message(msg_getaddr())
 
-    # When version is received, don't replay with a verack. Instead, see if the
-    # node will give us a message that it shouldn't. This is not an exhaustive
-    # list!
-    def on_version(self, conn, message):
-        self.done = True
-        conn.send_message(msg_ping())
-        conn.send_message(msg_getaddr())
+        super().deliver(conn, message)
 
 class P2PLeakTest(BitcoinTestFramework):
-    def add_options(self, parser):
-        parser.add_option("--testbinary", dest="testbinary",
-                          default=os.getenv("BITCOIND", "bitcoind"),
-                          help="Binary to test max block requests behavior")
-
     def __init__(self):
         super().__init__()
         self.num_nodes = 1
-        self.banscore = 10
+
     def setup_network(self):
-        extra_args = [['-debug', '-banscore='+str(self.banscore)]
-                      for i in range(self.num_nodes)]
-        self.nodes = start_nodes(self.num_nodes, self.options.tmpdir, extra_args)
+        self.nodes = start_nodes(self.num_nodes, self.options.tmpdir, [['-debug', '-banscore='+str(BANSCORE)]])
 
     def run_test(self):
         no_version_bannode = CNodeNoVersionBan()
@@ -116,20 +77,24 @@ class P2PLeakTest(BitcoinTestFramework):
         no_version_idlenode.add_connection(connections[1])
         no_verack_idlenode.add_connection(connections[2])
 
-        NetworkThread().start()  # Start up network handling in another thread
-        self.nodes[0].generate(1)
+        # Start up network handling in another thread
+        NetworkThread().start()
 
-        # send a bunch of veracks without sending a message. This should get us disconnected.
+        # send a bunch of veracks without sending a version message. This should get us disconnected.
         # NOTE: implementation-specific check here. Remove if bitcoind ban behavior changes
-        for i in range(self.banscore):
-            no_version_bannode.send_message(msg_verack())
+        for i in range(BANSCORE):
+            no_version_bannode.connection.send_message(msg_verack())
 
         #Give the node enough time to possibly leak out a message
         time.sleep(5)
 
-        assert(no_version_bannode.check())
-        assert(no_version_idlenode.check())
-        assert(no_verack_idlenode.check())
+        # Check that the node hasn't send any unexpected messages
+        assert(not no_version_bannode.unexpected_messages)
+        assert(not no_version_idlenode.unexpected_messages)
+        assert(not no_verack_idlenode.unexpected_messages)
+
+        # Disconnect all peers
+        [conn.disconnect_node() for conn in connections]
 
 if __name__ == '__main__':
     P2PLeakTest().main()
