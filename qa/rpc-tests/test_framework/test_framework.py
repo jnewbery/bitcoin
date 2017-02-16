@@ -5,6 +5,7 @@
 
 # Base class for RPC testing
 
+from collections import deque
 import logging
 import optparse
 import os
@@ -172,12 +173,15 @@ class BitcoinTestFramework(object):
                 # Dump the end of the debug logs, to aid in debugging rare
                 # travis failures.
                 import glob
-                filenames = glob.glob(self.options.tmpdir + "/node*/regtest/debug.log")
+                filenames = [self.options.tmpdir + "/test_framework.log"]
+                filenames += glob.glob(self.options.tmpdir + "/node*/regtest/debug.log")
                 MAX_LINES_TO_PRINT = 1000
                 for f in filenames:
-                    print("From" , f, ":")
-                    from collections import deque
-                    print("".join(deque(open(f), MAX_LINES_TO_PRINT)))
+                    try:
+                        print("From" , f, ":")
+                        print("".join(deque(open(f), MAX_LINES_TO_PRINT)))
+                    except:
+                        pass
         if success:
             self.log.info("Tests successful")
             sys.exit(0)
