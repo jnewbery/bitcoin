@@ -251,7 +251,7 @@ class SegWitTest(BitcoinTestFramework):
 
         # Check that serializing it with or without witness is the same
         # This is a sanity check of our testing framework.
-        assert_equal(msg_tx(tx).serialize(), msg_witness_tx(tx).serialize())
+        assert_equal(msg_tx(tx).serialize(), msg_witness_tx(tx).serialize() + 1)
 
         self.test_node.send_message(msg_witness_tx(tx))
         self.test_node.sync_with_ping() # make sure the tx was processed
