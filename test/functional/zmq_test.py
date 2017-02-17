@@ -59,18 +59,27 @@ class ZMQTest (BitcoinTestFramework):
         self.log.info("Wait for tx")
         msg = self.zmqSubSocket.recv_multipart()
         topic = msg[0]
-        assert_equal(topic, b"hashtx")
         body = msg[1]
         msgSequence = struct.unpack('<I', msg[-1])[-1]
-        assert_equal(msgSequence, 0)  # must be sequence 0 on hashtx
+        assert_equal(msgSequence, 0)  # must be sequence 0 on hashtx/block
+
+        if topic == b"hashblock":
+            blkhash = bytes_to_hex_str(body)
+        else:
+            assert_equal(topic, b"hashtx")
 
         self.log.info("Wait for block")
         msg = self.zmqSubSocket.recv_multipart()
+        assert(topic != msg[0]) # must be different from the prev msg
         topic = msg[0]
         body = msg[1]
         msgSequence = struct.unpack('<I', msg[-1])[-1]
-        assert_equal(msgSequence, 0)  # must be sequence 0 on hashblock
-        blkhash = bytes_to_hex_str(body)
+        assert_equal(msgSequence, 0)  # must be sequence 0 on hashtx/block
+
+        if topic == b"hashblock":
+            blkhash = bytes_to_hex_str(body)
+        else:
+            assert_equal(topic, b"hashtx")
 
         assert_equal(genhashes[0], blkhash)  # blockhash from generate must be equal to the hash received over zmq
 
