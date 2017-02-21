@@ -138,6 +138,7 @@ def main():
     parser.add_argument('--help', '-h', '-?', action='store_true', help='print help text and exit')
     parser.add_argument('--jobs', '-j', type=int, default=4, help='how many test scripts to run in parallel. Default=4.')
     parser.add_argument('--nozmq', action='store_true', help='do not run the zmq tests')
+    parser.add_argument('--profile', action='store_true', help='run tests with python profiling enabled')
     args, unknown_args = parser.parse_known_args()
 
     # Create a set to store arguments and create the passon string
