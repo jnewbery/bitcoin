@@ -111,7 +111,7 @@ class ImportRescanTest(BitcoinTestFramework):
         self.num_nodes = 1 + len(IMPORT_NODES)
 
     def setup_network(self):
-        extra_args = [["-debug=1"] for _ in range(self.num_nodes)]
+        extra_args = [[] for _ in range(self.num_nodes)]
         for i, import_node in enumerate(IMPORT_NODES, 1):
             if import_node.prune:
                 extra_args[i] += ["-prune=1"]
