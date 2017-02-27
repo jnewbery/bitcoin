@@ -13,9 +13,8 @@ from test_framework.blocktools import (create_block,
                                        create_coinbase,
                                        create_transaction)
 from test_framework.comptool import (TestManager,
-                                     TestInstance,
-                                     RejectResult)
-from test_framework.mininode import NetworkThread
+                                     TestInstance)
+from test_framework.mininode import (NetworkThread, RejectResult)
 from test_framework.primitives import COIN
 from test_framework.test_framework import ComparisonTestFramework
 

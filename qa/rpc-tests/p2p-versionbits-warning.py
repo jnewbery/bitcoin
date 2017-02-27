@@ -35,42 +35,11 @@ WARN_UNKNOWN_RULES_MINED = "Unknown block versions being mined! It's possible un
 WARN_UNKNOWN_RULES_ACTIVE = "unknown new rules activated (versionbit {})".format(VB_UNKNOWN_BIT)
 VB_PATTERN = re.compile("^Warning.*versionbit")
 
-# TestNode: bare-bones "peer".  Used mostly as a conduit for a test to sending
-# p2p messages to a node, generating the messages in the main testing logic.
 class TestNode(NodeConnCB):
-    def __init__(self):
-        NodeConnCB.__init__(self)
-        self.connection = None
-        self.ping_counter = 1
-        self.last_pong = msg_pong()
-
-    def add_connection(self, conn):
-        self.connection = conn
-
+    # Override the base class on_inv callback. We don't want to reply to an inv by
+    # requesting data
     def on_inv(self, conn, message):
         pass
-
-    # Wrapper for the NodeConn's send_message function
-    def send_message(self, message):
-        self.connection.send_message(message)
-
-    def on_pong(self, conn, message):
-        self.last_pong = message
-
-    # Sync up with the node after delivery of a block
-    def sync_with_ping(self, timeout=30):
-        self.connection.send_message(msg_ping(nonce=self.ping_counter))
-        received_pong = False
-        sleep_time = 0.05
-        while not received_pong and timeout > 0:
-            time.sleep(sleep_time)
-            timeout -= sleep_time
-            with mininode_lock:
-                if self.last_pong.nonce == self.ping_counter:
-                    received_pong = True
-        self.ping_counter += 1
-        return received_pong
-
 
 class VersionBitsWarningTest(BitcoinTestFramework):
     def __init__(self):

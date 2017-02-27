@@ -102,93 +102,28 @@ def get_virtual_size(witness_block):
     vsize = int((3*base_size + total_size + 3)/4)
     return vsize
 
-# Note: we can reduce code by using SingleNodeConnCB (in master, not 0.12)
 class TestNode(NodeConnCB):
     def __init__(self):
-        NodeConnCB.__init__(self)
-        self.connection = None
-        self.ping_counter = 1
-        self.last_pong = msg_pong(0)
-        self.sleep_time = 0.05
+        super().__init__()
         self.getdataset = set()
-        self.last_reject = None
-
-    def add_connection(self, conn):
-        self.connection = conn
-
-    # Wrapper for the NodeConn's send_message function
-    def send_message(self, message):
-        self.connection.send_message(message)
-
-    def on_inv(self, conn, message):
-        self.last_inv = message
-
-    def on_block(self, conn, message):
-        self.last_block = message.block
-        self.last_block.calc_sha256()
 
     def on_getdata(self, conn, message):
         for inv in message.inv:
             self.getdataset.add(inv.hash)
-        self.last_getdata = message
-
-    def on_getheaders(self, conn, message):
-        self.last_getheaders = message
-
-    def on_pong(self, conn, message):
-        self.last_pong = message
-
-    def on_reject(self, conn, message):
-        self.last_reject = message
-        #print (message)
-
-    # Syncing helpers
-    def sync(self, test_function, timeout=60):
-        while timeout > 0:
-            with mininode_lock:
-                if test_function():
-                    return
-            time.sleep(self.sleep_time)
-            timeout -= self.sleep_time
-        raise AssertionError("Sync failed to complete")
-        
-    def sync_with_ping(self, timeout=60):
-        self.send_message(msg_ping(nonce=self.ping_counter))
-        test_function = lambda: self.last_pong.nonce == self.ping_counter
-        self.sync(test_function, timeout)
-        self.ping_counter += 1
-        return
-
-    def wait_for_block(self, blockhash, timeout=60):
-        test_function = lambda: self.last_block != None and self.last_block.sha256 == blockhash
-        self.sync(test_function, timeout)
-        return
-
-    def wait_for_getdata(self, timeout=60):
-        test_function = lambda: self.last_getdata != None
-        self.sync(test_function, timeout)
-
-    def wait_for_getheaders(self, timeout=60):
-        test_function = lambda: self.last_getheaders != None
-        self.sync(test_function, timeout)
-
-    def wait_for_inv(self, expected_inv, timeout=60):
-        test_function = lambda: self.last_inv != expected_inv
-        self.sync(test_function, timeout)
+        self.last_message["getdata"] = message
 
     def announce_tx_and_wait_for_getdata(self, tx, timeout=60):
         with mininode_lock:
-            self.last_getdata = None
+            self.last_message["getdata"] = None
         self.send_message(msg_inv(inv=[CInv(1, tx.sha256)]))
         self.wait_for_getdata(timeout)
-        return
 
     def announce_block_and_wait_for_getdata(self, block, use_header, timeout=60):
         with mininode_lock:
-            self.last_getdata = None
-            self.last_getheaders = None
+            self.last_message["getdata"] = None
+            self.last_message["getheaders"] = None
         msg = msg_headers()
-        msg.headers = [ CBlockHeader(block) ]
+        msg.headers = [CBlockHeader(block)]
         if use_header:
             self.send_message(msg)
         else:
@@ -196,24 +131,25 @@ class TestNode(NodeConnCB):
             self.wait_for_getheaders()
             self.send_message(msg)
         self.wait_for_getdata()
-        return
 
     def announce_block(self, block, use_header):
         with mininode_lock:
-            self.last_getdata = None
+            self.last_message["getdata"] = None
         if use_header:
             msg = msg_headers()
-            msg.headers = [ CBlockHeader(block) ]
+            msg.headers = [CBlockHeader(block)]
             self.send_message(msg)
         else:
             self.send_message(msg_inv(inv=[CInv(2, block.sha256)]))
 
     def request_block(self, blockhash, inv_type, timeout=60):
         with mininode_lock:
-            self.last_block = None
+            self.last_message["block"] = None
         self.send_message(msg_getdata(inv=[CInv(inv_type, blockhash)]))
         self.wait_for_block(blockhash, timeout)
-        return self.last_block
+        block = self.last_message["block"].block 
+        block.calc_sha256()
+        return block
 
     def test_transaction_acceptance(self, tx, with_witness, accepted, reason=None):
         tx_message = msg_tx(tx)
@@ -225,7 +161,7 @@ class TestNode(NodeConnCB):
         if (reason != None and not accepted):
             # Check the rejection reason as well.
             with mininode_lock:
-                assert_equal(self.last_reject.reason, reason)
+                assert_equal(self.last_message["reject"].reason, reason)
 
     # Test whether a witness block had the correct effect on the tip
     def test_witness_block(self, block, accepted, with_witness=True):
@@ -235,7 +171,6 @@ class TestNode(NodeConnCB):
             self.send_message(msg_block(block))
         self.sync_with_ping()
         assert_equal(self.connection.rpc.getbestblockhash() == block.hash, accepted)
-
 
 # Used to keep track of anyone-can-spend outputs that we can use in the tests
 class UTXO(object):
@@ -972,7 +907,7 @@ class SegWitTest(BitcoinTestFramework):
         # Verify that if a peer doesn't set nServices to include NODE_WITNESS,
         # the getdata is just for the non-witness portion.
         self.old_node.announce_tx_and_wait_for_getdata(tx)
-        assert(self.old_node.last_getdata.inv[0].type == 1)
+        assert(self.old_node.last_message["getdata"].inv[0].type == 1)
 
         # Since we haven't delivered the tx yet, inv'ing the same tx from
         # a witness transaction ought not result in a getdata.
@@ -1107,20 +1042,20 @@ class SegWitTest(BitcoinTestFramework):
         block1.solve()
 
         self.test_node.announce_block_and_wait_for_getdata(block1, use_header=False)
-        assert(self.test_node.last_getdata.inv[0].type == blocktype)
+        assert(self.test_node.last_message["getdata"].inv[0].type == blocktype)
         self.test_node.test_witness_block(block1, True)
 
         block2 = self.build_next_block(nVersion=4)
         block2.solve()
 
         self.test_node.announce_block_and_wait_for_getdata(block2, use_header=True)
-        assert(self.test_node.last_getdata.inv[0].type == blocktype)
+        assert(self.test_node.last_message["getdata"].inv[0].type == blocktype)
         self.test_node.test_witness_block(block2, True)
 
         block3 = self.build_next_block(nVersion=(VB_TOP_BITS | (1<<15)))
         block3.solve()
         self.test_node.announce_block_and_wait_for_getdata(block3, use_header=True)
-        assert(self.test_node.last_getdata.inv[0].type == blocktype)
+        assert(self.test_node.last_message["getdata"].inv[0].type == blocktype)
         self.test_node.test_witness_block(block3, True)
 
         # Check that we can getdata for witness blocks or regular blocks,
@@ -1331,7 +1266,7 @@ class SegWitTest(BitcoinTestFramework):
         self.test_node.test_transaction_acceptance(tx3, with_witness=True, accepted=False)
         self.test_node.sync_with_ping()
         with mininode_lock:
-            assert(b"reserved for soft-fork upgrades" in self.test_node.last_reject.reason)
+            assert(b"reserved for soft-fork upgrades" in self.test_node.last_message["reject"].reason)
 
         # Building a block with the transaction must be valid, however.
         block = self.build_next_block()
@@ -2024,15 +1959,9 @@ class SegWitTest(BitcoinTestFramework):
         self.old_node = TestNode()  # only NODE_NETWORK
         self.std_node = TestNode() # for testing node1 (fRequireStandard=true)
 
-        self.p2p_connections = [self.test_node, self.old_node]
-
-        self.connections = []
-        self.connections.append(NodeConn('127.0.0.1', p2p_port(0), self.nodes[0], self.test_node, services=NODE_NETWORK|NODE_WITNESS))
-        self.connections.append(NodeConn('127.0.0.1', p2p_port(0), self.nodes[0], self.old_node, services=NODE_NETWORK))
-        self.connections.append(NodeConn('127.0.0.1', p2p_port(1), self.nodes[1], self.std_node, services=NODE_NETWORK|NODE_WITNESS))
-        self.test_node.add_connection(self.connections[0])
-        self.old_node.add_connection(self.connections[1])
-        self.std_node.add_connection(self.connections[2])
+        self.test_node.add_connection(NodeConn('127.0.0.1', p2p_port(0), self.nodes[0], self.test_node, services=NODE_NETWORK|NODE_WITNESS))
+        self.old_node.add_connection(NodeConn('127.0.0.1', p2p_port(0), self.nodes[0], self.old_node, services=NODE_NETWORK))
+        self.std_node.add_connection(NodeConn('127.0.0.1', p2p_port(1), self.nodes[1], self.std_node, services=NODE_NETWORK|NODE_WITNESS))
 
         NetworkThread().start() # Start up network handling in another thread
 

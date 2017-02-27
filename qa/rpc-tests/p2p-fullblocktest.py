@@ -20,10 +20,10 @@ from test_framework.blocktools import (create_block,
                                        create_transaction,
                                        get_legacy_sigopcount_block)
 from test_framework.comptool import (TestManager,
-                                     TestInstance,
-                                     RejectResult)
+                                     TestInstance)
 from test_framework.key import CECKey
-from test_framework.mininode import NetworkThread
+from test_framework.mininode import (NetworkThread,
+                                     RejectResult)
 from test_framework.primitives import (CBlock,
                                        CBlockHeader,
                                        COIN,

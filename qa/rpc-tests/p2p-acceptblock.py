@@ -69,55 +69,6 @@ from test_framework.util import (assert_equal,
                                  p2p_port,
                                  start_node)
 
-# TestNode: bare-bones "peer".  Used mostly as a conduit for a test to sending
-# p2p messages to a node, generating the messages in the main testing logic.
-class TestNode(NodeConnCB):
-    def __init__(self):
-        NodeConnCB.__init__(self)
-        self.connection = None
-        self.ping_counter = 1
-        self.last_pong = msg_pong()
-
-    def add_connection(self, conn):
-        self.connection = conn
-
-    # Track the last getdata message we receive (used in the test)
-    def on_getdata(self, conn, message):
-        self.last_getdata = message
-
-    # Spin until verack message is received from the node.
-    # We use this to signal that our test can begin. This
-    # is called from the testing thread, so it needs to acquire
-    # the global lock.
-    def wait_for_verack(self):
-        while True:
-            with mininode_lock:
-                if self.verack_received:
-                    return
-            time.sleep(0.05)
-
-    # Wrapper for the NodeConn's send_message function
-    def send_message(self, message):
-        self.connection.send_message(message)
-
-    def on_pong(self, conn, message):
-        self.last_pong = message
-
-    # Sync up with the node after delivery of a block
-    def sync_with_ping(self, timeout=30):
-        self.connection.send_message(msg_ping(nonce=self.ping_counter))
-        received_pong = False
-        sleep_time = 0.05
-        while not received_pong and timeout > 0:
-            time.sleep(sleep_time)
-            timeout -= sleep_time
-            with mininode_lock:
-                if self.last_pong.nonce == self.ping_counter:
-                    received_pong = True
-        self.ping_counter += 1
-        return received_pong
-
-
 class AcceptBlockTest(BitcoinTestFramework):
     def add_options(self, parser):
         parser.add_option("--testbinary", dest="testbinary",
@@ -142,8 +93,8 @@ class AcceptBlockTest(BitcoinTestFramework):
 
     def run_test(self):
         # Setup the p2p connections and start up the network thread.
-        test_node = TestNode()   # connects to node0 (not whitelisted)
-        white_node = TestNode()  # connects to node1 (whitelisted)
+        test_node = NodeConnCB()   # connects to node0 (not whitelisted)
+        white_node = NodeConnCB()  # connects to node1 (whitelisted)
 
         connections = []
         connections.append(NodeConn('127.0.0.1', p2p_port(0), self.nodes[0], test_node))
@@ -280,12 +231,12 @@ class AcceptBlockTest(BitcoinTestFramework):
         # triggers a getdata on block 2 (it should if block 2 is missing).
         with mininode_lock:
             # Clear state so we can check the getdata request
-            test_node.last_getdata = None
+            test_node.last_message["getdata"] = None
             test_node.send_message(msg_inv([CInv(2, blocks_h3[0].sha256)]))
 
         test_node.sync_with_ping()
         with mininode_lock:
-            getdata = test_node.last_getdata
+            getdata = test_node.last_message["getdata"]
 
         # Check that the getdata includes the right block
         assert_equal(getdata.inv[0].hash, blocks_h2f[0].sha256)
@@ -297,8 +248,6 @@ class AcceptBlockTest(BitcoinTestFramework):
         test_node.sync_with_ping()
         assert_equal(self.nodes[0].getblockcount(), 290)
         print("Successfully reorged to longer chain from non-whitelisted peer")
-
-        [ c.disconnect_node() for c in connections ]
 
 if __name__ == '__main__':
     AcceptBlockTest().main()

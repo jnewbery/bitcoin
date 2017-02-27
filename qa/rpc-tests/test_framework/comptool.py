@@ -7,20 +7,13 @@
 To use, create a class that implements get_tests(), and pass it in
 as the test generator to TestManager.  get_tests() should be a python
 generator that returns TestInstance objects.  See below for definition.
-
-TestNode behaves as follows:
-    Configure with a BlockStore and TxStore
-    on_inv: log the message but don't request
-    on_headers: log the chain tip
-    on_pong: update ping response map (for synchronization)
-    on_getheaders: provide headers via BlockStore
-    on_getdata: provide blocks via BlockStore
 """
 
 from .blockstore import (BlockStore,
                          TxStore)
 from .mininode import (NodeConn,
-                       NodeConnCB,
+                       NodeConnWithStoreCB,
+                       RejectResult,
                        mininode_lock,
                        wait_until)
 from .primitives import (CBlock,
@@ -35,109 +28,6 @@ from .primitives import (CBlock,
                          msg_mempool,
                          msg_ping)
 from .util import p2p_port
-
-
-global mininode_lock
-
-class RejectResult(object):
-    """Outcome that expects rejection of a transaction or block."""
-    def __init__(self, code, reason=b''):
-        self.code = code
-        self.reason = reason
-    def match(self, other):
-        if self.code != other.code:
-            return False
-        return other.reason.startswith(self.reason)
-    def __repr__(self):
-        return '%i:%s' % (self.code,self.reason or '*')
-
-class TestNode(NodeConnCB):
-
-    def __init__(self, block_store, tx_store):
-        NodeConnCB.__init__(self)
-        self.conn = None
-        self.bestblockhash = None
-        self.block_store = block_store
-        self.block_request_map = {}
-        self.tx_store = tx_store
-        self.tx_request_map = {}
-        self.block_reject_map = {}
-        self.tx_reject_map = {}
-
-        # When the pingmap is non-empty we're waiting for 
-        # a response
-        self.pingMap = {} 
-        self.lastInv = []
-        self.closed = False
-
-    def on_close(self, conn):
-        self.closed = True
-
-    def add_connection(self, conn):
-        self.conn = conn
-
-    def on_headers(self, conn, message):
-        if len(message.headers) > 0:
-            best_header = message.headers[-1]
-            best_header.calc_sha256()
-            self.bestblockhash = best_header.sha256
-
-    def on_getheaders(self, conn, message):
-        response = self.block_store.headers_for(message.locator, message.hashstop)
-        if response is not None:
-            conn.send_message(response)
-
-    def on_getdata(self, conn, message):
-        [conn.send_message(r) for r in self.block_store.get_blocks(message.inv)]
-        [conn.send_message(r) for r in self.tx_store.get_transactions(message.inv)]
-
-        for i in message.inv:
-            if i.type == 1:
-                self.tx_request_map[i.hash] = True
-            elif i.type == 2:
-                self.block_request_map[i.hash] = True
-
-    def on_inv(self, conn, message):
-        self.lastInv = [x.hash for x in message.inv]
-
-    def on_pong(self, conn, message):
-        try:
-            del self.pingMap[message.nonce]
-        except KeyError:
-            raise AssertionError("Got pong for unknown ping [%s]" % repr(message))
-
-    def on_reject(self, conn, message):
-        if message.message == b'tx':
-            self.tx_reject_map[message.data] = RejectResult(message.code, message.reason)
-        if message.message == b'block':
-            self.block_reject_map[message.data] = RejectResult(message.code, message.reason)
-
-    def send_inv(self, obj):
-        mtype = 2 if isinstance(obj, CBlock) else 1
-        self.conn.send_message(msg_inv([CInv(mtype, obj.sha256)]))
-
-    def send_getheaders(self):
-        # We ask for headers from their last tip.
-        m = msg_getheaders()
-        m.locator = self.block_store.get_locator(self.bestblockhash)
-        self.conn.send_message(m)
-
-    def send_header(self, header):
-        m = msg_headers()
-        m.headers.append(header)
-        self.conn.send_message(m)
-
-    # This assumes BIP31
-    def send_ping(self, nonce):
-        self.pingMap[nonce] = True
-        self.conn.send_message(msg_ping(nonce))
-
-    def received_ping_response(self, nonce):
-        return nonce not in self.pingMap
-
-    def send_mempool(self):
-        self.lastInv = []
-        self.conn.send_message(msg_mempool())
 
 # TestInstance:
 #
@@ -187,10 +77,10 @@ class TestManager(object):
     def add_all_connections(self, nodes):
         for i in range(len(nodes)):
             # Create a p2p connection to each node
-            test_node = TestNode(self.block_store, self.tx_store)
+            test_node = NodeConnWithStoreCB(self.block_store, self.tx_store)
             self.test_nodes.append(test_node)
             self.connections.append(NodeConn('127.0.0.1', p2p_port(i), nodes[i], test_node))
-            # Make sure the TestNode (callback class) has a reference to its
+            # Make sure the NodeConnWithStoreCB (callback class) has a reference to its
             # associated NodeConn
             test_node.add_connection(self.connections[-1])
 
@@ -200,12 +90,12 @@ class TestManager(object):
 
     def wait_for_disconnections(self):
         def disconnected():
-            return all(node.closed for node in self.test_nodes)
+            return all(not node.connected for node in self.test_nodes)
         return wait_until(disconnected, timeout=10)
 
     def wait_for_verack(self):
         def veracked():
-            return all(node.verack_received for node in self.test_nodes)
+            return all(node.message_count["verack"] for node in self.test_nodes)
         return wait_until(veracked, timeout=10)
 
     def wait_for_pings(self, counter):

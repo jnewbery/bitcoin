@@ -35,7 +35,7 @@ from test_framework.blocktools import (create_block,
 from test_framework.key import CECKey
 from test_framework.mininode import (NetworkThread,
                                      NodeConn,
-                                     SingleNodeConnCB,
+                                     NodeConnCB,
                                      wait_until)
 from test_framework.primitives import (CBlockHeader,
                                        COutPoint,
@@ -51,25 +51,7 @@ from test_framework.util import (assert_equal,
                                  p2p_port,
                                  start_node)
 
-class BaseNode(SingleNodeConnCB):
-    def __init__(self):
-        SingleNodeConnCB.__init__(self)
-        self.last_inv = None
-        self.last_headers = None
-        self.last_block = None
-        self.last_getdata = None
-        self.block_announced = False
-        self.last_getheaders = None
-        self.disconnected = False
-        self.last_blockhash_announced = None
-
-    def on_close(self, conn):
-        self.disconnected = True
-
-    def wait_for_disconnect(self, timeout=60):
-        test_function = lambda: self.disconnected
-        assert(wait_until(test_function, timeout=timeout))
-        return
+class BaseNode(NodeConnCB):
 
     def send_header_for_blocks(self, new_blocks):
         headers_message = msg_headers()

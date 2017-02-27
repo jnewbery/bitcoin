@@ -26,25 +26,16 @@ from test_framework.util import (start_nodes,
 
 banscore = 10
 
+# Node that never sends a version. This one just sits idle and hopes to receive
+# any message (it shouldn't!)
 class CLazyNode(NodeConnCB):
     def __init__(self):
-        self.connection = None
-        self.unexpected_msg = False
-        self.connected = False
         super().__init__()
-
-    def add_connection(self, conn):
-        self.connection = conn
-
-    def send_message(self, message):
-        self.connection.send_message(message)
+        self.unexpected_msg = False
 
     def bad_message(self, message):
         self.unexpected_msg = True
         print("should not have received message: %s" % message.command)
-
-    def on_open(self, conn):
-        self.connected = True
 
     def on_version(self, conn, message): self.bad_message(message)
     def on_verack(self, conn, message): self.bad_message(message)
@@ -72,29 +63,18 @@ class CLazyNode(NodeConnCB):
 # Node that never sends a version. We'll use this to send a bunch of messages
 # anyway, and eventually get disconnected.
 class CNodeNoVersionBan(CLazyNode):
-    def __init__(self):
-        super().__init__()
 
     # send a bunch of veracks without sending a message. This should get us disconnected.
     # NOTE: implementation-specific check here. Remove if bitcoind ban behavior changes
     def on_open(self, conn):
-        super().on_open(conn)
+        self.connected = True
         for i in range(banscore):
             self.send_message(msg_verack())
 
     def on_reject(self, conn, message): pass
 
-# Node that never sends a version. This one just sits idle and hopes to receive
-# any message (it shouldn't!)
-class CNodeNoVersionIdle(CLazyNode):
-    def __init__(self):
-        super().__init__()
-
 # Node that sends a version but not a verack.
 class CNodeNoVerackIdle(CLazyNode):
-    def __init__(self):
-        self.version_received = False
-        super().__init__()
 
     def on_reject(self, conn, message): pass
     def on_verack(self, conn, message): pass
@@ -102,7 +82,6 @@ class CNodeNoVerackIdle(CLazyNode):
     # node will give us a message that it shouldn't. This is not an exhaustive
     # list!
     def on_version(self, conn, message):
-        self.version_received = True
         conn.send_message(msg_ping())
         conn.send_message(msg_getaddr())
 
@@ -117,7 +96,7 @@ class P2PLeakTest(BitcoinTestFramework):
 
     def run_test(self):
         no_version_bannode = CNodeNoVersionBan()
-        no_version_idlenode = CNodeNoVersionIdle()
+        no_version_idlenode = CLazyNode()
         no_verack_idlenode = CNodeNoVerackIdle()
 
         connections = []
@@ -130,7 +109,9 @@ class P2PLeakTest(BitcoinTestFramework):
 
         NetworkThread().start()  # Start up network handling in another thread
 
-        assert(wait_until(lambda: no_version_bannode.connected and no_version_idlenode.connected and no_verack_idlenode.version_received, timeout=10))
+        assert wait_until(lambda: no_version_bannode.connected, timeout=60)
+        assert wait_until(lambda: no_version_idlenode.connected, timeout=60)
+        assert wait_until(lambda: no_verack_idlenode.last_message.get("version"), timeout=60)
 
         # Mine a block and make sure that it's not sent to the connected nodes
         self.nodes[0].generate(1)
@@ -139,14 +120,14 @@ class P2PLeakTest(BitcoinTestFramework):
         time.sleep(5)
 
         #This node should have been banned
-        assert(no_version_bannode.connection.state == "closed")
+        assert not no_version_bannode.connected
 
         [conn.disconnect_node() for conn in connections]
 
         # Make sure no unexpected messages came in
-        assert(no_version_bannode.unexpected_msg == False)
-        assert(no_version_idlenode.unexpected_msg == False)
-        assert(no_verack_idlenode.unexpected_msg == False)
+        assert not no_version_bannode.unexpected_msg
+        assert not no_version_idlenode.unexpected_msg
+        assert not no_verack_idlenode.unexpected_msg
 
 if __name__ == '__main__':
     P2PLeakTest().main()

@@ -25,23 +25,16 @@ from time import sleep
 
 from test_framework.mininode import (NetworkThread,
                                      NodeConn,
-                                     SingleNodeConnCB)
+                                     NodeConnCB)
 from test_framework.mininode import msg_ping
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (p2p_port,
                                  start_nodes)
 
-class TestNode(SingleNodeConnCB):
+class TestNode(NodeConnCB):
     def __init__(self):
-        SingleNodeConnCB.__init__(self)
-        self.connected = False
+        super().__init__()
         self.received_version = False
-
-    def on_open(self, conn):
-        self.connected = True
-
-    def on_close(self, conn):
-        self.connected = False
 
     def on_version(self, conn, message):
         # Don't send a verack in response
