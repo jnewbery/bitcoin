@@ -35,6 +35,7 @@ from threading import Thread
 import logging
 import copy
 from test_framework.siphash import siphash256
+from test_framework.blockstore import BlockStore, TxStore
 
 BIP0031_VERSION = 60000
 MY_VERSION = 70014  # past bip-31 for ping/pong
@@ -1463,6 +1464,18 @@ class msg_witness_blocktxn(msg_blocktxn):
         r += self.block_transactions.serialize(with_witness=True)
         return r
 
+class RejectResult(object):
+    """Outcome that expects rejection of a transaction or block."""
+    def __init__(self, code, reason=b''):
+        self.code = code
+        self.reason = reason
+
+    def __eq__(self, other):
+        return self.code != other.code and other.reason.startswith(self.reason)
+
+    def __repr__(self):
+        return '%i:%s' % (self.code,self.reason or '*')
+
 # This is what a callback should look like for NodeConn
 # Reimplement the on_* functions to provide handling for events
 class NodeConnCB(object):
@@ -1551,14 +1564,34 @@ class NodeConnCB(object):
 
 # More useful callbacks and functions for NodeConnCB's which have a single NodeConn
 class SingleNodeConnCB(NodeConnCB):
-    def __init__(self):
+    def __init__(self, block_store = None, tx_store = None):
         NodeConnCB.__init__(self)
         self.connection = None
         self.ping_counter = 1
-        self.last_pong = msg_pong()
+        self.last_pong = None
+        self.block_store = block_store
+        self.tx_store = tx_store
 
     def add_connection(self, conn):
         self.connection = conn
+
+    def on_headers(self, conn, message):
+        if len(message.headers) > 0:
+            best_header = message.headers[-1]
+            best_header.calc_sha256()
+            self.bestblockhash = best_header.sha256
+
+    def on_getheaders(self, conn, message):
+        if block_store:
+            response = self.block_store.headers_for(message.locator, message.hashstop)
+            if response is not None:
+                conn.send_message(response)
+
+    def on_getdata(self, conn, message):
+        if block_store:
+            [conn.send_message(r) for r in self.block_store.get_blocks(message.inv)]
+        if tx_store:
+            [conn.send_message(r) for r in self.tx_store.get_transactions(message.inv)]
 
     # Wrapper for the NodeConn's send_message function
     def send_message(self, message):
@@ -1574,7 +1607,7 @@ class SingleNodeConnCB(NodeConnCB):
     # Sync up with the node
     def sync_with_ping(self, timeout=30):
         def received_pong():
-            return (self.last_pong.nonce == self.ping_counter)
+            return (self.last_pong and self.last_pong.nonce == self.ping_counter)
         self.send_message(msg_ping(nonce=self.ping_counter))
         success = wait_until(received_pong, timeout=timeout)
         self.ping_counter += 1

@@ -48,10 +48,96 @@ class CBrokenBlock(CBlock):
         r += super(CBrokenBlock, self).serialize()
         return r
 
-class FullBlockTest(ComparisonTestFramework):
+class TestNode(SingleNodeConnCB):
 
-    # Can either run this test as 1 node with expected answers, or two and compare them.
-    # Change the "outcome" variable from each TestInstance object to only do the comparison.
+    def __init__(self, block_store, tx_store):
+        NodeConnCB.__init__(self)
+        self.conn = None
+        self.bestblockhash = None
+        self.block_store = block_store
+        self.block_request_map = {}
+        self.tx_store = tx_store
+        self.tx_request_map = {}
+        self.block_reject_map = {}
+        self.tx_reject_map = {}
+
+        # When the pingmap is non-empty we're waiting for 
+        # a response
+        self.pingMap = {} 
+        self.lastInv = []
+        self.closed = False
+
+    def on_close(self, conn):
+        self.closed = True
+
+    def add_connection(self, conn):
+        self.conn = conn
+
+    def on_headers(self, conn, message):
+        if len(message.headers) > 0:
+            best_header = message.headers[-1]
+            best_header.calc_sha256()
+            self.bestblockhash = best_header.sha256
+
+    def on_getheaders(self, conn, message):
+        response = self.block_store.headers_for(message.locator, message.hashstop)
+        if response is not None:
+            conn.send_message(response)
+
+    def on_getdata(self, conn, message):
+        [conn.send_message(r) for r in self.block_store.get_blocks(message.inv)]
+        [conn.send_message(r) for r in self.tx_store.get_transactions(message.inv)]
+
+        for i in message.inv:
+            if i.type == 1:
+                self.tx_request_map[i.hash] = True
+            elif i.type == 2:
+                self.block_request_map[i.hash] = True
+
+    def on_inv(self, conn, message):
+        self.lastInv = [x.hash for x in message.inv]
+
+    def on_pong(self, conn, message):
+        try:
+            del self.pingMap[message.nonce]
+        except KeyError:
+            raise AssertionError("Got pong for unknown ping [%s]" % repr(message))
+
+    def on_reject(self, conn, message):
+        if message.message == b'tx':
+            self.tx_reject_map[message.data] = RejectResult(message.code, message.reason)
+        if message.message == b'block':
+            self.block_reject_map[message.data] = RejectResult(message.code, message.reason)
+
+    def send_inv(self, obj):
+        mtype = 2 if isinstance(obj, CBlock) else 1
+        self.conn.send_message(msg_inv([CInv(mtype, obj.sha256)]))
+
+    def send_getheaders(self):
+        # We ask for headers from their last tip.
+        m = msg_getheaders()
+        m.locator = self.block_store.get_locator(self.bestblockhash)
+        self.conn.send_message(m)
+
+    def send_header(self, header):
+        m = msg_headers()
+        m.headers.append(header)
+        self.conn.send_message(m)
+
+    # This assumes BIP31
+    def send_ping(self, nonce):
+        self.pingMap[nonce] = True
+        self.conn.send_message(msg_ping(nonce))
+
+    def received_ping_response(self, nonce):
+        return nonce not in self.pingMap
+
+    def send_mempool(self):
+        self.lastInv = []
+        self.conn.send_message(msg_mempool())
+
+class FullBlockTest(BitcoinTestFramework):
+
     def __init__(self):
         super().__init__()
         self.num_nodes = 1
@@ -67,67 +153,12 @@ class FullBlockTest(ComparisonTestFramework):
         parser.add_option("--runbarelyexpensive", dest="runbarelyexpensive", default=True)
 
     def run_test(self):
-        self.test = TestManager(self, self.options.tmpdir)
-        self.test.add_all_connections(self.nodes)
+        test_node = TestNode()
+        test_node.add_connection(TestNode('127.0.0.1', p2p_port(0), self.nodes[0], test_node))
+
         NetworkThread().start() # Start up network handling in another thread
-        self.test.run()
+        test_node.wait_for_verack()
 
-    def add_transactions_to_block(self, block, tx_list):
-        [ tx.rehash() for tx in tx_list ]
-        block.vtx.extend(tx_list)
-
-    # this is a little handier to use than the version in blocktools.py
-    def create_tx(self, spend_tx, n, value, script=CScript([OP_TRUE])):
-        tx = create_transaction(spend_tx, n, b"", value, script)
-        return tx
-
-    # sign a transaction, using the key we know about
-    # this signs input 0 in tx, which is assumed to be spending output n in spend_tx
-    def sign_tx(self, tx, spend_tx, n):
-        scriptPubKey = bytearray(spend_tx.vout[n].scriptPubKey)
-        if (scriptPubKey[0] == OP_TRUE):  # an anyone-can-spend
-            tx.vin[0].scriptSig = CScript()
-            return
-        (sighash, err) = SignatureHash(spend_tx.vout[n].scriptPubKey, tx, 0, SIGHASH_ALL)
-        tx.vin[0].scriptSig = CScript([self.coinbase_key.sign(sighash) + bytes(bytearray([SIGHASH_ALL]))])
-
-    def create_and_sign_transaction(self, spend_tx, n, value, script=CScript([OP_TRUE])):
-        tx = self.create_tx(spend_tx, n, value, script)
-        self.sign_tx(tx, spend_tx, n)
-        tx.rehash()
-        return tx
-
-    def next_block(self, number, spend=None, additional_coinbase_value=0, script=CScript([OP_TRUE]), solve=True):
-        if self.tip == None:
-            base_block_hash = self.genesis_hash
-            block_time = int(time.time())+1
-        else:
-            base_block_hash = self.tip.sha256
-            block_time = self.tip.nTime + 1
-        # First create the coinbase
-        height = self.block_heights[base_block_hash] + 1
-        coinbase = create_coinbase(height, self.coinbase_pubkey)
-        coinbase.vout[0].nValue += additional_coinbase_value
-        coinbase.rehash()
-        if spend == None:
-            block = create_block(base_block_hash, coinbase, block_time)
-        else:
-            coinbase.vout[0].nValue += spend.tx.vout[spend.n].nValue - 1 # all but one satoshi to fees
-            coinbase.rehash()
-            block = create_block(base_block_hash, coinbase, block_time)
-            tx = create_transaction(spend.tx, spend.n, b"", 1, script)  # spend 1 satoshi
-            self.sign_tx(tx, spend.tx, spend.n)
-            self.add_transactions_to_block(block, [tx])
-            block.hashMerkleRoot = block.calc_merkle_root()
-        if solve:
-            block.solve()
-        self.tip = block
-        self.block_heights[block.sha256] = height
-        assert number not in self.blocks
-        self.blocks[number] = block
-        return block
-
-    def get_tests(self):
         self.genesis_hash = int(self.nodes[0].getbestblockhash(), 16)
         self.block_heights[self.genesis_hash] = 0
         spendable_outputs = []
@@ -178,9 +209,8 @@ class FullBlockTest(ComparisonTestFramework):
         # these must be updated if consensus changes
         MAX_BLOCK_SIGOPS = 20000
 
-
         # Create a new block
-        block(0)
+        self.next_block(0)
         save_spendable_output()
         yield accepted()
 
@@ -1284,6 +1314,61 @@ class FullBlockTest(ComparisonTestFramework):
 
             chain1_tip += 2
 
+    # Helper methods
+    def add_transactions_to_block(self, block, tx_list):
+        [ tx.rehash() for tx in tx_list ]
+        block.vtx.extend(tx_list)
+
+    # this is a little handier to use than the version in blocktools.py
+    def create_tx(self, spend_tx, n, value, script=CScript([OP_TRUE])):
+        tx = create_transaction(spend_tx, n, b"", value, script)
+        return tx
+
+    # sign a transaction, using the key we know about
+    # this signs input 0 in tx, which is assumed to be spending output n in spend_tx
+    def sign_tx(self, tx, spend_tx, n):
+        scriptPubKey = bytearray(spend_tx.vout[n].scriptPubKey)
+        if (scriptPubKey[0] == OP_TRUE):  # an anyone-can-spend
+            tx.vin[0].scriptSig = CScript()
+            return
+        (sighash, err) = SignatureHash(spend_tx.vout[n].scriptPubKey, tx, 0, SIGHASH_ALL)
+        tx.vin[0].scriptSig = CScript([self.coinbase_key.sign(sighash) + bytes(bytearray([SIGHASH_ALL]))])
+
+    def create_and_sign_transaction(self, spend_tx, n, value, script=CScript([OP_TRUE])):
+        tx = self.create_tx(spend_tx, n, value, script)
+        self.sign_tx(tx, spend_tx, n)
+        tx.rehash()
+        return tx
+
+    def next_block(self, number, spend=None, additional_coinbase_value=0, script=CScript([OP_TRUE]), solve=True):
+        if self.tip == None:
+            base_block_hash = self.genesis_hash
+            block_time = int(time.time())+1
+        else:
+            base_block_hash = self.tip.sha256
+            block_time = self.tip.nTime + 1
+        # First create the coinbase
+        height = self.block_heights[base_block_hash] + 1
+        coinbase = create_coinbase(height, self.coinbase_pubkey)
+        coinbase.vout[0].nValue += additional_coinbase_value
+        coinbase.rehash()
+        if spend == None:
+            block = create_block(base_block_hash, coinbase, block_time)
+        else:
+            coinbase.vout[0].nValue += spend.tx.vout[spend.n].nValue - 1 # all but one satoshi to fees
+            coinbase.rehash()
+            block = create_block(base_block_hash, coinbase, block_time)
+            tx = create_transaction(spend.tx, spend.n, b"", 1, script)  # spend 1 satoshi
+            self.sign_tx(tx, spend.tx, spend.n)
+            self.add_transactions_to_block(block, [tx])
+            block.hashMerkleRoot = block.calc_merkle_root()
+        if solve:
+            block.solve()
+        self.tip = block
+        self.block_heights[block.sha256] = height
+        assert number not in self.blocks
+        self.blocks[number] = block
+        return block
 
 
 if __name__ == '__main__':

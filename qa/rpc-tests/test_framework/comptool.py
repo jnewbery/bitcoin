@@ -23,19 +23,7 @@ from .util import p2p_port
 
 global mininode_lock
 
-class RejectResult(object):
-    """Outcome that expects rejection of a transaction or block."""
-    def __init__(self, code, reason=b''):
-        self.code = code
-        self.reason = reason
-    def match(self, other):
-        if self.code != other.code:
-            return False
-        return other.reason.startswith(self.reason)
-    def __repr__(self):
-        return '%i:%s' % (self.code,self.reason or '*')
-
-class TestNode(NodeConnCB):
+class TestNode(SingleNodeConnCB):
 
     def __init__(self, block_store, tx_store):
         NodeConnCB.__init__(self)
@@ -260,7 +248,7 @@ class TestManager(object):
                     if blockhash not in c.cb.block_reject_map:
                         print('Block not in reject map: %064x' % (blockhash))
                         return False
-                    if not outcome.match(c.cb.block_reject_map[blockhash]):
+                    if outcome != c.cb.block_reject_map[blockhash]:
                         print('Block rejected with %s instead of expected %s: %064x' % (c.cb.block_reject_map[blockhash], outcome, blockhash))
                         return False
                 elif ((c.cb.bestblockhash == blockhash) != outcome):
@@ -288,7 +276,7 @@ class TestManager(object):
                     if txhash not in c.cb.tx_reject_map:
                         print('Tx not in reject map: %064x' % (txhash))
                         return False
-                    if not outcome.match(c.cb.tx_reject_map[txhash]):
+                    if outcome != c.cb.tx_reject_map[txhash]:
                         print('Tx rejected with %s instead of expected %s: %064x' % (c.cb.tx_reject_map[txhash], outcome, txhash))
                         return False
                 elif ((txhash in c.cb.lastInv) != outcome):
