@@ -2862,14 +2862,14 @@ UniValue bumpfee(const JSONRPCRequest& request)
     CWalletTx& wtx = pwallet->mapWallet[hash];
 
     if (pwallet->HasWalletSpend(hash)) {
-        throw JSONRPCError(RPC_WALLET_ERROR, "Transaction has descendants in the wallet");
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Transaction has descendants in the wallet");
     }
 
     {
         LOCK(mempool.cs);
         auto it = mempool.mapTx.find(hash);
         if (it != mempool.mapTx.end() && it->GetCountWithDescendants() > 1) {
-            throw JSONRPCError(RPC_WALLET_ERROR, "Transaction has descendants in the mempool");
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Transaction has descendants in the mempool");
         }
     }
 

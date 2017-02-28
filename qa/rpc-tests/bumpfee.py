@@ -159,7 +159,7 @@ def test_bumpfee_with_descendant_fails(rbf_node, rbf_node_address, dest_address)
     tx = rbf_node.createrawtransaction([{"txid": parent_id, "vout": 0}], {dest_address: 0.00020000})
     tx = rbf_node.signrawtransaction(tx)
     txid = rbf_node.sendrawtransaction(tx["hex"])
-    assert_raises_jsonrpc(-4, "Transaction has descendants in the wallet", rbf_node.bumpfee, parent_id)
+    assert_raises_jsonrpc(-8, "Transaction has descendants in the wallet", rbf_node.bumpfee, parent_id)
 
 
 def test_small_output_fails(rbf_node, dest_address):

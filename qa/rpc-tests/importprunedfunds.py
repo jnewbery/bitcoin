@@ -107,7 +107,7 @@ class ImportPrunedFundsTest(BitcoinTestFramework):
         assert_equal(address_info['ismine'], True)
 
         #Remove transactions
-        assert_raises_jsonrpc(-4, "does not exist", self.nodes[1].removeprunedfunds, txnid1)
+        assert_raises_jsonrpc(-8, "Transaction does not exist in wallet.", self.nodes[1].removeprunedfunds, txnid1)
 
         balance1 = self.nodes[1].getbalance("*", 0, True)
         assert_equal(balance1, Decimal('0.075'))

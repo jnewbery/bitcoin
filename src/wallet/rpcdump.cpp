@@ -354,7 +354,7 @@ UniValue removeprunedfunds(const JSONRPCRequest& request)
     }
 
     if(vHashOut.empty()) {
-        throw JSONRPCError(RPC_WALLET_ERROR, "Transaction does not exist in wallet.");
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Transaction does not exist in wallet.");
     }
 
     return NullUniValue;
