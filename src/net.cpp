@@ -2565,6 +2565,30 @@ bool CConnman::DisconnectNode(NodeId id)
     return false;
 }
 
+bool CConnman::SetWhitelisted(NodeId id, bool fWhitelisted)
+{
+    LOCK(cs_vNodes);
+    for(CNode* pnode : vNodes) {
+        if (id == pnode->id) {
+            pnode->fWhitelisted = fWhitelisted;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool CConnman::SetManualConnection(NodeId id, bool manual)
+{
+    LOCK(cs_vNodes);
+    for(CNode* pnode : vNodes) {
+        if (id == pnode->id) {
+            pnode->m_manual_connection = manual;
+            return true;
+        }
+    }
+    return false;
+}
+
 void CConnman::RecordBytesRecv(uint64_t bytes)
 {
     LOCK(cs_totalBytesRecv);
