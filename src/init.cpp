@@ -454,7 +454,8 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-printtoconsole", _("Send trace/debug info to console instead of debug.log file"));
     if (showDebug)
     {
-        strUsage += HelpMessageOpt("-printpriority", strprintf("Log transaction fee per kB when mining blocks (default: %u)", DEFAULT_PRINTPRIORITY));
+        strUsage += HelpMessageOpt("-printfee", strprintf("Log transaction fee per kB when mining blocks (default: %u)", DEFAULT_PRINTFEE));
+        strUsage += HelpMessageOpt("-printpriority", strprintf("DEPRECATED: alias for -printfee"));
     }
     strUsage += HelpMessageOpt("-shrinkdebugfile", _("Shrink debug.log file on client startup (default: 1 when no -debug)"));
 

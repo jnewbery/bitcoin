@@ -261,8 +261,8 @@ void BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
     nFees += iter->GetFee();
     inBlock.insert(iter);
 
-    bool fPrintPriority = GetBoolArg("-printpriority", DEFAULT_PRINTPRIORITY);
-    if (fPrintPriority) {
+    bool fPrintFee = GetBoolArg("-printfee", DEFAULT_PRINTFEE);
+    if (fPrintFee) {
         LogPrintf("fee %s txid %s\n",
                   CFeeRate(iter->GetModifiedFee(), iter->GetTxSize()).ToString(),
                   iter->GetTx().GetHash().ToString());

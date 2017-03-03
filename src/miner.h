@@ -22,7 +22,7 @@ class CWallet;
 
 namespace Consensus { struct Params; };
 
-static const bool DEFAULT_PRINTPRIORITY = false;
+static const bool DEFAULT_PRINTFEE = false;
 
 struct CBlockTemplate
 {
