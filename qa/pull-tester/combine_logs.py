@@ -18,7 +18,7 @@ TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}")
 LogEvent = namedtuple('LogEvent', ['timestamp', 'source', 'event'])
 
 def main():
-    """Main function. Parses args, reads the log files and reners them as text or html."""
+    """Main function. Parses args, reads the log files and renders them as text or html."""
 
     parser = argparse.ArgumentParser(usage='%(prog)s [options] <test temporary directory>', description=__doc__)
     parser.add_argument('-c', '--color', dest='color', action='store_true', help='outputs the combined log with events colored by source (requires posix terminal colors. Use less -r for viewing)')
@@ -26,7 +26,7 @@ def main():
     args, unknown_args = parser.parse_known_args()
 
     if args.color and os.name != 'posix':
-        print("color output requires posix terminal colors.")
+        print("Color output requires posix terminal colors.")
         sys.exit(1)
 
     if args.html and args.color:
