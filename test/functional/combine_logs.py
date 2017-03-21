@@ -92,7 +92,7 @@ def print_logs(log_events, color=False, html=False):
             colors["node1"] = "\033[0;32m"  # GREEN
             colors["node2"] = "\033[0;31m"  # RED
             colors["node3"] = "\033[0;33m"  # YELLOW
-            colors["reset"] = "\033[0;0m"   # WHITE
+            colors["reset"] = "\033[0m"     # Reset font color
 
         for event in log_events:
             print("{0} {1: <5} {2} {3}".format(colors[event.source.rstrip()], event.source, event.event, colors["reset"]))
