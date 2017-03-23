@@ -206,24 +206,30 @@ def rpc_url(i, rpchost=None):
             host = rpchost
     return "http://%s:%s@%s:%d" % (rpc_u, rpc_p, host, int(port))
 
+def _is_bitcoind_ready(rpc):
+    """Test whether bitcoind is ready."""
+    try:
+        rpc.getblockcount()
+        return True
+    except IOError as e:
+        if e.errno != errno.ECONNREFUSED:  # Port not yet open?
+            raise  # unknown IO error
+    except JSONRPCException as e:  # Initialization phase
+        if e.error['code'] != -28:  # RPC in warmup?
+            raise  # unknown JSON RPC exception
+
 def wait_for_bitcoind_start(process, url, i):
-    '''
-    Wait for bitcoind to start. This means that RPC is accessible and fully initialized.
-    Raise an exception if bitcoind exits during initialization.
-    '''
+    """Wait for bitcoind to start.
+
+    bitcoind is considered ready if RPC is accessible and fully initialized.
+    Raise an exception if bitcoind exits during initialization."""
     while True:
         if process.poll() is not None:
             raise Exception('bitcoind exited with status %i during initialization' % process.returncode)
-        try:
-            rpc = get_rpc_proxy(url, i)
-            blocks = rpc.getblockcount()
-            break # break out of loop on success
-        except IOError as e:
-            if e.errno != errno.ECONNREFUSED: # Port not yet open?
-                raise # unknown IO error
-        except JSONRPCException as e: # Initialization phase
-            if e.error['code'] != -28: # RPC in warmup?
-                raise # unknown JSON RPC exception
+        rpc = get_rpc_proxy(url, i)
+        if _is_bitcoind_ready(rpc):
+            logger.debug("bitcoind node %d RPC started" % i)
+            return
         time.sleep(0.25)
 
 def initialize_chain(test_dir, num_nodes, cachedir):
@@ -312,22 +318,26 @@ def start_node(i, dirname, extra_args=None, rpchost=None, timewait=None, binary=
     """
     Start a bitcoind and return RPC connection to it
     """
-    datadir = os.path.join(dirname, "node"+str(i))
-    if binary is None:
-        binary = os.getenv("BITCOIND", "bitcoind")
-    args = [ binary, "-datadir="+datadir, "-server", "-keypool=1", "-discover=0", "-rest", "-logtimemicros", "-debug", "-mocktime="+str(get_mocktime()) ]
-    if extra_args is not None: args.extend(extra_args)
-    bitcoind_processes[i] = subprocess.Popen(args, stderr=stderr)
-    logger.debug("initialize_chain: bitcoind started, waiting for RPC to come up")
+    _start_bitcoind_process(i, dirname, extra_args, binary, stderr):
     url = rpc_url(i, rpchost)
     wait_for_bitcoind_start(bitcoind_processes[i], url, i)
-    logger.debug("initialize_chain: RPC successfully started")
     proxy = get_rpc_proxy(url, i, timeout=timewait)
 
     if COVERAGE_DIR:
         coverage.write_all_rpc_commands(COVERAGE_DIR, proxy)
 
     return proxy
+
+def _start_bitcoind_process(i, dirname, extra_args=None, binary=None, stderr=None):
+    datadir = os.path.join(dirname, "node" + str(i))
+    if binary is None:
+        binary = os.getenv("BITCOIND", "bitcoind")
+    args = [binary, "-datadir=" + datadir, "-server", "-keypool=1", "-discover=0", "-rest", "-logtimemicros", "-debug", "-mocktime=" + str(get_mocktime())]
+    if extra_args is not None:
+        args.extend(extra_args)
+    bitcoind_processes[i] = subprocess.Popen(args, stderr=stderr)
+    logger.debug("bitcoind %d started, waiting for RPC to come up." % i)
+    return bitcoind_processes[i]
 
 def assert_start_raises_init_error(i, dirname, extra_args=None, expected_msg=None):
     with tempfile.SpooledTemporaryFile(max_size=2**16) as log_stderr:
