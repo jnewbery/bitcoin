@@ -318,7 +318,7 @@ def start_node(i, dirname, extra_args=None, rpchost=None, timewait=None, binary=
     """
     Start a bitcoind and return RPC connection to it
     """
-    _start_bitcoind_process(i, dirname, extra_args, binary, stderr):
+    _start_bitcoind_process(i, dirname, extra_args, binary, stderr)
     url = rpc_url(i, rpchost)
     wait_for_bitcoind_start(bitcoind_processes[i], url, i)
     proxy = get_rpc_proxy(url, i, timeout=timewait)
