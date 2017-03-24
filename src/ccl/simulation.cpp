@@ -86,19 +86,25 @@ void Simulation::operator()()
 
         while (!txEOF || !blkEOF || !hdrEOF || !cbEOF || !btEOF) {
             if (!txEOF && !txEvent.valid && !txfile->IsNull()) {
+                LogPrintf("Simulation: starting reading transaction %p\n", txEvent.obj);
                 txEOF = !ReadEvent(*txfile, &txEvent);
+                LogPrintf("Simulation: reading transaction %p\n", txEvent.obj);
             }
             if (!blkEOF && !blockEvent.valid) {
                 blkEOF = !ReadEvent(*blkfile, &blockEvent);
+                LogPrintf("Simulation: reading block %p\n", blockEvent.obj);
             }
             if (!hdrEOF && !headersEvent.valid) {
                 hdrEOF = !ReadEvent(*headersfile, &headersEvent);
+                LogPrintf("Simulation: reading header %p\n", headersEvent.obj);
             }
             if (!cbEOF && !cmpctblockEvent.valid) {
                 cbEOF = !ReadEvent(*cmpctblockfile, &cmpctblockEvent);
+                LogPrintf("Simulation: reading cmpctblock %p\n", cmpctblockEvent.obj);
             }
             if (!btEOF && !blocktxnEvent.valid) {
                 btEOF = !ReadEvent(*blocktxnfile, &blocktxnEvent);
+                LogPrintf("Simulation: reading blocktxn %p\n", blocktxnEvent.obj);
             }
 
             vector<CCLEvent *> validEvents;
@@ -117,21 +123,26 @@ void Simulation::operator()()
             SetMockTime(nextEvent->timeMicros / 1000000);
 
             if (nextEvent == &txEvent) {
+                LogPrintf("Simulation: processing transaction %p\n", txEvent.obj);
                 ProcessTransaction(txEvent.obj);
                 txEvent.reset();
             } else if (nextEvent == &blockEvent) {
+                LogPrintf("Simulation: processing block %p\n", blockEvent.obj);
                 ProcessNewBlock(Params(), blockEvent.obj, true, NULL);
                 blockEvent.reset();
             } else if (nextEvent == &headersEvent) {
+                LogPrintf("Simulation: processing header %p\n", headersEvent.obj);
                 CValidationState dummy;
                 ProcessNewBlockHeaders(*(headersEvent.obj), dummy, Params(), NULL);
                 headersEvent.reset();
             } else if (nextEvent == &cmpctblockEvent) {
+                LogPrintf("Simulation: processing cmpctblock %p\n", cmpctblockEvent.obj);
                 // Process cmpctblockEvent as a header message
                 CValidationState dummy;
                 ProcessNewBlockHeaders({cmpctblockEvent.obj->header}, dummy, Params(), NULL);
                 cmpctblockEvent.reset();
             } else if (nextEvent == &blocktxnEvent) {
+                LogPrintf("Simulation: processing blocktxn %p\n", blocktxnEvent.obj);
                 // TODO: add a blocktxn handler
                 blocktxnEvent.reset();
             }
