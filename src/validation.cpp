@@ -2035,7 +2035,11 @@ bool static FlushStateToDisk(CValidationState &state, FlushStateMode mode, int n
             std::vector<const CBlockIndex*> vBlocks;
             vBlocks.reserve(setDirtyBlockIndex.size());
             for (std::set<CBlockIndex*>::iterator it = setDirtyBlockIndex.begin(); it != setDirtyBlockIndex.end(); ) {
-                vBlocks.push_back(*it);
+                // corrupt the block index pprev pointers
+                CBlockIndex *cbindex = (CBlockIndex *)*it;
+                /* if (cbindex->nHeight == 100) cbindex->pprev = NULL; */
+                // skip a block!
+                if (cbindex->nHeight != 10) vBlocks.push_back(*it);
                 setDirtyBlockIndex.erase(it++);
             }
             if (!pblocktree->WriteBatchSync(vFiles, nLastBlockFile, vBlocks)) {
