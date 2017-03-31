@@ -254,7 +254,15 @@ def run_tests(test_list, src_dir, build_dir, exeext, jobs=1, enable_coverage=Fal
 
     if len(test_list) > 1 and jobs > 1:
         # Populate cache
-        subprocess.check_output([tests_dir + 'create_cache.py'] + flags)
+        log_stdout = tempfile.SpooledTemporaryFile(max_size=2**16)
+        log_stderr = tempfile.SpooledTemporaryFile(max_size=2**16)
+        rc = subprocess.call([tests_dir + 'create_cache.py'] + flags, stdout=log_stdout, stderr=log_stderr)
+        if rc != 0:
+            [stdout, stderr] = [l.read().decode('utf-8') for l in (log_stdout, log_stderr)]
+            print("\n%screate_cache%s failed\n" % (BOLD[1], BOLD[0]))
+            print(BOLD[1] + 'stdout:\n' + BOLD[0] + stdout + '\n')
+            print(BOLD[1] + 'stderr:\n' + BOLD[0] + stderr + '\n')
+            sys.exit(1)
 
     #Run Tests
     all_passed = True
