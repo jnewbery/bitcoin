@@ -31,7 +31,8 @@ from .authproxy import JSONRPCException
 
 class BitcoinTestFramework(object):
 
-    def __init__(self):
+    def __init__(self, setup=None):
+        self.setup = setup
         self.num_nodes = 4
         self.setup_clean_chain = False
         self.nodes = None
@@ -44,6 +45,7 @@ class BitcoinTestFramework(object):
 
     def setup_chain(self):
         self.log.info("Initializing test directory "+self.options.tmpdir)
+        if self.setup and sel
         if self.setup_clean_chain:
             initialize_chain_clean(self.options.tmpdir, self.num_nodes)
         else:
