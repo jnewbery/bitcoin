@@ -308,26 +308,35 @@ def initialize_chain_clean(test_dir, num_nodes):
         datadir=initialize_datadir(test_dir, i)
 
 
-def start_node(i, dirname, extra_args=None, rpchost=None, timewait=None, binary=None, stderr=None):
+def ref_node(i, dirname, extra_args=None, rpchost=None, timewait=None, binary=None, stderr=None, spawnproc=False):
     """
-    Start a bitcoind and return RPC connection to it
+    Reference an existing node or spawn a new node. Referencing the same node
+    multiple times allows for multiple simultaneous RPC requests.
     """
     datadir = os.path.join(dirname, "node"+str(i))
     if binary is None:
         binary = os.getenv("BITCOIND", "bitcoind")
     args = [binary, "-datadir=" + datadir, "-server", "-keypool=1", "-discover=0", "-rest", "-logtimemicros", "-debug", "-debugexclude=libevent", "-debugexclude=leveldb", "-mocktime=" + str(get_mocktime())]
     if extra_args is not None: args.extend(extra_args)
-    bitcoind_processes[i] = subprocess.Popen(args, stderr=stderr)
-    logger.debug("initialize_chain: bitcoind started, waiting for RPC to come up")
+    if spawnproc:
+        bitcoind_processes[i] = subprocess.Popen(args, stderr=stderr)
+        logger.debug("initialize_chain: bitcoind started, waiting for RPC to come up")
     url = rpc_url(i, rpchost)
-    wait_for_bitcoind_start(bitcoind_processes[i], url, i)
-    logger.debug("initialize_chain: RPC successfully started")
+    if spawnproc:
+        wait_for_bitcoind_start(bitcoind_processes[i], url, i)
+        logger.debug("initialize_chain: RPC successfully started")
     proxy = get_rpc_proxy(url, i, timeout=timewait)
 
-    if COVERAGE_DIR:
+    if spawnproc and COVERAGE_DIR:
         coverage.write_all_rpc_commands(COVERAGE_DIR, proxy)
 
     return proxy
+
+def start_node(i, dirname, extra_args=None, rpchost=None, timewait=None, binary=None, stderr=None):
+    """
+    Start a bitcoind and return RPC connection to it
+    """
+    return ref_node(i, dirname, extra_args, rpchost, timewait, binary, stderr, True)
 
 def assert_start_raises_init_error(i, dirname, extra_args=None, expected_msg=None):
     with tempfile.SpooledTemporaryFile(max_size=2**16) as log_stderr:
