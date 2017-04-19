@@ -10,10 +10,23 @@ Test rescan behavior of importprivkey when aborted. The test ensures that:
 """
 
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import (ref_node, assert_equal)
+from test_framework.util import (ref_node, assert_equal, get_rpc_proxy)
 from decimal import Decimal
 import threading # for bg importprivkey
 import time      # for sleep
+
+class ImportThread(threading.Thread):
+    def __init__(self, node, privkey):
+        threading.Thread.__init__(self)
+        self.privkey = privkey
+        # create a new connection to the node, we can't use the same
+        # connection from two threads
+        self.node = get_rpc_proxy(node.url, 1, timeout=600)
+
+    def run(self):
+        # time.sleep(1)
+        print("importing privkey")
+        print(self.node.importprivkey(self.privkey))
 
 class ImportAbortRescanTest(BitcoinTestFramework):
     def __init__(self):
@@ -38,9 +51,9 @@ class ImportAbortRescanTest(BitcoinTestFramework):
         self.sync_all()
 
         # Import this address in the background ...
-        node1ref = ref_node(1, self.options.tmpdir)
-        importthread = threading.Thread(target=node1ref.importprivkey, args=[privkey])
-        importthread.start()
+        thr = ImportThread(self.nodes[1], privkey)
+        thr.start()
+
         # ... then abort rescan; try a bunch until abortres becomes true,
         # because we will start checking before above thread starts processing
         for i in range(1000):
@@ -49,7 +62,7 @@ class ImportAbortRescanTest(BitcoinTestFramework):
         assert abortres # if false, we failed to abort
         # import should die soon
         for i in range(10):
-            deadres = not importthread.isAlive()
+            deadres = not thr.isAlive()
             if deadres: break
             time.sleep(0.1)
 
