@@ -7,6 +7,7 @@
 RPCs tested are:
     - getaccountaddress
     - getaddressesbyaccount
+    - listaddressgroupings
     - setaccount
     - sendfrom (with account arguments)
     - move (with account arguments)
@@ -30,16 +31,68 @@ class WalletAccountsTest(BitcoinTestFramework):
         self.nodes = start_nodes(self.num_nodes, self.options.tmpdir, self.node_args)
         self.is_network_split = False
 
-    def run_test (self):
+    def run_test(self):
         node = self.nodes[0]
         # Check that there's no UTXO on any of the nodes
         assert_equal(len(node.listunspent()), 0)
-        
+
+        # Note each time we call generate, all generated coins go into
+        # the same address, so we call twice to get two addresses w/50 each
+        node.generate(1)
         node.generate(101)
-        
-        assert_equal(node.getbalance(), 50)
-        
-        accounts = ["a","b","c","d","e"]
+        assert_equal(node.getbalance(), 100)
+
+        # there should be 2 address groups
+        # each with 1 address with a balance of 50 Bitcoins
+        address_groups = node.listaddressgroupings()
+        assert_equal(len(address_groups), 2)
+        linked_addresses = []
+        for address_group in address_groups:
+            assert_equal(len(address_group), 1)
+            assert_equal(len(address_group[0]), 2)
+            assert_equal(address_group[0][1], 50)
+            linked_addresses.append(address_group[0][0])
+        linked_addresses.sort()
+
+        # send 50 from each address to a third address not in this wallet
+        # There's some fee that will come back into this wallet
+        common_address = "msf4WtN1YQKXvNtvdFYt9JBnUD2FB41kjr"
+        txid = node.sendmany(
+            fromaccount="",
+            amounts={common_address: 100},
+            subtractfeefrom=[common_address],
+            minconf=1,
+        )
+        tx_details = node.gettransaction(txid)
+        fee = -tx_details['details'][0]['fee']
+        # note this is creating a new address in the wallet
+        # with unmatured coins
+        node.generate(1)
+
+        # there should be 2 address groups, 50 in one group, 0 in the other
+        address_groups = node.listaddressgroupings()
+        assert_equal(len(address_groups), 2)
+        addresses_list = []
+        amount_sums = set()
+        for address_group in address_groups:
+            addresses = []
+            amount_sum = 0
+            for address, amount in address_group:
+                addresses.append(address)
+                amount_sum += amount
+            addresses_list.append(sorted(addresses))
+            amount_sums.add(amount_sum)
+        assert_equal(amount_sums, {0, 50})
+        addresses_list.sort(key=lambda x: len(x))
+        # the longer addresses should be the linked addresses
+        assert_equal(addresses_list[-1], linked_addresses)
+
+        # we want to reset so that the "" account has exactly 50.
+        # otherwise we're off by exactly the fee amount as that's mined
+        node.generate(1)
+        node.sendfrom("", common_address, 50 + fee)
+
+        accounts = ["a", "b", "c", "d", "e"]
         amount_to_send = 1.0
         account_addresses = dict()
         for account in accounts:
@@ -56,7 +109,7 @@ class WalletAccountsTest(BitcoinTestFramework):
         
         for i in range(len(accounts)):
             from_account = accounts[i]
-            to_account = accounts[(i+1)%len(accounts)]
+            to_account = accounts[(i+1) % len(accounts)]
             to_address = account_addresses[to_account]
             node.sendfrom(from_account, to_address, amount_to_send)
         
@@ -97,4 +150,4 @@ class WalletAccountsTest(BitcoinTestFramework):
             assert_equal(node.getbalance(account), 50)
 
 if __name__ == '__main__':
-    WalletAccountsTest().main ()
+    WalletAccountsTest().main()
