@@ -598,26 +598,47 @@ fs::path GetConfigFile(const std::string& confPath)
     return pathConfigFile;
 }
 
-void ArgsManager::ReadConfigFile(const std::string& confPath)
+void ArgsManager::ReadConfigFile(fs::ifstream& streamConfig)
 {
+    std::set<std::string> setOptions;
+    setOptions.insert("*");
+
+    for (boost::program_options::detail::config_file_iterator it(streamConfig, setOptions), end; it != end; ++it) {
+        // Don't overwrite existing settings so command line settings override bitcoin.conf
+        std::string strKey = std::string("-") + it->string_key;
+        std::string strValue = it->value[0];
+        InterpretNegativeSetting(strKey, strValue);
+        if (mapArgs.count(strKey) == 0) {
+            mapArgs[strKey] = strValue;
+        }
+        mapMultiArgs[strKey].push_back(strValue);
+    }
+}
+
+void ArgsManager::ReadConfigFiles()
+{
+    const std::string confPath = GetArg("-conf", BITCOIN_CONF_FILENAME);
     fs::ifstream streamConfig(GetConfigFile(confPath));
     if (!streamConfig.good())
         return; // No bitcoin.conf file is OK
 
+    // we do not allow -includeconf from command line, so we clear it here
+    mapArgs.erase("-includeconf");
+
+    std::string includeconf;
     {
         LOCK(cs_args);
-        std::set<std::string> setOptions;
-        setOptions.insert("*");
-
-        for (boost::program_options::detail::config_file_iterator it(streamConfig, setOptions), end; it != end; ++it)
-        {
-            // Don't overwrite existing settings so command line settings override bitcoin.conf
-            std::string strKey = std::string("-") + it->string_key;
-            std::string strValue = it->value[0];
-            InterpretNegativeSetting(strKey, strValue);
-            if (mapArgs.count(strKey) == 0)
-                mapArgs[strKey] = strValue;
-            mapMultiArgs[strKey].push_back(strValue);
+        ReadConfigFile(streamConfig);
+        if (mapArgs.count("-includeconf")) includeconf = mapArgs["-includeconf"];
+    }
+    if (includeconf != "") {
+        LogPrintf("Attempting to include configuration file %s\n", includeconf.c_str());
+        fs::ifstream includeConfig(GetConfigFile(includeconf));
+        if (includeConfig.good()) {
+            LOCK(cs_args);
+            ReadConfigFile(includeConfig);
+        } else {
+            LogPrintf("Failed to include configuration file %s\n", includeconf.c_str());
         }
     }
     // If datadir is changed in .conf file:
