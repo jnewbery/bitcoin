@@ -598,26 +598,49 @@ fs::path GetConfigFile(const std::string& confPath)
     return pathConfigFile;
 }
 
-void ArgsManager::ReadConfigFile(const std::string& confPath)
+bool ArgsManager::ReadConfigFile(const std::string& conf_path)
 {
-    fs::ifstream streamConfig(GetConfigFile(confPath));
-    if (!streamConfig.good())
-        return; // No bitcoin.conf file is OK
+    fs::ifstream streamConfig(GetConfigFile(conf_path));
+    if (!streamConfig.good()) {
+        return false; 
+    }
 
+    std::set<std::string> setOptions;
+    setOptions.insert("*");
+
+    for (boost::program_options::detail::config_file_iterator it(streamConfig, setOptions), end; it != end; ++it) {
+        // Don't overwrite existing settings so command line settings override bitcoin.conf
+        std::string strKey = std::string("-") + it->string_key;
+        std::string strValue = it->value[0];
+        InterpretNegativeSetting(strKey, strValue);
+        if (mapArgs.count(strKey) == 0) {
+            mapArgs[strKey] = strValue;
+        }
+        mapMultiArgs[strKey].push_back(strValue);
+    }
+
+    return true;
+}
+
+void ArgsManager::ReadConfigFiles()
+{
     {
         LOCK(cs_args);
-        std::set<std::string> setOptions;
-        setOptions.insert("*");
+        const std::string conf_path = GetArg("-conf", BITCOIN_CONF_FILENAME);
 
-        for (boost::program_options::detail::config_file_iterator it(streamConfig, setOptions), end; it != end; ++it)
-        {
-            // Don't overwrite existing settings so command line settings override bitcoin.conf
-            std::string strKey = std::string("-") + it->string_key;
-            std::string strValue = it->value[0];
-            InterpretNegativeSetting(strKey, strValue);
-            if (mapArgs.count(strKey) == 0)
-                mapArgs[strKey] = strValue;
-            mapMultiArgs[strKey].push_back(strValue);
+        // we do not allow -includeconf from command line, so we clear it here
+        mapArgs.erase("-includeconf");
+
+        if (!ReadConfigFile(conf_path)) {
+            return; // No bitcoin.conf file is OK
+        }
+
+        if (mapArgs.count("-includeconf") && mapArgs["-includeconf"] != "") {
+            std::string include_conf = mapArgs["-includeconf"];
+            LogPrintf("Attempting to include configuration file %s\n", include_conf.c_str());
+            if (!ReadConfigFile(include_conf)) {
+                LogPrintf("Failed to include configuration file %s\n", include_conf.c_str());
+            }
         }
     }
     // If datadir is changed in .conf file:

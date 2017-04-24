@@ -194,13 +194,15 @@ inline bool IsSwitchChar(char c)
 
 class ArgsManager
 {
+private:
+    bool ReadConfigFile(const std::string& conf_path);
 protected:
     CCriticalSection cs_args;
     std::map<std::string, std::string> mapArgs;
     std::map<std::string, std::vector<std::string> > mapMultiArgs;
 public:
     void ParseParameters(int argc, const char*const argv[]);
-    void ReadConfigFile(const std::string& confPath);
+    void ReadConfigFiles();
     std::vector<std::string> GetArgs(const std::string& strArg);
 
     /**
