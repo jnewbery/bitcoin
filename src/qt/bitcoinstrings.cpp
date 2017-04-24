@@ -382,6 +382,7 @@ QT_TRANSLATE_NOOP("bitcoin-core", "Specified -walletdir \"%s\" is not a director
 QT_TRANSLATE_NOOP("bitcoin-core", "Specify configuration file (default: %s)"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Specify connection timeout in milliseconds (minimum: 1, default: %d)"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Specify data directory"),
+QT_TRANSLATE_NOOP("bitcoin-core", "Specify additional configuration file, relative to the -datadir path"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Specify pid file (default: %s)"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Specify wallet file (within data directory)"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Specify your own public address"),
