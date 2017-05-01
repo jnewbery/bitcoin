@@ -46,50 +46,37 @@ class WalletAccountsTest(BitcoinTestFramework):
         # each with 1 address with a balance of 50 Bitcoins
         address_groups = node.listaddressgroupings()
         assert_equal(len(address_groups), 2)
-        linked_addresses = []
+        owned_addresses = set()
         for address_group in address_groups:
             assert_equal(len(address_group), 1)
             assert_equal(len(address_group[0]), 2)
             assert_equal(address_group[0][1], 50)
-            linked_addresses.append(address_group[0][0])
-        linked_addresses.sort()
+            owned_addresses.add(address_group[0][0])
 
         # send 50 from each address to a third address not in this wallet
-        # There's some fee that will come back into this wallet
+        # There's some fee that will come back to us in the next miner reward
         common_address = "msf4WtN1YQKXvNtvdFYt9JBnUD2FB41kjr"
+        node.settxfee(0)
         txid = node.sendmany(
             fromaccount="",
             amounts={common_address: 100},
             subtractfeefrom=[common_address],
             minconf=1,
         )
-        tx_details = node.gettransaction(txid)
-        fee = -tx_details['details'][0]['fee']
-        # note this is creating a new address in the wallet
-        # with unmatured coins
-        node.generate(1)
+        fee = -node.gettransaction(txid)['details'][0]['fee']
+        print(fee)
 
-        # there should be 2 address groups, 50 in one group, 0 in the other
+        # The addresses should now be linked
         address_groups = node.listaddressgroupings()
-        assert_equal(len(address_groups), 2)
-        addresses_list = []
-        amount_sums = set()
-        for address_group in address_groups:
-            addresses = []
-            amount_sum = 0
-            for address, amount in address_group:
-                addresses.append(address)
-                amount_sum += amount
-            addresses_list.append(sorted(addresses))
-            amount_sums.add(amount_sum)
-        assert_equal(amount_sums, {0, 50})
-        addresses_list.sort(key=lambda x: len(x))
-        # the longer addresses should be the linked addresses
-        assert_equal(addresses_list[-1], linked_addresses)
+        assert_equal(len(address_groups), 1)
+        assert_equal(len(address_groups[0]), 2)
+        assert_equal(len(address_groups[0][0]), 2)
+        assert_equal(address_groups[0][0][1], 0)
+        assert_equal(set([address_groups[0][0][0], address_groups[0][1][0]]), owned_addresses)
 
         # we want to reset so that the "" account has exactly 50.
         # otherwise we're off by exactly the fee amount as that's mined
-        node.generate(1)
+        node.generate(2)
         node.sendfrom("", common_address, 50 + fee)
 
         accounts = ["a", "b", "c", "d", "e"]
