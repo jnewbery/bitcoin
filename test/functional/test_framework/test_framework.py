@@ -264,7 +264,7 @@ class BitcoinTestFramework(object):
                 raise AssertionError(assert_msg)
 
     def stop_nodes(self):
-        """Stop multiple bitcoind test nodes."""
+        """Stop a bitcoind test node."""
         for node in self.nodes:
             node.stop_node()
 
@@ -273,7 +273,7 @@ class BitcoinTestFramework(object):
                 time.sleep(0.1)
 
     def stop_node(self, i):
-        """Stop a bitcoind test node."""
+        """Stop multiple bitcoind test nodes."""
         self.nodes[i].stop_node()
         while not self.nodes[i].is_stopped():
             time.sleep(0.1)
