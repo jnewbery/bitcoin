@@ -6,6 +6,8 @@
 
 from collections import deque
 from enum import Enum
+import errno
+import http.client
 import logging
 import optparse
 import os
@@ -14,16 +16,17 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 
+from . import coverage
 from .util import (
-    PortSeed,
     MAX_NODES,
-    bitcoind_processes,
+    PortSeed,
+    assert_equal,
     check_json_precision,
     connect_nodes_bi,
     disable_mocktime,
     disconnect_nodes,
-    enable_coverage,
     enable_mocktime,
     get_mocktime,
     get_rpc_proxy,
@@ -32,13 +35,8 @@ from .util import (
     p2p_port,
     rpc_url,
     set_node_times,
-    _start_node,
-    _start_nodes,
-    _stop_node,
-    _stop_nodes,
     sync_blocks,
     sync_mempools,
-    wait_for_bitcoind_start,
 )
 from .authproxy import JSONRPCException
 
@@ -50,6 +48,8 @@ class TestStatus(Enum):
 TEST_EXIT_PASSED = 0
 TEST_EXIT_FAILED = 1
 TEST_EXIT_SKIPPED = 77
+
+BITCOIND_PROC_WAIT_TIMEOUT = 60
 
 class BitcoinTestFramework(object):
     """Base class for a bitcoin test script.
@@ -71,12 +71,13 @@ class BitcoinTestFramework(object):
         self.num_nodes = 4
         self.setup_clean_chain = False
         self.nodes = None
+        self.bitcoind_processes = {}
 
     def add_options(self, parser):
         pass
 
     def setup_chain(self):
-        self.log.info("Initializing test directory "+self.options.tmpdir)
+        self.log.info("Initializing test directory " + self.options.tmpdir)
         if self.setup_clean_chain:
             self._initialize_chain_clean(self.options.tmpdir, self.num_nodes)
         else:
@@ -96,7 +97,7 @@ class BitcoinTestFramework(object):
         extra_args = None
         if hasattr(self, "extra_args"):
             extra_args = self.extra_args
-        self.nodes = _start_nodes(self.num_nodes, self.options.tmpdir, extra_args)
+        self.nodes = self.start_nodes(self.num_nodes, self.options.tmpdir, extra_args)
 
     def run_test(self):
         raise NotImplementedError
@@ -110,9 +111,9 @@ class BitcoinTestFramework(object):
                           help="Leave bitcoinds and test.* datadir on exit or error")
         parser.add_option("--noshutdown", dest="noshutdown", default=False, action="store_true",
                           help="Don't stop bitcoinds after the test execution")
-        parser.add_option("--srcdir", dest="srcdir", default=os.path.normpath(os.path.dirname(os.path.realpath(__file__))+"/../../../src"),
+        parser.add_option("--srcdir", dest="srcdir", default=os.path.normpath(os.path.dirname(os.path.realpath(__file__)) + "/../../../src"),
                           help="Source directory containing bitcoind/bitcoin-cli (default: %default)")
-        parser.add_option("--cachedir", dest="cachedir", default=os.path.normpath(os.path.dirname(os.path.realpath(__file__))+"/../../cache"),
+        parser.add_option("--cachedir", dest="cachedir", default=os.path.normpath(os.path.dirname(os.path.realpath(__file__)) + "/../../cache"),
                           help="Directory for caching pregenerated datadirs")
         parser.add_option("--tmpdir", dest="tmpdir", help="Root directory for datadirs")
         parser.add_option("-l", "--loglevel", dest="loglevel", default="INFO",
@@ -128,12 +129,9 @@ class BitcoinTestFramework(object):
         self.add_options(parser)
         (self.options, self.args) = parser.parse_args()
 
-        if self.options.coveragedir:
-            enable_coverage(self.options.coveragedir)
-
         PortSeed.n = self.options.port_seed
 
-        os.environ['PATH'] = self.options.srcdir+":"+self.options.srcdir+"/qt:"+os.environ['PATH']
+        os.environ['PATH'] = self.options.srcdir + ":" + self.options.srcdir + "/qt:" + os.environ['PATH']
 
         check_json_precision()
 
@@ -166,7 +164,6 @@ class BitcoinTestFramework(object):
             self.log.warning("Exiting after keyboard interrupt")
 
         if not self.options.noshutdown:
-            self.log.info("Stopping nodes")
             if self.nodes:
                 self.stop_nodes()
         else:
@@ -187,7 +184,7 @@ class BitcoinTestFramework(object):
                 for fn in filenames:
                     try:
                         with open(fn, 'r') as f:
-                            print("From" , fn, ":")
+                            print("From", fn, ":")
                             print("".join(deque(f, MAX_LINES_TO_PRINT)))
                     except OSError:
                         print("Opening file %s failed." % fn)
@@ -206,17 +203,80 @@ class BitcoinTestFramework(object):
 
     # Public helper methods. These can be accessed by the subclass test scripts.
 
-    def start_node(self, i, dirname, extra_args=None, rpchost=None, timewait=None, binary=None, stderr=None):
-        return _start_node(i, dirname, extra_args, rpchost, timewait, binary, stderr)
-
     def start_nodes(self, num_nodes, dirname, extra_args=None, rpchost=None, timewait=None, binary=None):
-        return _start_nodes(num_nodes, dirname, extra_args, rpchost, timewait, binary)
+        """Start multiple bitcoinds, return RPC connections to them."""
+        if extra_args is None:
+            extra_args = [[] for _ in range(num_nodes)]
+        if binary is None:
+            binary = [None for _ in range(num_nodes)]
+        assert_equal(len(extra_args), num_nodes)
+        assert_equal(len(binary), num_nodes)
+        nodes = []
+        try:
+            for i in range(num_nodes):
+                nodes.append(TestNode(i, dirname, extra_args[i], rpchost, timewait=timewait, binary=binary[i], stderr=None, coverage_dir=self.options.coveragedir))
+                nodes[i].start()
+            for node in nodes:
+                while not node.is_rpc_connected():
+                    time.sleep(0.1)
 
-    def stop_node(self, num_node):
-        _stop_node(self.nodes[num_node], num_node)
+        except:  # If one node failed to start, stop the others
+            self.stop_nodes()
+            raise
+        if self.options.coveragedir is not None:
+            coverage.write_all_rpc_commands(self.options.coveragedir, node.rpc)
+        return nodes
+
+    def start_node(self, i, dirname, extra_args=[], rpchost=None, timewait=None, binary=None, stderr=None):
+        """Start a bitcoind and return RPC connection to it"""
+
+        if binary is None:
+            binary = os.getenv("BITCOIND", "bitcoind")
+        node = TestNode(i, dirname, extra_args, rpchost, timewait, binary, stderr, coverage_dir=self.options.coveragedir)
+        node.start()
+        while not node.is_rpc_connected():
+            time.sleep(0.1)
+        if self.options.coveragedir:
+            coverage.write_all_rpc_commands(self.options.coveragedir, node.rpc)
+
+        return node
+
+    def assert_start_raises_init_error(self, i, dirname, extra_args=None, expected_msg=None):
+        """Attempt to start a bitcoind node and fail.
+
+        Assert that the correct failure reason was logged."""
+        with tempfile.SpooledTemporaryFile(max_size=2**16) as log_stderr:
+            try:
+                node = self.start_node(i, dirname, extra_args, stderr=log_stderr)
+                self.stop_node(node, i)
+            except Exception as e:
+                assert 'bitcoind exited' in str(e)  # node must have shutdown
+                if expected_msg is not None:
+                    log_stderr.seek(0)
+                    stderr = log_stderr.read().decode('utf-8')
+                    if expected_msg not in stderr:
+                        raise AssertionError("Expected error \"" + expected_msg + "\" not found in:\n" + stderr)
+            else:
+                if expected_msg is None:
+                    assert_msg = "bitcoind should have exited with an error"
+                else:
+                    assert_msg = "bitcoind should have exited with expected error " + expected_msg
+                raise AssertionError(assert_msg)
 
     def stop_nodes(self):
-        _stop_nodes(self.nodes)
+        """Stop multiple bitcoind test nodes."""
+        for node in self.nodes:
+            node.stop_node()
+
+        for node in self.nodes:
+            while not node.is_stopped():
+                time.sleep(0.1)
+
+    def stop_node(self, i):
+        """Stop a bitcoind test node."""
+        self.nodes[i].stop_node()
+        while not self.nodes[i].is_stopped():
+            time.sleep(0.1)
 
     def split_network(self):
         """
@@ -256,7 +316,7 @@ class BitcoinTestFramework(object):
         ll = int(self.options.loglevel) if self.options.loglevel.isdigit() else self.options.loglevel.upper()
         ch.setLevel(ll)
         # Format logs the same as bitcoind's debug.log with microprecision (so log files can be concatenated and sorted)
-        formatter = logging.Formatter(fmt = '%(asctime)s.%(msecs)03d000 %(name)s (%(levelname)s): %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        formatter = logging.Formatter(fmt='%(asctime)s.%(msecs)03d000 %(name)s (%(levelname)s): %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
         formatter.converter = time.gmtime
         fh.setFormatter(formatter)
         ch.setFormatter(formatter)
@@ -298,18 +358,14 @@ class BitcoinTestFramework(object):
                 args = [os.getenv("BITCOIND", "bitcoind"), "-server", "-keypool=1", "-datadir=" + datadir, "-discover=0"]
                 if i > 0:
                     args.append("-connect=127.0.0.1:" + str(p2p_port(0)))
-                bitcoind_processes[i] = subprocess.Popen(args)
-                self.log.debug("initialize_chain: bitcoind started, waiting for RPC to come up")
-                wait_for_bitcoind_start(bitcoind_processes[i], rpc_url(i), i)
-                self.log.debug("initialize_chain: RPC successfully started")
+                self.nodes.append(TestNode(i, datadir, extra_args=[], rpchost=None, timewait=None, binary=None, stderr=None, coverage_dir=None))
+                self.nodes[i].args = args
+                self.nodes[i].start()
 
-            self.nodes = []
-            for i in range(MAX_NODES):
-                try:
-                    self.nodes.append(get_rpc_proxy(rpc_url(i), i))
-                except:
-                    self.log.exception("Error connecting to node %d" % i)
-                    sys.exit(1)
+            # wait for RPC connections to be ready
+            for node in self.nodes:
+                while not node.is_rpc_connected():
+                    time.sleep(0.1)
 
             # Create a 200-block-long chain; each of the 4 first nodes
             # gets 25 mature blocks and 25 immature.
@@ -353,11 +409,119 @@ class BitcoinTestFramework(object):
         for i in range(num_nodes):
             initialize_datadir(test_dir, i)
 
-# Test framework for doing p2p comparison testing, which sets up some bitcoind
-# binaries:
-# 1 binary: test binary
-# 2 binaries: 1 test binary, 1 ref binary
-# n>2 binaries: 1 test binary, n-1 ref binaries
+class TestNode():
+    """A class for representing a bitcoind node under test.
+
+    This class contains:
+
+    - state about the node (whether it's running, etc)
+    - a Python subprocess.Popen object representing the running process
+    - an RPC connection to the node
+
+    To make things easier for the test writer, a bit of magic is happening under the covers.
+    Any unrecognised messages will be dispatched to the RPC connection."""
+    def __init__(self, i, dirname, extra_args, rpchost, timewait, binary, stderr, coverage_dir):
+        self.index = i
+        self.datadir = os.path.join(dirname, "node" + str(i))
+        self.rpchost = rpchost
+        self.rpc_timeout = timewait
+        if binary is None:
+            self.binary = os.getenv("BITCOIND", "bitcoind")
+        else:
+            self.binary = binary
+        self.stderr = stderr
+        self.coverage_dir = coverage_dir
+        # Most callers will just need to add extra args to the standard list below. For those callers that need more flexibity, they can just set the args property directly.
+        self.extra_args = extra_args
+        self.args = [self.binary,
+                     "-datadir=" + self.datadir,
+                     "-server",
+                     "-keypool=1",
+                     "-discover=0",
+                     "-rest",
+                     "-logtimemicros",
+                     "-debug",
+                     "-debugexclude=libevent",
+                     "-debugexclude=leveldb",
+                     "-mocktime=" + str(get_mocktime()),
+                     "-uacomment=testnode%d" % i]
+
+        self.running = False
+        self.process = None
+        self.rpc_connected = False
+        self.rpc = None
+        self.url = None
+        self.log = logging.getLogger('TestFramework.node%d' % i)
+
+    def __getattr__(self, *args, **kwargs):
+        """Dispatches any unrecognised messages to the RPC connection."""
+        assert self.rpc_connected and self.rpc is not None, "Error: no RPC connection"
+        return self.rpc.__getattr__(*args, **kwargs)
+
+    def start(self):
+        """Start the node."""
+        self.process = subprocess.Popen(self.args + self.extra_args, stderr=self.stderr)
+        self.running = True
+        self.log.debug("bitcoind started, waiting for RPC to come up")
+
+    def is_rpc_connected(self):
+        """Sets up an RPC connection to the bitcoind process. Returns False if unable to connect."""
+        url = rpc_url(self.index, self.rpchost)
+
+        assert not self.process.poll(), "bitcoind exited with status %i during initialization" % self.process.returncode
+
+        try:
+            self.rpc = get_rpc_proxy(url, self.index, self.rpc_timeout, self.coverage_dir)
+            self.rpc.getblockcount()
+            # If the call to getblockcount() succeeds then the RPC connection is up
+            self.rpc_connected = True
+            self.url = self.rpc.url
+            self.log.debug("RPC successfully started")
+            return True
+        except IOError as e:
+            assert e.errno == errno.ECONNREFUSED, "RPC connection returned unexpected error: %d" % e.errno
+        except JSONRPCException as e:  # Initialization phase
+            assert e.error['code'] == -28, "RPC connection returned unknown JSON RPC error: %d" % e.error['code']
+        # RPC connection not yet up. We received either a CONNREFUSED error or a JSON error -28 (RPC_IN_WARMUP). Return None.
+        return False
+
+    def stop_node(self):
+        """Stop the node."""
+        if not self.running:
+            return
+        self.log.debug("Stopping node")
+        try:
+            self.stop()
+        except http.client.CannotSendRequest as e:
+            self.log.exception("Unable to stop node.")
+
+    def is_stopped(self):
+        """Checks whether the node has stopped.
+
+        Returns True if the node has stopped. False otherwise.
+        This method is responsible for freeing resources (self.process)."""
+        if not self.running:
+            return True
+        return_code = self.process.poll()
+        if return_code is not None:
+            # process has stopped. Assert that it didn't return an error code.
+            assert_equal(return_code, 0)
+            self.running = False
+            self.process = None
+            self.log.debug("Node stopped")
+            return True
+        return False
+
+    def node_encrypt_wallet(self, passphrase):
+        """"Encrypts the wallet.
+
+        This causes bitcoind to shutdown, so this method takes
+        care of cleaning up resources."""
+        self.encryptwallet(passphrase)
+        while not self.is_stopped():
+            time.sleep(0.1)
+        self.rpc = None
+        self.rpc_connected = False
 
 class SkipTest(Exception):
     """This exception is raised to skip a test"""
@@ -365,6 +529,13 @@ class SkipTest(Exception):
         self.message = message
 
 class ComparisonTestFramework(BitcoinTestFramework):
+    """Test framework for doing p2p comparison testing
+
+    Sets up bitcoind binaries:
+
+    - 1 binary: test binary
+    - 2 binaries: 1 test binary, 1 ref binary
+    - n>2 binaries: 1 test binary, n-1 ref binaries"""
 
     def __init__(self):
         super().__init__()
@@ -384,4 +555,4 @@ class ComparisonTestFramework(BitcoinTestFramework):
             self.num_nodes, self.options.tmpdir,
             extra_args=[['-whitelist=127.0.0.1']] * self.num_nodes,
             binary=[self.options.testbinary] +
-            [self.options.refbinary]*(self.num_nodes-1))
+            [self.options.refbinary] * (self.num_nodes - 1))
