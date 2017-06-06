@@ -285,17 +285,24 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
         // Taking advantage of the fact that pair serialization
         // is just the two items serialized one after the other
         ssKey >> strType;
+        LogPrint(BCLog::DB, "%s: Reading record type %s\n", __func__, strType);
         if (strType == "name")
         {
             std::string strAddress;
+            std::string strName;
             ssKey >> strAddress;
-            ssValue >> pwallet->mapAddressBook[CBitcoinAddress(strAddress).Get()].name;
+            ssValue >> strName;
+            LogPrint(BCLog::DB, "%s: Reading name record. Address: %s, Name: %s\n", __func__, strAddress, strName);
+            pwallet->mapAddressBook[CBitcoinAddress(strAddress).Get()].name = strName;
         }
         else if (strType == "purpose")
         {
             std::string strAddress;
             ssKey >> strAddress;
-            ssValue >> pwallet->mapAddressBook[CBitcoinAddress(strAddress).Get()].purpose;
+            std::string strPurpose;
+            ssValue >> strPurpose;
+            LogPrint(BCLog::DB, "%s: Reading purpose record. Address: %s, Purpose: %s\n", __func__, strAddress, strPurpose);
+            pwallet->mapAddressBook[CBitcoinAddress(strAddress).Get()].purpose = strPurpose;
         }
         else if (strType == "tx")
         {
@@ -303,6 +310,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             ssKey >> hash;
             CWalletTx wtx;
             ssValue >> wtx;
+            LogPrint(BCLog::DB, "%s: Reading tx record. hash: %s\n", __func__, wtx.GetHash().ToString());
             CValidationState state;
             if (!(CheckTransaction(wtx, state) && (wtx.GetHash() == hash) && state.IsValid()))
                 return false;
@@ -338,6 +346,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             ssKey >> strAccount;
             uint64_t nNumber;
             ssKey >> nNumber;
+            LogPrint(BCLog::DB, "%s: Reading acentry record. Account: %s. Number: %d\n", __func__, strAccount, nNumber);
             if (nNumber > nAccountingEntryNumber)
                 nAccountingEntryNumber = nNumber;
 
@@ -356,6 +365,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             ssKey >> *(CScriptBase*)(&script);
             char fYes;
             ssValue >> fYes;
+            LogPrint(BCLog::DB, "%s: Reading watchs record. Script: %s. Watches: %b\n", __func__, CScriptID(script).ToString(), fYes == true);
             if (fYes == '1')
                 pwallet->LoadWatchOnly(script);
         }
@@ -376,10 +386,12 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             {
                 wss.nKeys++;
                 ssValue >> pkey;
+                LogPrint(BCLog::DB, "%s: Reading key record.\n", __func__);
             } else {
                 CWalletKey wkey;
                 ssValue >> wkey;
                 pkey = wkey.vchPrivKey;
+                LogPrint(BCLog::DB, "%s: Reading wkey record.\n", __func__);
             }
 
             // Old wallets store keys as "key" [pubkey] => [privkey]
@@ -429,6 +441,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             ssKey >> nID;
             CMasterKey kMasterKey;
             ssValue >> kMasterKey;
+            LogPrint(BCLog::DB, "%s: Reading mkey record. nID: %d.\n", __func__, nID);
             if(pwallet->mapMasterKeys.count(nID) != 0)
             {
                 strErr = strprintf("Error reading wallet database: duplicate CMasterKey id %u", nID);
@@ -442,6 +455,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
         {
             CPubKey vchPubKey;
             ssKey >> vchPubKey;
+            LogPrint(BCLog::DB, "%s: Reading ckey record.\n", __func__);
             if (!vchPubKey.IsValid())
             {
                 strErr = "Error reading wallet database: CPubKey corrupt";
@@ -463,15 +477,17 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             CTxDestination keyID;
             if (strType == "keymeta")
             {
-              CPubKey vchPubKey;
-              ssKey >> vchPubKey;
-              keyID = vchPubKey.GetID();
+                LogPrint(BCLog::DB, "%s: Reading keymeta record.\n", __func__);
+                CPubKey vchPubKey;
+                ssKey >> vchPubKey;
+                keyID = vchPubKey.GetID();
             }
             else if (strType == "watchmeta")
             {
-              CScript script;
-              ssKey >> *(CScriptBase*)(&script);
-              keyID = CScriptID(script);
+                LogPrint(BCLog::DB, "%s: Reading watchmeta record.\n", __func__);
+                CScript script;
+                ssKey >> *(CScriptBase*)(&script);
+                keyID = CScriptID(script);
             }
 
             CKeyMetadata keyMeta;
@@ -482,6 +498,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
         }
         else if (strType == "defaultkey")
         {
+            LogPrint(BCLog::DB, "%s: Reading defaultkey record.\n", __func__);
             ssValue >> pwallet->vchDefaultKey;
         }
         else if (strType == "pool")
@@ -490,12 +507,14 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             ssKey >> nIndex;
             CKeyPool keypool;
             ssValue >> keypool;
+            LogPrint(BCLog::DB, "%s: Reading keypool record. Index: %d\n", __func__, nIndex);
 
             pwallet->LoadKeyPool(nIndex, keypool);
         }
         else if (strType == "version")
         {
             ssValue >> wss.nFileVersion;
+            LogPrint(BCLog::DB, "%s: Reading version record. Version: %d\n", __func__, wss.nFileVersion);
             if (wss.nFileVersion == 10300)
                 wss.nFileVersion = 300;
         }
@@ -505,6 +524,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             ssKey >> hash;
             CScript script;
             ssValue >> *(CScriptBase*)(&script);
+            LogPrint(BCLog::DB, "%s: Reading cscript record. Script: %d\n", __func__, CScriptID(script).ToString());
             if (!pwallet->LoadCScript(script))
             {
                 strErr = "Error reading wallet database: LoadCScript failed";
@@ -514,6 +534,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
         else if (strType == "orderposnext")
         {
             ssValue >> pwallet->nOrderPosNext;
+            LogPrint(BCLog::DB, "%s: Reading orderposnext record. OrderPosNext: %d\n", __func__, pwallet->nOrderPosNext);
         }
         else if (strType == "destdata")
         {
@@ -521,6 +542,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             ssKey >> strAddress;
             ssKey >> strKey;
             ssValue >> strValue;
+            LogPrint(BCLog::DB, "%s: Reading destdata record. Address: %s, Key: %s, Value: %s\n", __func__, strAddress, strKey, strValue);
             if (!pwallet->LoadDestData(CBitcoinAddress(strAddress).Get(), strKey, strValue))
             {
                 strErr = "Error reading wallet database: LoadDestData failed";
@@ -531,11 +553,15 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
         {
             CHDChain chain;
             ssValue >> chain;
+            LogPrint(BCLog::DB, "%s: Reading hdchain record.\n", __func__);
             if (!pwallet->SetHDChain(chain, true))
             {
                 strErr = "Error reading wallet database: SetHDChain failed";
                 return false;
             }
+        }
+        else {
+            LogPrint(BCLog::DB, "%s: Reading %s record (no-op)\n", __func__, strType);
         }
     } catch (...)
     {
