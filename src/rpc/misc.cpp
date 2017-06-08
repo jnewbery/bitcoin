@@ -78,6 +78,9 @@ UniValue getinfo(const JSONRPCRequest& request)
 #ifdef ENABLE_WALLET
     CWallet * const pwallet = GetWalletForJSONRPCRequest(request);
 
+    if (pwallet) {
+        pwallet->BlockUntilSyncedToCurrentChain();
+    }
     LOCK2(cs_main, pwallet ? &pwallet->cs_wallet : NULL);
 #else
     LOCK(cs_main);
