@@ -7,18 +7,12 @@
 In this test we connect to one node over p2p, and test tx requests.
 """
 
-from test_framework.test_framework import ComparisonTestFramework
+from test_framework.test_framework import BitcoinTestFramework
 from test_framework.comptool import TestManager, TestInstance, RejectResult
 from test_framework.blocktools import *
 import time
 
-
-
-# Use the ComparisonTestFramework with 1 node: only use --testbinary.
-class InvalidTxRequestTest(ComparisonTestFramework):
-
-    ''' Can either run this test as 1 node with expected answers, or two and compare them. 
-        Change the "outcome" variable from each TestInstance object to only do the comparison. '''
+class InvalidTxRequestTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True

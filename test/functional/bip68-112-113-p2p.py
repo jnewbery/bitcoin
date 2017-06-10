@@ -43,7 +43,7 @@ bip112txs_vary_OP_CSV_9 - 16 txs with nSequence = 9 evaluated against varying {r
 bip112tx_special - test negative argument to OP_CSV
 """
 
-from test_framework.test_framework import ComparisonTestFramework
+from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import *
 from test_framework.mininode import ToHex, CTransaction, NetworkThread
 from test_framework.blocktools import create_coinbase, create_block
@@ -91,7 +91,7 @@ def all_rlt_txs(txarray):
                     txs.append(txarray[b31][b25][b22][b18])
     return txs
 
-class BIP68_112_113Test(ComparisonTestFramework):
+class BIP68_112_113Test(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True

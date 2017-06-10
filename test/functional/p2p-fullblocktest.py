@@ -11,7 +11,7 @@ We use the testing framework in which we expect a particular answer from
 each test.
 """
 
-from test_framework.test_framework import ComparisonTestFramework
+from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import *
 from test_framework.comptool import TestManager, TestInstance, RejectResult
 from test_framework.blocktools import *
@@ -48,12 +48,11 @@ class CBrokenBlock(CBlock):
         r += super(CBrokenBlock, self).serialize()
         return r
 
-class FullBlockTest(ComparisonTestFramework):
-    # Can either run this test as 1 node with expected answers, or two and compare them.
-    # Change the "outcome" variable from each TestInstance object to only do the comparison.
+class FullBlockTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True
+        self.extra_args = [['-whitelist=127.0.0.1']]
         self.block_heights = {}
         self.coinbase_key = CECKey()
         self.coinbase_key.set_secretbytes(b"horsebattery")

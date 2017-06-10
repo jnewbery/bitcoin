@@ -20,14 +20,14 @@ import shutil
 import time
 import itertools
 
-from test_framework.test_framework import ComparisonTestFramework
+from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import *
 from test_framework.mininode import CTransaction, NetworkThread
 from test_framework.blocktools import create_coinbase, create_block
 from test_framework.comptool import TestInstance, TestManager
 from test_framework.script import CScript, OP_1NEGATE, OP_CHECKSEQUENCEVERIFY, OP_DROP
 
-class BIP9SoftForksTest(ComparisonTestFramework):
+class BIP9SoftForksTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.extra_args = [['-whitelist=127.0.0.1']]
