@@ -30,7 +30,7 @@ class MempoolLimitTest(BitcoinTestFramework):
         self.nodes[0].settxfee(relayfee) # specifically fund this tx with low fee
         txF = self.nodes[0].fundrawtransaction(tx)
         self.nodes[0].settxfee(0) # return to automatic fee selection
-        txFS = self.nodes[0].signrawtransaction(txF['hex'])
+        txFS = self.nodes[0].signrawtransactionwithwallet(txF['hex'])
         txid = self.nodes[0].sendrawtransaction(txFS['hex'])
 
         relayfee = self.nodes[0].getnetworkinfo()['relayfee']

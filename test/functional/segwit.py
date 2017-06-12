@@ -51,7 +51,7 @@ def create_witnessprogram(use_p2wsh, utxo, pubkey, encode_p2sh, amount):
 def send_to_witness(use_p2wsh, node, utxo, pubkey, encode_p2sh, amount, sign=True, insert_redeem_script=""):
     tx_to_witness = create_witnessprogram(use_p2wsh, utxo, pubkey, encode_p2sh, amount)
     if (sign):
-        signed = node.signrawtransaction(tx_to_witness)
+        signed = node.signrawtransactionwithwallet(tx_to_witness)
         assert("errors" not in signed or len(["errors"]) == 0)
         return node.sendrawtransaction(signed["hex"])
     else:
@@ -252,7 +252,7 @@ class SegWitTest(BitcoinTestFramework):
         tx = CTransaction()
         tx.vin.append(CTxIn(COutPoint(int(txid1, 16), 0), b''))
         tx.vout.append(CTxOut(int(49.99*COIN), CScript([OP_TRUE])))
-        tx2_hex = self.nodes[0].signrawtransaction(ToHex(tx))['hex']
+        tx2_hex = self.nodes[0].signrawtransactionwithwallet(ToHex(tx))['hex']
         txid2 = self.nodes[0].sendrawtransaction(tx2_hex)
         tx = FromHex(CTransaction(), tx2_hex)
         assert(not tx.wit.is_null())
@@ -576,7 +576,7 @@ class SegWitTest(BitcoinTestFramework):
         for i in script_list:
             tx.vout.append(CTxOut(10000000, i))
         tx.rehash()
-        signresults = self.nodes[0].signrawtransaction(bytes_to_hex_str(tx.serialize_without_witness()))['hex']
+        signresults = self.nodes[0].signrawtransactionwithwallet(bytes_to_hex_str(tx.serialize_without_witness()))['hex']
         txid = self.nodes[0].sendrawtransaction(signresults, True)
         self.nodes[0].generate(1)
         sync_blocks(self.nodes)
@@ -628,7 +628,7 @@ class SegWitTest(BitcoinTestFramework):
                 tx.vin.append(CTxIn(COutPoint(int('0x'+i,0), j)))
         tx.vout.append(CTxOut(0, CScript()))
         tx.rehash()
-        signresults = self.nodes[0].signrawtransaction(bytes_to_hex_str(tx.serialize_without_witness()))['hex']
+        signresults = self.nodes[0].signrawtransactionwithwallet(bytes_to_hex_str(tx.serialize_without_witness()))['hex']
         self.nodes[0].sendrawtransaction(signresults, True)
         self.nodes[0].generate(1)
         sync_blocks(self.nodes)
