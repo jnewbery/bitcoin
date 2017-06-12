@@ -3146,7 +3146,7 @@ UniValue setlabel(const JSONRPCRequest& request)
         if (pwallet->mapAddressBook.count(address.Get()))
         {
             std::string strOldLabel = pwallet->mapAddressBook[address.Get()].name;
-            if (address == GetAccountAddress(pwallet, strOldLabel)) {
+            if (strOldLabel != strLabel && address == GetAccountAddress(pwallet, strOldLabel)) {
                 DeleteAccount(pwallet, strOldLabel);
             }
         }
