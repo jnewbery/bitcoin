@@ -67,14 +67,6 @@ BOOST_AUTO_TEST_CASE(rpc_rawparams)
     BOOST_CHECK_EQUAL(find_value(r.get_obj(), "locktime").get_int(), 0);
     BOOST_CHECK_THROW(r = CallRPC(std::string("decoderawtransaction ")+rawtx+" extra"), std::runtime_error);
 
-    BOOST_CHECK_THROW(CallRPC("signrawtransaction"), std::runtime_error);
-    BOOST_CHECK_THROW(CallRPC("signrawtransaction null"), std::runtime_error);
-    BOOST_CHECK_THROW(CallRPC("signrawtransaction ff00"), std::runtime_error);
-    BOOST_CHECK_NO_THROW(CallRPC(std::string("signrawtransaction ")+rawtx));
-    BOOST_CHECK_NO_THROW(CallRPC(std::string("signrawtransaction ")+rawtx+" null null NONE|ANYONECANPAY"));
-    BOOST_CHECK_NO_THROW(CallRPC(std::string("signrawtransaction ")+rawtx+" [] [] NONE|ANYONECANPAY"));
-    BOOST_CHECK_THROW(CallRPC(std::string("signrawtransaction ")+rawtx+" null null badenum"), std::runtime_error);
-
     // Only check failure cases for sendrawtransaction, there's no network to send to...
     BOOST_CHECK_THROW(CallRPC("sendrawtransaction"), std::runtime_error);
     BOOST_CHECK_THROW(CallRPC("sendrawtransaction null"), std::runtime_error);
