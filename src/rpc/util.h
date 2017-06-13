@@ -2,10 +2,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <pubkey.h>
 #include <script/standard.h>
 #include <univalue.h>
-#include <utilstrencodings.h>
 
 #include <boost/variant/static_visitor.hpp>
 
