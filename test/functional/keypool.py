@@ -13,7 +13,7 @@ class KeyPoolTest(BitcoinTestFramework):
         nodes = self.nodes
         addr_before_encrypting = nodes[0].getnewaddress()
         addr_before_encrypting_data = nodes[0].validateaddress(addr_before_encrypting)
-        wallet_info_old = nodes[0].getwalletinfo()
+        wallet_info_old = nodes[0].getwalletinfo()[0]
         assert(addr_before_encrypting_data['hdmasterkeyid'] == wallet_info_old['hdmasterkeyid'])
         
         # Encrypt wallet and wait to terminate
@@ -24,7 +24,7 @@ class KeyPoolTest(BitcoinTestFramework):
         # Keep creating keys
         addr = nodes[0].getnewaddress()
         addr_data = nodes[0].validateaddress(addr)
-        wallet_info = nodes[0].getwalletinfo()
+        wallet_info = nodes[0].getwalletinfo()[0]
         assert(addr_before_encrypting_data['hdmasterkeyid'] != wallet_info['hdmasterkeyid'])
         assert(addr_data['hdmasterkeyid'] == wallet_info['hdmasterkeyid'])
         assert_raises_jsonrpc(-12, "Error: Keypool ran out, please call keypoolrefill first", nodes[0].getnewaddress)
@@ -33,7 +33,7 @@ class KeyPoolTest(BitcoinTestFramework):
         nodes[0].walletpassphrase('test', 12000)
         nodes[0].keypoolrefill(6)
         nodes[0].walletlock()
-        wi = nodes[0].getwalletinfo()
+        wi = nodes[0].getwalletinfo()[0]
         assert_equal(wi['keypoolsize_hd_internal'], 6)
         assert_equal(wi['keypoolsize'], 6)
 
@@ -65,7 +65,7 @@ class KeyPoolTest(BitcoinTestFramework):
 
         # test walletpassphrase timeout
         time.sleep(1.1)
-        assert_equal(nodes[0].getwalletinfo()["unlocked_until"], 0)
+        assert_equal(nodes[0].getwalletinfo()[0]["unlocked_until"], 0)
 
         # drain them by mining
         nodes[0].generate(1)
@@ -75,7 +75,7 @@ class KeyPoolTest(BitcoinTestFramework):
 
         nodes[0].walletpassphrase('test', 100)
         nodes[0].keypoolrefill(100)
-        wi = nodes[0].getwalletinfo()
+        wi = nodes[0].getwalletinfo()[0]
         assert_equal(wi['keypoolsize_hd_internal'], 100)
         assert_equal(wi['keypoolsize'], 100)
 

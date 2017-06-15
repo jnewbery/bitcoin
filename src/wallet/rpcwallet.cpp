@@ -2379,11 +2379,6 @@ UniValue settxfee(const JSONRPCRequest& request)
 
 UniValue getwalletinfo(const JSONRPCRequest& request)
 {
-    CWallet * const pwallet = GetWalletForJSONRPCRequest(request);
-    if (!EnsureWalletIsAvailable(pwallet, request.fHelp)) {
-        return NullUniValue;
-    }
-
     if (request.fHelp || request.params.size() != 0)
         throw std::runtime_error(
             "getwalletinfo\n"
@@ -2408,30 +2403,44 @@ UniValue getwalletinfo(const JSONRPCRequest& request)
             + HelpExampleRpc("getwalletinfo", "")
         );
 
-    LOCK2(cs_main, pwallet->cs_wallet);
+    LOCK(cs_main);
 
-    UniValue obj(UniValue::VOBJ);
+    UniValue result(UniValue::VARR);
 
-    size_t kpExternalSize = pwallet->KeypoolCountExternalKeys();
-    obj.push_back(Pair("walletname", pwallet->GetName()));
-    obj.push_back(Pair("walletversion", pwallet->GetVersion()));
-    obj.push_back(Pair("balance",       ValueFromAmount(pwallet->GetBalance())));
-    obj.push_back(Pair("unconfirmed_balance", ValueFromAmount(pwallet->GetUnconfirmedBalance())));
-    obj.push_back(Pair("immature_balance",    ValueFromAmount(pwallet->GetImmatureBalance())));
-    obj.push_back(Pair("txcount",       (int)pwallet->mapWallet.size()));
-    obj.push_back(Pair("keypoololdest", pwallet->GetOldestKeyPoolTime()));
-    obj.push_back(Pair("keypoolsize", (int64_t)kpExternalSize));
-    CKeyID masterKeyID = pwallet->GetHDChain().masterKeyID;
-    if (!masterKeyID.IsNull() && pwallet->CanSupportFeature(FEATURE_HD_SPLIT)) {
-        obj.push_back(Pair("keypoolsize_hd_internal",   (int64_t)(pwallet->GetKeyPoolSize() - kpExternalSize)));
+    for (CWalletRef pwallet : vpwallets) {
+
+        if (!EnsureWalletIsAvailable(pwallet, request.fHelp)) {
+            return NullUniValue;
+        }
+
+        LOCK(pwallet->cs_wallet);
+
+        UniValue obj(UniValue::VOBJ);
+
+        size_t kpExternalSize = pwallet->KeypoolCountExternalKeys();
+        obj.push_back(Pair("walletname", pwallet->GetName()));
+        obj.push_back(Pair("walletversion", pwallet->GetVersion()));
+        obj.push_back(Pair("balance",       ValueFromAmount(pwallet->GetBalance())));
+        obj.push_back(Pair("unconfirmed_balance", ValueFromAmount(pwallet->GetUnconfirmedBalance())));
+        obj.push_back(Pair("immature_balance",    ValueFromAmount(pwallet->GetImmatureBalance())));
+        obj.push_back(Pair("txcount",       (int)pwallet->mapWallet.size()));
+        obj.push_back(Pair("keypoololdest", pwallet->GetOldestKeyPoolTime()));
+        obj.push_back(Pair("keypoolsize", (int64_t)kpExternalSize));
+        CKeyID masterKeyID = pwallet->GetHDChain().masterKeyID;
+        if (!masterKeyID.IsNull() && pwallet->CanSupportFeature(FEATURE_HD_SPLIT)) {
+            obj.push_back(Pair("keypoolsize_hd_internal",   (int64_t)(pwallet->GetKeyPoolSize() - kpExternalSize)));
+        }
+        if (pwallet->IsCrypted()) {
+            obj.push_back(Pair("unlocked_until", pwallet->nRelockTime));
+        }
+        obj.push_back(Pair("paytxfee",      ValueFromAmount(payTxFee.GetFeePerK())));
+        if (!masterKeyID.IsNull())
+             obj.push_back(Pair("hdmasterkeyid", masterKeyID.GetHex()));
+
+        result.push_back(obj);
     }
-    if (pwallet->IsCrypted()) {
-        obj.push_back(Pair("unlocked_until", pwallet->nRelockTime));
-    }
-    obj.push_back(Pair("paytxfee",      ValueFromAmount(payTxFee.GetFeePerK())));
-    if (!masterKeyID.IsNull())
-         obj.push_back(Pair("hdmasterkeyid", masterKeyID.GetHex()));
-    return obj;
+
+    return result;
 }
 
 UniValue resendwallettransactions(const JSONRPCRequest& request)

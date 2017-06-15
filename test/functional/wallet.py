@@ -38,7 +38,7 @@ class WalletTest(BitcoinTestFramework):
 
         self.nodes[0].generate(1)
 
-        walletinfo = self.nodes[0].getwalletinfo()
+        walletinfo = self.nodes[0].getwalletinfo()[0]
         assert_equal(walletinfo['immature_balance'], 50)
         assert_equal(walletinfo['balance'], 0)
 
@@ -83,7 +83,7 @@ class WalletTest(BitcoinTestFramework):
         # but 10 will go to node2 and the rest will go to node0
         balance = self.nodes[0].getbalance()
         assert_equal(set([txout1['value'], txout2['value']]), set([10, balance]))
-        walletinfo = self.nodes[0].getwalletinfo()
+        walletinfo = self.nodes[0].getwalletinfo()[0]
         assert_equal(walletinfo['immature_balance'], 0)
 
         # Have node0 mine a block, thus it will collect its own fee.
@@ -189,7 +189,7 @@ class WalletTest(BitcoinTestFramework):
         assert(txid1 in self.nodes[3].getrawmempool())
 
         # Exercise balance rpcs
-        assert_equal(self.nodes[0].getwalletinfo()["unconfirmed_balance"], 1)
+        assert_equal(self.nodes[0].getwalletinfo()[0]["unconfirmed_balance"], 1)
         assert_equal(self.nodes[0].getunconfirmedbalance(), 1)
 
         #check if we can list zero value tx as available coins

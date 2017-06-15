@@ -32,7 +32,7 @@ class WalletHDTest(BitcoinTestFramework):
         connect_nodes_bi(self.nodes, 0, 1)
 
         # Make sure we use hd, keep masterkeyid
-        masterkeyid = self.nodes[1].getwalletinfo()['hdmasterkeyid']
+        masterkeyid = self.nodes[1].getwalletinfo()[0]['hdmasterkeyid']
         assert_equal(len(masterkeyid), 40)
 
         # create an internal key
