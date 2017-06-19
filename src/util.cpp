@@ -365,6 +365,8 @@ int LogPrintStr(const std::string &str)
     int ret = 0; // Returns total number of characters written
     static std::atomic_bool fStartedNewLine(true);
 
+    if (!fPrintToConsole && !fPrintToDebugLog) return ret;
+
     std::string strTimestamped = LogTimestampStr(str, &fStartedNewLine);
 
     if (fPrintToConsole)
