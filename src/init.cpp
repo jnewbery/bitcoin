@@ -1198,8 +1198,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     CreatePidFile(GetPidFile(), getpid());
 #endif
 
-    if (fPrintToDebugLog)
-        OpenDebugLog();
+    OpenDebugLog();
 
     if (!fLogTimestamps)
         LogPrintf("Startup time: %s\n", DateTimeStrFormat("%Y-%m-%d %H:%M:%S", GetTime()));

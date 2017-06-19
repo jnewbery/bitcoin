@@ -217,6 +217,9 @@ void ShrinkDebugFile()
 
 void OpenDebugLog()
 {
+    // Don't shrink or open log file if we're not logging to file
+    if (!fPrintToDebugLog || fPrintToConsole) return;
+
     if (GetBoolArg("-shrinkdebugfile", logCategories == BCLog::NONE)) {
         // Do this first since it both loads a bunch of debug.log into memory,
         // and because this needs to happen before any other debug.log printing
