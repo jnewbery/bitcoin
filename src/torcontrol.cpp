@@ -741,7 +741,7 @@ static void TorControlThread()
     event_base_dispatch(gBase);
 }
 
-void StartTorControl(boost::thread_group& threadGroup, CScheduler& scheduler)
+void StartTorControl(CScheduler& scheduler)
 {
     assert(!gBase);
 #ifdef WIN32
