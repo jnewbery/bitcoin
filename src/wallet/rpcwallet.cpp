@@ -30,10 +30,30 @@
 
 #include <univalue.h>
 
+static const std::string WALLET_ENDPOINT_BASE = "/v1/wallet/";
+
 CWallet *GetWalletForJSONRPCRequest(const JSONRPCRequest& request)
 {
-    // TODO: Some way to access secondary wallets
-    return vpwallets.empty() ? nullptr : vpwallets[0];
+    LOCK(cs_main); // for now, protect vpwallets via cs_main
+
+    if (vpwallets.empty()) {
+        return nullptr;
+    }
+    else if (request.URI.substr(0, WALLET_ENDPOINT_BASE.size()) == WALLET_ENDPOINT_BASE) {
+        // wallet endpoint was used
+        std::string requestedWallet = request.URI.substr(WALLET_ENDPOINT_BASE.size());
+        for(CWallet* pwallet : vpwallets) {
+            if (pwallet->GetName() == requestedWallet) {
+                return pwallet;
+            }
+        }
+        // no wallet found with the given endpoint
+        throw JSONRPCError(RPC_WALLET_NOT_FOUND, "Requested wallet not found ("+SanitizeString(requestedWallet)+")");
+    }
+    else {
+        // default endpoint, use first wallet
+        return vpwallets[0];
+    }
 }
 
 std::string HelpRequiringPassphrase(CWallet * const pwallet)
