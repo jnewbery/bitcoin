@@ -8,6 +8,7 @@
 #include "chain.h"
 #include "consensus/validation.h"
 #include "core_io.h"
+#include "httpserver.h"
 #include "init.h"
 #include "validation.h"
 #include "net.h"
