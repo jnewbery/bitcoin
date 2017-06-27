@@ -2499,6 +2499,39 @@ UniValue getwalletinfo(const JSONRPCRequest& request)
     return obj;
 }
 
+UniValue listwallets(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 0)
+        throw std::runtime_error(
+            "listwallets\n"
+            "Returns a list of currently loaded wallets.\n"
+            "For full information on the wallet, use \"getwalletinfo\"\n"
+            "\nResult:\n"
+            "[                         (json array of strings)\n"
+            "  \"walletname\"            (string) the wallet name\n"
+            "   ...\n"
+            "]\n"
+            "\nExamples:\n"
+            + HelpExampleCli("listwallets", "")
+            + HelpExampleRpc("listwallets", "")
+        );
+
+    UniValue obj(UniValue::VARR);
+
+    for (CWalletRef pwallet : vpwallets) {
+
+        if (!EnsureWalletIsAvailable(pwallet, request.fHelp)) {
+            return NullUniValue;
+        }
+
+        LOCK(pwallet->cs_wallet);
+
+        obj.push_back(pwallet->GetName());
+    }
+
+    return obj;
+}
+
 UniValue resendwallettransactions(const JSONRPCRequest& request)
 {
     CWallet * const pwallet = GetWalletForJSONRPCRequest(request);
@@ -3113,6 +3146,7 @@ static const CRPCCommand commands[] =
     { "wallet",             "/v1/wallet/",  "listsinceblock",           &listsinceblock,           false,      {"blockhash","target_confirmations","include_watchonly"} },
     { "wallet",             "/v1/wallet/",  "listtransactions",         &listtransactions,         false,      {"account","count","skip","include_watchonly"} },
     { "wallet",             "/v1/wallet/",  "listunspent",              &listunspent,              false,      {"minconf","maxconf","addresses","include_unsafe","query_options"} },
+    { "wallet",             "/v1/node/",    "listwallets",              &listwallets,              true,       {} },
     { "wallet",             "/v1/wallet/",  "lockunspent",              &lockunspent,              true,       {"unlock","transactions"} },
     { "wallet",             "/v1/wallet/",  "move",                     &movecmd,                  false,      {"fromaccount","toaccount","amount","minconf","comment"} },
     { "wallet",             "/v1/wallet/",  "sendfrom",                 &sendfrom,                 false,      {"fromaccount","toaddress","amount","minconf","comment","comment_to"} },
