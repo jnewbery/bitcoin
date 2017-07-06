@@ -43,9 +43,7 @@
 #include <util.h>
 #include <utilmoneystr.h>
 #include <validationinterface.h>
-#ifdef ENABLE_WALLET
-#include <wallet/init.h>
-#endif
+#include <walletinitinterface.h>
 #include <warnings.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -189,9 +187,7 @@ void Shutdown()
     StopREST();
     StopRPC();
     StopHTTPServer();
-#ifdef ENABLE_WALLET
-    WalletInit::FlushWallets();
-#endif
+    GetWalletInitSignals().FlushWallets();
     StopMapPort();
 
     // Because these depend on each-other, we make sure that neither can be
@@ -249,9 +245,7 @@ void Shutdown()
         pcoinsdbview.reset();
         pblocktree.reset();
     }
-#ifdef ENABLE_WALLET
-    WalletInit::StopWallets();
-#endif
+    GetWalletInitSignals().StopWallets();
 
 #if ENABLE_ZMQ
     if (pzmqNotificationInterface) {
@@ -271,9 +265,7 @@ void Shutdown()
     UnregisterAllValidationInterfaces();
     GetMainSignals().UnregisterBackgroundSignalScheduler();
     GetMainSignals().UnregisterWithMempoolSignals(mempool);
-#ifdef ENABLE_WALLET
-    WalletInit::CloseWallets();
-#endif
+    GetWalletInitSignals().CloseWallets();
     globalVerifyHandle.reset();
     ECC_Stop();
     LogPrintf("%s: done\n", __func__);
@@ -415,9 +407,8 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-whitelist=<IP address or network>", _("Whitelist peers connecting from the given IP address (e.g. 1.2.3.4) or CIDR notated network (e.g. 1.2.3.0/24). Can be specified multiple times.") +
         " " + _("Whitelisted peers cannot be DoS banned and their transactions are always relayed, even if they are already in the mempool, useful e.g. for a gateway"));
 
-#ifdef ENABLE_WALLET
-    strUsage += WalletInit::GetWalletHelpString(showDebug);
-#endif
+    boost::optional<std::string> wallet_rpc_help_string = GetWalletInitSignals().GetWalletHelpString(showDebug);
+    if (wallet_rpc_help_string) strUsage += *wallet_rpc_help_string;
 
 #if ENABLE_ZMQ
     strUsage += HelpMessageGroup(_("ZeroMQ notification options:"));
@@ -1091,9 +1082,8 @@ bool AppInitParameterInteraction()
         return InitError(strprintf("acceptnonstdtxn is not currently supported for %s chain", chainparams.NetworkIDString()));
     nBytesPerSigOp = gArgs.GetArg("-bytespersigop", nBytesPerSigOp);
 
-#ifdef ENABLE_WALLET
-    if (!WalletInit::WalletParameterInteraction()) return false;
-#endif
+    boost::optional<bool> param_interaction_success = GetWalletInitSignals().WalletParameterInteraction();
+    if (param_interaction_success && !(*param_interaction_success)) return false;
 
     fIsBareMultisigStd = gArgs.GetBoolArg("-permitbaremultisig", DEFAULT_PERMIT_BAREMULTISIG);
     fAcceptDatacarrier = gArgs.GetBoolArg("-datacarrier", DEFAULT_ACCEPT_DATACARRIER);
@@ -1256,9 +1246,7 @@ bool AppInitMain()
      * available in the GUI RPC console even if external calls are disabled.
      */
     RegisterAllCoreRPCCommands(tableRPC);
-#ifdef ENABLE_WALLET
-    WalletInit::RegisterWalletRPC(tableRPC);
-#endif
+    GetWalletInitSignals().RegisterWalletRPC(tableRPC);
 
     /* Start the RPC server already.  It will be started in "warmup" mode
      * and not really process calls already (but it will signify connections
@@ -1275,9 +1263,9 @@ bool AppInitMain()
     int64_t nStart;
 
     // ********************************************************* Step 5: verify wallet database integrity
-#ifdef ENABLE_WALLET
-    if (!WalletInit::VerifyWallets()) return false;
-#endif
+    boost::optional<bool> wallet_verify_success = GetWalletInitSignals().VerifyWallets();
+    if (wallet_verify_success && !(*wallet_verify_success)) return false;
+
     // ********************************************************* Step 6: network initialization
     // Note that we absolutely cannot open any actual connections
     // until the very end ("start node") as the UTXO/block state
@@ -1595,11 +1583,13 @@ bool AppInitMain()
     fFeeEstimatesInitialized = true;
 
     // ********************************************************* Step 8: load wallet
-#ifdef ENABLE_WALLET
-    if (!WalletInit::OpenWallets()) return false;
-#else
-    LogPrintf("No wallet support compiled in!\n");
-#endif
+
+    boost::optional<bool> wallet_load_success = GetWalletInitSignals().OpenWallets();
+    if (!wallet_load_success) {
+        LogPrintf("No wallet support compiled in!\n");
+    } else if (!(*wallet_load_success)) {
+        return false;
+    }
 
     // ********************************************************* Step 9: data directory maintenance
 
@@ -1745,9 +1735,7 @@ bool AppInitMain()
     SetRPCWarmupFinished();
     uiInterface.InitMessage(_("Done loading"));
 
-#ifdef ENABLE_WALLET
-    WalletInit::StartWallets(scheduler);
-#endif
+    GetWalletInitSignals().StartWallets(scheduler);
 
     return true;
 }
