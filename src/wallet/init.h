@@ -11,33 +11,37 @@
 class CRPCTable;
 class CScheduler;
 
-//! Return the wallets help message.
-std::string GetWalletHelpString(bool showDebug);
+class WalletInit {
+public:
 
-//! Wallets parameter interaction
-bool WalletParameterInteraction();
+    //! Return the wallets help message.
+    static std::string GetWalletHelpString(bool showDebug);
 
-//! Register wallet RPCs.
-void RegisterWalletRPC(CRPCTable &tableRPC);
+    //! Wallets parameter interaction
+    static bool WalletParameterInteraction();
 
-//! Responsible for reading and validating the -wallet arguments and verifying the wallet database.
-//  This function will perform salvage on the wallet if requested, as long as only one wallet is
-//  being loaded (WalletParameterInteraction forbids -salvagewallet, -zapwallettxes or -upgradewallet with multiwallet).
-bool VerifyWallets();
+    //! Register wallet RPCs.
+    static void RegisterWalletRPC(CRPCTable &tableRPC);
 
-//! Load wallet databases.
-bool OpenWallets();
+    //! Responsible for reading and validating the -wallet arguments and verifying the wallet database.
+    //  This function will perform salvage on the wallet if requested, as long as only one wallet is
+    //  being loaded (WalletParameterInteraction forbids -salvagewallet, -zapwallettxes or -upgradewallet with multiwallet).
+    static bool VerifyWallets();
 
-//! Complete startup of wallets.
-void StartWallets(CScheduler& scheduler);
+    //! Load wallet databases.
+    static bool OpenWallets();
 
-//! Flush all wallets in preparation for shutdown.
-void FlushWallets();
+    //! Complete startup of wallets.
+    static void StartWallets(CScheduler& scheduler);
 
-//! Stop all wallets. Wallets will be flushed first.
-void StopWallets();
+    //! Flush all wallets in preparation for shutdown.
+    static void FlushWallets();
 
-//! Close all wallets.
-void CloseWallets();
+    //! Stop all wallets. Wallets will be flushed first.
+    static void StopWallets();
+
+    //! Close all wallets.
+    static void CloseWallets();
+};
 
 #endif // BITCOIN_WALLET_INIT_H
