@@ -32,4 +32,9 @@ void InterruptREST();
  */
 void StopREST();
 
+/** Regsiter an endpoint for JSON RPC interaction
+ * Precondition; HTTP and RPC has been started.
+ */
+void RegisterJSONEndpoint(const std::string& endpoint, bool exactMatch);
+
 #endif
