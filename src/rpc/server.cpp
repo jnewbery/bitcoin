@@ -280,9 +280,9 @@ static const CRPCCommand vRPCCommands[] =
 { //  category              name                      actor (function)         okSafe argNames
   //  --------------------- ------------------------  -----------------------  ------ ----------
     /* Overall control/query calls */
-    { "control",            "help",                   &help,                   true,  {"command"}  },
-    { "control",            "stop",                   &stop,                   true,  {}  },
-    { "control",            "uptime",                 &uptime,                 true,  {}  },
+    { "control",            "/v1/node/", "help",                   &help,                   true,  {"command"}  },
+    { "control",            "/v1/node/", "stop",                   &stop,                   true,  {}  },
+    { "control",            "/v1/node/", "uptime",                 &uptime,                 true,  {}  },
 };
 
 CRPCTable::CRPCTable()
@@ -493,7 +493,12 @@ UniValue CRPCTable::execute(const JSONRPCRequest &request) const
     const CRPCCommand *pcmd = tableRPC[request.strMethod];
     if (!pcmd)
         throw JSONRPCError(RPC_METHOD_NOT_FOUND, "Method not found");
-
+    if (request.URI != "" && request.URI != "/") {
+        // enforce correct endpoint usage
+        if (pcmd->endpoint != "/v1/*" && (request.URI.size() < pcmd->endpoint.size() || request.URI.substr(0, pcmd->endpoint.size()) != pcmd->endpoint)) {
+            throw JSONRPCError(RPC_METHOD_NOT_FOUND, "Incorrect endpoint used (called method has "+pcmd->endpoint+" as endpoint)");
+        }
+    }
     g_rpcSignals.PreCommand(*pcmd);
 
     try
