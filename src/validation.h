@@ -34,8 +34,6 @@ class CBlockIndex;
 class CBlockTreeDB;
 class CChainParams;
 class CCoinsViewDB;
-class CInv;
-class CConnman;
 class CScriptCheck;
 class CBlockPolicyEstimator;
 class CTxMemPool;
