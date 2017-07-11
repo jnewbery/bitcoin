@@ -119,6 +119,8 @@ class BitcoinTestFramework(object):
                           help="Write tested RPC commands into this directory")
         parser.add_option("--configfile", dest="configfile",
                           help="Location of the test framework config file")
+        parser.add_option("--usecli", dest="usecli", default=False, action="store_true",
+                          help="use bitcoin-cli instead of RPC for all commands")
         self.add_options(parser)
         (self.options, self.args) = parser.parse_args()
 
@@ -136,6 +138,14 @@ class BitcoinTestFramework(object):
         self._start_logging()
 
         success = TestStatus.FAILED
+
+        if self.options.usecli:
+            try:
+                import simplejson
+                simplejson.dumps("suppress linter warning")  # suppresses linter warning about simplejson being unused
+            except ImportError:
+                self.log.warning("Test Skipped: running tests with bitcoin-cli require simplejson. Try `pip install simplejson`")
+                sys.exit(TEST_EXIT_SKIPPED)
 
         try:
             self.setup_chain()
@@ -202,7 +212,7 @@ class BitcoinTestFramework(object):
 
         if binary is None:
             binary = os.getenv("BITCOIND", "bitcoind")
-        node = TestNode(i, dirname, extra_args, rpchost, timewait, binary, stderr, self.mocktime, coverage_dir=self.options.coveragedir)
+        node = TestNode(i, dirname, extra_args, rpchost, timewait, binary, stderr, self.mocktime, coverage_dir=self.options.coveragedir, use_cli=self.options.usecli)
         node.start()
         node.wait_for_rpc_connection()
 
@@ -223,7 +233,7 @@ class BitcoinTestFramework(object):
         nodes = []
         try:
             for i in range(num_nodes):
-                nodes.append(TestNode(i, dirname, extra_args[i], rpchost, timewait=timewait, binary=binary[i], stderr=None, mocktime=self.mocktime, coverage_dir=self.options.coveragedir))
+                nodes.append(TestNode(i, dirname, extra_args[i], rpchost, timewait=timewait, binary=binary[i], stderr=None, mocktime=self.mocktime, coverage_dir=self.options.coveragedir, use_cli=self.options.usecli))
                 nodes[i].start()
             for node in nodes:
                 node.wait_for_rpc_connection()

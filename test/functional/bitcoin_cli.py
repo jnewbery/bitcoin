@@ -3,7 +3,7 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test bitcoin-cli"""
-from test_framework.test_framework import BitcoinTestFramework
+from test_framework.test_framework import BitcoinTestFramework, SkipTest
 from test_framework.util import assert_equal
 
 class TestBitcoinCli(BitcoinTestFramework):
@@ -12,6 +12,15 @@ class TestBitcoinCli(BitcoinTestFramework):
         super().__init__()
         self.setup_clean_chain = True
         self.num_nodes = 1
+
+    def setup_nodes(self):
+        # Try to import simplejson. Skip this test if the import fails.
+        try:
+            import simplejson
+            simplejson.dumps("suppress linter warning")  # suppresses linter warning about simplejson being unused
+        except ImportError:
+            raise SkipTest("simplejson module not available.")
+        super().setup_nodes()
 
     def run_test(self):
         """Main test logic"""

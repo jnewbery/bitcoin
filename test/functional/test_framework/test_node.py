@@ -7,7 +7,6 @@
 import decimal
 import errno
 import http.client
-import json
 import logging
 import os
 import subprocess
@@ -32,7 +31,7 @@ class TestNode():
     To make things easier for the test writer, a bit of magic is happening under the covers.
     Any unrecognised messages will be dispatched to the RPC connection."""
 
-    def __init__(self, i, dirname, extra_args, rpchost, timewait, binary, stderr, mocktime, coverage_dir):
+    def __init__(self, i, dirname, extra_args, rpchost, timewait, binary, stderr, mocktime, coverage_dir, use_cli=False):
         self.index = i
         self.datadir = os.path.join(dirname, "node" + str(i))
         self.rpchost = rpchost
@@ -48,6 +47,7 @@ class TestNode():
         self.args = [self.binary, "-datadir=" + self.datadir, "-server", "-keypool=1", "-discover=0", "-rest", "-logtimemicros", "-debug", "-debugexclude=libevent", "-debugexclude=leveldb", "-mocktime=" + str(mocktime), "-uacomment=testnode%d" % i]
 
         self.cli = TestNodeCLI(os.getenv("BITCOINCLI", "bitcoin-cli"), self.datadir)
+        self.use_cli = use_cli
 
         self.running = False
         self.process = None
@@ -57,9 +57,12 @@ class TestNode():
         self.log = logging.getLogger('TestFramework.node%d' % i)
 
     def __getattr__(self, *args, **kwargs):
-        """Dispatches any unrecognised messages to the RPC connection."""
-        assert self.rpc_connected and self.rpc is not None, "Error: no RPC connection"
-        return self.rpc.__getattr__(*args, **kwargs)
+        """Dispatches any unrecognised messages to CLI or the RPC connection."""
+        if self.use_cli:
+            return self.cli.__getattr__(*args, **kwargs)
+        else:
+            assert self.rpc_connected and self.rpc is not None, "Error: no RPC connection"
+            return self.rpc.__getattr__(*args, **kwargs)
 
     def start(self):
         """Start the node."""
@@ -139,21 +142,51 @@ class TestNodeCLI():
     def __init__(self, binary, datadir):
         self.binary = binary
         self.datadir = datadir
+        self.log = logging.getLogger('TestFramework.bitcoincli')
 
     def __getattr__(self, command):
         def dispatcher(*args, **kwargs):
             return self.send_cli(command, *args, **kwargs)
         return dispatcher
 
-    def send_cli(self, command, *args, **kwargs):
+    def send_cli(self, rpc_func, *args, **kwargs):
         """Run bitcoin-cli command. Deserializes returned string as python object."""
 
-        pos_args = [str(arg) for arg in args]
-        named_args = [str(key) + "=" + str(value) for (key, value) in kwargs.items()]
+        import simplejson as json
+        pos_args = []
+        for arg in args:
+            if isinstance(arg, str):
+                pos_args.append(' "%s"' % arg)
+            else:
+                pos_args.append(json.dumps(json.dumps(arg)))
+        named_args = []
+        for arg in kwargs.items():
+            if isinstance(arg[1], str):
+                named_args.append("%s=%s" % (str(arg[0]), str(arg[1])))
+            else:
+                named_args.append("%s=%s" % (str(arg[0]), json.dumps(json.dumps(arg[1]))))
         assert not (pos_args and named_args), "Cannot use positional arguments and named arguments in the same bitcoin-cli call"
-        p_args = [self.binary, "-datadir=" + self.datadir]
+        command = self.binary + " -datadir=" + self.datadir
         if named_args:
-            p_args += ["-named"]
-        p_args += [command] + pos_args + named_args
-        process = subprocess.run(p_args, stdout=subprocess.PIPE, universal_newlines=True)
-        return json.loads(process.stdout, parse_float=decimal.Decimal)
+            command += " -named"
+        command += " %s %s %s" % (rpc_func, " ".join(pos_args), " ".join(named_args))
+
+        self.log.debug("Running bitcoin-cli command: %s" % command)
+        process = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+
+        if process.returncode != 0:
+            stderr_lines = process.stderr.split("\n")
+            if len(stderr_lines) > 2:
+                error_message = stderr_lines[2].rstrip()
+            else:
+                error_message = process.stderr
+            raise JSONRPCException({'code': 0 - int(process.returncode), 'message': error_message})
+        try:
+            return json.loads(process.stdout, parse_float=decimal.Decimal)
+        except json.decoder.JSONDecodeError:
+            # bitcoin-cli can return JSON objects or strings. Deal with strings here
+            ret_string = process.stdout.rstrip()
+            if ret_string == "":
+                return None
+            else:
+                return ret_string
