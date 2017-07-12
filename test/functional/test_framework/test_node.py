@@ -18,7 +18,7 @@ from .util import (
     rpc_url,
 )
 from .authproxy import JSONRPCException
-from .errors import CLIRPCException
+from .errors import CLIRPCException, SkipTest
 
 class TestNode():
     """A class for representing a bitcoind node under test.
@@ -173,7 +173,13 @@ class TestNodeCLI():
         command += " %s %s %s" % (rpc_func, " ".join(pos_args), " ".join(named_args))
 
         self.log.debug("Running bitcoin-cli command: %s" % command)
-        process = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        try:
+            process = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        except OSError as e:
+            if e.errno == 7:
+                # subprocess failed because the argument list was too long
+                raise SkipTest("Cannot use bitcoin-cli for very long RPCs.")
+            raise
 
         if process.returncode != 0:
             stderr_lines = process.stderr.split("\n")
