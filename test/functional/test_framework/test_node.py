@@ -15,6 +15,7 @@ import time
 from .util import (
     assert_equal,
     get_rpc_proxy,
+    rpc_params,
     rpc_url,
 )
 from .authproxy import JSONRPCException
@@ -47,7 +48,7 @@ class TestNode():
         self.extra_args = extra_args
         self.args = [self.binary, "-datadir=" + self.datadir, "-server", "-keypool=1", "-discover=0", "-rest", "-logtimemicros", "-debug", "-debugexclude=libevent", "-debugexclude=leveldb", "-mocktime=" + str(mocktime), "-uacomment=testnode%d" % i]
 
-        self.cli = TestNodeCLI(os.getenv("BITCOINCLI", "bitcoin-cli"), self.datadir)
+        self.cli = TestNodeCLI(os.getenv("BITCOINCLI", "bitcoin-cli"), self.datadir, self.index, self.rpchost)
         self.use_cli = use_cli
 
         self.running = False
@@ -140,9 +141,11 @@ class TestNode():
 class TestNodeCLI():
     """Interface to bitcoin-cli for an individual node"""
 
-    def __init__(self, binary, datadir):
+    def __init__(self, binary, datadir, index, rpchost):
         self.binary = binary
         self.datadir = datadir
+        self.index = index
+        self.rpchost = rpchost
         self.log = logging.getLogger('TestFramework.bitcoincli')
 
     def __getattr__(self, command):
@@ -154,6 +157,8 @@ class TestNodeCLI():
         """Run bitcoin-cli command. Deserializes returned string as python object."""
 
         import simplejson as json
+        username, password, rpchost, rpcport = rpc_params(self.datadir, self.index, self.rpchost)
+
         pos_args = []
         for arg in args:
             if isinstance(arg, str):
@@ -167,7 +172,7 @@ class TestNodeCLI():
             else:
                 named_args.append("%s=%s" % (str(arg[0]), json.dumps(json.dumps(arg[1]))))
         assert not (pos_args and named_args), "Cannot use positional arguments and named arguments in the same bitcoin-cli call"
-        command = self.binary + " -datadir=" + self.datadir
+        command = self.binary + " -datadir=%s -rpcconnect=%s -rpcport=%s -rpcuser=%s -rpcpassword=%s" % (self.datadir, rpchost, rpcport, username, password)
         if named_args:
             command += " -named"
         command += " %s %s %s" % (rpc_func, " ".join(pos_args), " ".join(named_args))

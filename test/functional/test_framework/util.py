@@ -218,7 +218,7 @@ def p2p_port(n):
 def rpc_port(n):
     return PORT_MIN + PORT_RANGE + n + (MAX_NODES * PortSeed.n) % (PORT_RANGE - 1 - MAX_NODES)
 
-def rpc_url(datadir, i, rpchost=None):
+def rpc_params(datadir, i, rpchost=None):
     rpc_u, rpc_p = get_auth_cookie(datadir)
     host = '127.0.0.1'
     port = rpc_port(i)
@@ -228,7 +228,11 @@ def rpc_url(datadir, i, rpchost=None):
             host, port = parts
         else:
             host = rpchost
-    return "http://%s:%s@%s:%d" % (rpc_u, rpc_p, host, int(port))
+    return (rpc_u, rpc_p, host, int(port))
+
+def rpc_url(datadir, i, rpchost=None):
+    rpc_u, rpc_p, host, port = rpc_params(datadir, i, rpchost)
+    return "http://%s:%s@%s:%d" % (rpc_u, rpc_p, host, port)
 
 # Node functions
 ################
