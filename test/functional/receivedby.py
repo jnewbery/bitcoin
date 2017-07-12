@@ -97,7 +97,7 @@ class ReceivedByTest(BitcoinTestFramework):
         '''
         #set pre-state
         addrArr = self.nodes[1].getnewaddress()
-        account = self.nodes[1].getaccount(addrArr)
+        account = self.nodes[1].getaccount(addrArr) or ""
         received_by_account_json = get_sub_array_from_array(self.nodes[1].listreceivedbyaccount(),{"account":account})
         if len(received_by_account_json) == 0:
             raise AssertionError("No accounts found in node")
