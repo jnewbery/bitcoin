@@ -73,7 +73,7 @@ class ZapWalletTXesTest (BitcoinTestFramework):
         #restart bitcoind with zapwallettxes
         self.nodes[0] = self.start_node(0,self.options.tmpdir, ["-zapwallettxes=1"])
         
-        assert_raises_jsonrpc(-5, 'Invalid or non-wallet transaction id', self.nodes[0].gettransaction, txid3)
+        assert_raises_rpc_error(-5, 'Invalid or non-wallet transaction id', self.nodes[0].gettransaction, txid3)
         #there must be an exception because the unconfirmed wallettx0 must be gone by now
 
         tx0 = self.nodes[0].gettransaction(txid0)

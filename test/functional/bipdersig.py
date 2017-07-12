@@ -66,7 +66,7 @@ class BIP66Test(BitcoinTestFramework):
             raise AssertionError("Failed to mine a version=3 block")
 
         # Mine 1 old-version blocks. This should fail
-        assert_raises_jsonrpc(-1, "CreateNewBlock: TestBlockValidity failed: bad-version(0x00000002)", self.nodes[1].generate, 1)
+        assert_raises_rpc_error(-1, "CreateNewBlock: TestBlockValidity failed: bad-version(0x00000002)", self.nodes[1].generate, 1)
         self.sync_all()
         if (self.nodes[0].getblockcount() != cnt + 1051):
             raise AssertionError("Accepted a version=2 block after 950 version=3 blocks")

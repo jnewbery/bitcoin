@@ -102,11 +102,11 @@ class SegWitTest(BitcoinTestFramework):
         sync_blocks(self.nodes)
 
     def fail_accept(self, node, error_msg, txid, sign, redeem_script=""):
-        assert_raises_jsonrpc(-26, error_msg, send_to_witness, 1, node, getutxo(txid), self.pubkey[0], False, Decimal("49.998"), sign, redeem_script)
+        assert_raises_rpc_error(-26, error_msg, send_to_witness, 1, node, getutxo(txid), self.pubkey[0], False, Decimal("49.998"), sign, redeem_script)
 
     def fail_mine(self, node, txid, sign, redeem_script=""):
         send_to_witness(1, node, getutxo(txid), self.pubkey[0], False, Decimal("49.998"), sign, redeem_script)
-        assert_raises_jsonrpc(-1, "CreateNewBlock: TestBlockValidity failed", node.generate, 1)
+        assert_raises_rpc_error(-1, "CreateNewBlock: TestBlockValidity failed", node.generate, 1)
         sync_blocks(self.nodes)
 
     def run_test(self):
@@ -460,7 +460,7 @@ class SegWitTest(BitcoinTestFramework):
         # note that no witness address should be returned by unsolvable addresses
         # the multisig_without_privkey_address will fail because its keys were not added with importpubkey
         for i in uncompressed_spendable_address + uncompressed_solvable_address + unknown_address + unsolvable_address + [multisig_without_privkey_address]:
-            assert_raises_jsonrpc(-4, "Public key or redeemscript not known to wallet, or the key is uncompressed", self.nodes[0].addwitnessaddress, i)
+            assert_raises_rpc_error(-4, "Public key or redeemscript not known to wallet, or the key is uncompressed", self.nodes[0].addwitnessaddress, i)
 
         for i in compressed_spendable_address + compressed_solvable_address:
             witaddress = self.nodes[0].addwitnessaddress(i)
@@ -540,7 +540,7 @@ class SegWitTest(BitcoinTestFramework):
         # premature_witaddress are not accepted until the script is added with addwitnessaddress first
         for i in uncompressed_spendable_address + uncompressed_solvable_address + premature_witaddress + [compressed_solvable_address[1]]:
             # This will raise an exception
-            assert_raises_jsonrpc(-4, "Public key or redeemscript not known to wallet, or the key is uncompressed", self.nodes[0].addwitnessaddress, i)
+            assert_raises_rpc_error(-4, "Public key or redeemscript not known to wallet, or the key is uncompressed", self.nodes[0].addwitnessaddress, i)
 
         # after importaddress it should pass addwitnessaddress
         v = self.nodes[0].validateaddress(compressed_solvable_address[1])
