@@ -97,7 +97,8 @@ def try_rpc(code, message, fun, *args, **kwds):
         logger.debug("CLI exception raised. Error code: %i, message: %s" % (e.error["code"], e.error["message"]))
         return True
     except Exception as e:
-        raise AssertionError("Unexpected exception raised: " + type(e).__name__)
+        logger.warning("Unexpected exception raised: " + type(e).__name__)
+        raise
     else:
         return False
 
