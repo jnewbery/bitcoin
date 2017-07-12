@@ -48,21 +48,17 @@ try:
 except ImportError:
     import urlparse
 
+from .errors import RPCException
+
 USER_AGENT = "AuthServiceProxy/0.1"
 
 HTTP_TIMEOUT = 30
 
 log = logging.getLogger("BitcoinRPC")
 
-class JSONRPCException(Exception):
+class JSONRPCException(RPCException):
     def __init__(self, rpc_error):
-        try:
-            errmsg = '%(message)s (%(code)i)' % rpc_error
-        except (KeyError, TypeError):
-            errmsg = ''
-        Exception.__init__(self, errmsg)
-        self.error = rpc_error
-
+        super().__init__(rpc_error)
 
 def EncodeDecimal(o):
     if isinstance(o, decimal.Decimal):

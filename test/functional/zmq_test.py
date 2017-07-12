@@ -7,7 +7,8 @@ import configparser
 import os
 import struct
 
-from test_framework.test_framework import BitcoinTestFramework, SkipTest
+from test_framework.errors import SkipTest
+from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (assert_equal,
                                  bytes_to_hex_str,
                                  )

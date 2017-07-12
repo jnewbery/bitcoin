@@ -17,6 +17,7 @@ import traceback
 
 from .authproxy import JSONRPCException
 from . import coverage
+from .errors import SkipTest
 from .test_node import TestNode
 from .util import (
     MAX_NODES,
@@ -461,7 +462,3 @@ class ComparisonTestFramework(BitcoinTestFramework):
             binary=[self.options.testbinary] +
             [self.options.refbinary] * (self.num_nodes - 1))
 
-class SkipTest(Exception):
-    """This exception is raised to skip a test"""
-    def __init__(self, message):
-        self.message = message

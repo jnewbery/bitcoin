@@ -7,7 +7,8 @@
 import socket
 import sys
 
-from test_framework.test_framework import BitcoinTestFramework, SkipTest
+from test_framework.errors import SkipTest
+from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import *
 from test_framework.netutil import *
 
