@@ -16,6 +16,7 @@ import time
 
 from . import coverage
 from .authproxy import AuthServiceProxy, JSONRPCException
+from .errors import CLIRPCException
 
 logger = logging.getLogger("TestFramework.utils")
 
@@ -81,7 +82,7 @@ def try_rpc(code, message, fun, *args, **kwds):
     """Tries to run an rpc command.
 
     Test against error code and message if the rpc fails.
-    Returns whether a JSONRPCException was raised."""
+    Returns whether an RPCException was raised."""
     try:
         fun(*args, **kwds)
     except JSONRPCException as e:
@@ -90,6 +91,10 @@ def try_rpc(code, message, fun, *args, **kwds):
             raise AssertionError("Unexpected JSONRPC error code %i" % e.error["code"])
         if (message is not None) and (message not in e.error['message']):
             raise AssertionError("Expected substring not found:" + e.error['message'])
+        return True
+    except CLIRPCException as e:
+        # Error code/message may be different if bitcoin-cli was used.
+        logger.debug("CLI exception raised. Error code: %i, message: %s" % (e.error["code"], e.error["message"]))
         return True
     except Exception as e:
         raise AssertionError("Unexpected exception raised: " + type(e).__name__)

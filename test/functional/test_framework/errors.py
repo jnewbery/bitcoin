@@ -14,8 +14,11 @@ class RPCException(Exception):
         super().__init__(errmsg)
         self.error = rpc_error
 
+class CLIRPCException(RPCException):
+    """Raised when a bitcoin-cli RPC fails"""
+    pass
+
 class SkipTest(Exception):
     """This exception is raised to skip a test"""
     def __init__(self, message):
         self.message = message
-

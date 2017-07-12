@@ -18,6 +18,7 @@ from .util import (
     rpc_url,
 )
 from .authproxy import JSONRPCException
+from .errors import CLIRPCException
 
 class TestNode():
     """A class for representing a bitcoind node under test.
@@ -180,7 +181,7 @@ class TestNodeCLI():
                 error_message = stderr_lines[2].rstrip()
             else:
                 error_message = process.stderr
-            raise JSONRPCException({'code': 0 - int(process.returncode), 'message': error_message})
+            raise CLIRPCException({'code': 0 - int(process.returncode), 'message': error_message})
         try:
             return json.loads(process.stdout, parse_float=decimal.Decimal)
         except json.decoder.JSONDecodeError:
