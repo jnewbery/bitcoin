@@ -30,5 +30,9 @@ class Multiwallet(BitcoinTestFramework):
         # Assert that node0 has loaded both wallets correctly
         assert_equal(self.nodes[0].listwallets(), [wallet0_name, wallet1_name])
 
+        # Check that we can access either wallet using endpoints
+        w1 = self.nodes[0] / "/v1/wallet/wallet0.dat"
+        print(w1.getwalletinfo())
+
 if __name__ == '__main__':
     Multiwallet().main()
