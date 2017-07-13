@@ -239,6 +239,8 @@ bool StartHTTPRPC()
 
     RegisterHTTPHandler("/", true, HTTPReq_JSONRPC);
     RegisterHTTPHandler("/v1/", true, HTTPReq_JSONRPC);
+    RegisterHTTPHandler("/v1/wallet/wallet0.dat", true, HTTPReq_JSONRPC);
+    RegisterHTTPHandler("/v1/wallet/wallet1.dat", true, HTTPReq_JSONRPC);
 
     assert(EventBase());
     httpRPCTimerInterface = new HTTPRPCTimerInterface(EventBase());
