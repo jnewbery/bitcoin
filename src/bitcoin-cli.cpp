@@ -243,7 +243,7 @@ UniValue CallRPC(const std::string& strMethod, const UniValue& params)
     evbuffer_add(output_buffer, strRequest.data(), strRequest.size());
 
     // check if we should use a special wallet endpoint
-    std::string endpoint;
+    std::string endpoint = "/";
     std::string walletName = GetArg("-usewallet", "");
     if (!walletName.empty()) {
         char *encodedURI = evhttp_uriencode(walletName.c_str(), walletName.size(), false);
