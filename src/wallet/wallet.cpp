@@ -12,6 +12,7 @@
 #include "consensus/consensus.h"
 #include "consensus/validation.h"
 #include "fs.h"
+#include "init.h"
 #include "key.h"
 #include "keystore.h"
 #include "validation.h"
@@ -1036,6 +1037,26 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransactionRef& ptx, const CBlockI
         if (fExisted && !fUpdate) return false;
         if (fExisted || IsMine(tx) || IsFromMe(tx))
         {
+            /* Check if any keys in the wallet keypool that were supposed to be unused
+             * have appeared in a new transaction. If so, remove those keys from the keypool.
+             * This can happen when restoring an old wallet backup that does not contain
+             * the mostly recently created transactions from newer versions of the wallet.
+             */
+            std::set<CKeyID> keyPool;
+            GetAllReserveKeys(keyPool);
+            // loop though all outputs
+            for(const CTxOut& txout: tx.vout) {
+                // extract addresses and check if they match with an unused keypool key
+                std::vector<CKeyID> vAffected;
+                CAffectedKeysVisitor(*this, vAffected).Process(txout.scriptPubKey);
+                for (const CKeyID &keyid : vAffected) {
+                    if (keyPool.count(keyid)) {
+                        LogPrintf("%s: Detected a used keypool key, mark all keypool key up to this key as used\n", __func__);
+                        MarkReserveKeysAsUsed(keyid);
+                    }
+                }
+            }
+
             CWalletTx wtx(this, ptx);
 
             // Get merkle branch if transaction was found in a block
@@ -3555,16 +3576,71 @@ void CReserveKey::ReturnKey()
     vchPubKey = CPubKey();
 }
 
+void CWallet::CheckKeypoolMinSize() {
+    unsigned int keypool_min = GetArg("-keypoolmin", DEFAULT_KEYPOOL_MIN);
+    if (IsHDEnabled() && ((CanSupportFeature(FEATURE_HD_SPLIT) && setInternalKeyPool.size() < keypool_min) || (setExternalKeyPool.size() < keypool_min))) {
+        // if the remaining keypool size is below the gap limit, shutdown
+        LogPrintf("%s: Keypool is too small. Shutting down. internal keypool: %d, external keypool: %d, keypool minimum: %d\n",
+                  __func__, setInternalKeyPool.size(), setExternalKeyPool.size(), keypool_min);
+        const std::string error_msg = "Keypool is too small. Shutting down";
+        uiInterface.ThreadSafeMessageBox(error_msg, "", CClientUIInterface::MSG_ERROR);
+        StartShutdown();
+        throw std::runtime_error(error_msg);
+    }
+}
+
 static void LoadReserveKeysToSet(std::set<CKeyID>& setAddress, const std::set<int64_t>& setKeyPool, CWalletDB& walletdb) {
     for (const int64_t& id : setKeyPool)
     {
         CKeyPool keypool;
         if (!walletdb.ReadPool(id, keypool))
-            throw std::runtime_error(std::string(__func__) + ": read failed");
+            throw std::runtime_error(strprintf("%s: read failed for index %d", __func__, id));
         assert(keypool.vchPubKey.IsValid());
         CKeyID keyID = keypool.vchPubKey.GetID();
         setAddress.insert(keyID);
     }
+}
+
+void CWallet::MarkReserveKeysAsUsed(const CKeyID& keyId)
+{
+    AssertLockHeld(cs_wallet);
+    CWalletDB walletdb(*dbw);
+    for (std::set<int64_t> *setKeyPool : {&setInternalKeyPool, &setExternalKeyPool}) {
+        int64_t foundIndex = -1;
+        for (const int64_t& index : *setKeyPool) {
+            CKeyPool keypool;
+            if (!walletdb.ReadPool(index, keypool)) {
+                throw std::runtime_error(std::string(__func__) + ": read failed");
+            }
+
+            if (keypool.vchPubKey.GetID() == keyId) {
+                LogPrintf("%s: Found keypool index %d\n", __func__, index);
+                foundIndex = index;
+                if (!keypool.fInternal) {
+                    SetAddressBook(keyId, "", "receive");
+                }
+                break;
+            }
+        }
+
+        auto it = std::begin(*setKeyPool);
+        // mark all keys up to the found key as used
+        if (foundIndex >= 0) {
+            while (it != std::end(*setKeyPool)) {
+                const int64_t& index = *(it);
+                if (index > foundIndex) break; // set*KeyPool is ordered
+
+                KeepKey(index);
+                it = setKeyPool->erase(it);
+            }
+        }
+    }
+
+    if (!TopUpKeyPool()) {
+        LogPrintf("%s: Topping up keypool failed (locked wallet)\n", __func__);
+    }
+
+    CheckKeypoolMinSize();
 }
 
 void CWallet::GetAllReserveKeys(std::set<CKeyID>& setAddress) const
@@ -3834,6 +3910,7 @@ std::string CWallet::GetWalletHelpString(bool showDebug)
 
         strUsage += HelpMessageOpt("-dblogsize=<n>", strprintf("Flush wallet database activity from memory to disk log every <n> megabytes (default: %u)", DEFAULT_WALLET_DBLOGSIZE));
         strUsage += HelpMessageOpt("-flushwallet", strprintf("Run a thread to flush wallet periodically (default: %u)", DEFAULT_FLUSHWALLET));
+        strUsage += HelpMessageOpt("-keypoolmin", strprintf(_("If the keypool drops below this number of keys and we are unable to generate new keys, shutdown (default: %u)"), DEFAULT_KEYPOOL_MIN));
         strUsage += HelpMessageOpt("-privdb", strprintf("Sets the DB_PRIVATE flag in the wallet db environment (default: %u)", DEFAULT_WALLET_PRIVDB));
         strUsage += HelpMessageOpt("-walletrejectlongchains", strprintf(_("Wallet will not create transactions that violate mempool chain limits (default: %u)"), DEFAULT_WALLET_REJECT_LONG_CHAINS));
     }
@@ -3953,6 +4030,27 @@ CWallet* CWallet::CreateWalletFromFile(const std::string walletFile)
     LogPrintf(" wallet      %15dms\n", GetTimeMillis() - nStart);
 
     RegisterValidationInterface(walletInstance);
+
+    // Make sure we have enough keys in our keypool if HD is enabled
+    if (walletInstance->IsHDEnabled()) {
+        unsigned int keypool_size = GetArg("-keypool", DEFAULT_KEYPOOL_SIZE);
+        unsigned int keypool_min = GetArg("-keypoolmin", DEFAULT_KEYPOOL_MIN);
+        if (walletInstance->IsCrypted()) {
+            if (keypool_size < keypool_min) {
+                LogPrintf("Parameter Interaction: keypool size (%d) must be larger than keypool minimum size for encrypted wallets (%d)\n", keypool_size, keypool_min);
+                SoftSetArg("-keypool", std::to_string(keypool_min));
+            }
+            InitWarning(strprintf(_("You are using an encrypted HD wallet. If you are restoring an old HD wallet that has not been topped up with the most recently "
+                                    "derived keys your wallet may not detect transactions involving those keys. You should manually top-up your wallet keypool.")));
+        } else {
+            if (keypool_size < keypool_min) {
+                InitWarning(strprintf(_("Your keypool is configured to store %d keys, which is below the keypool minimum size of %d. Using a larger keypool will make it less "
+                                        "likely that your wallet will be missing transactions and funds if it is restored from an old backup."), keypool_size, keypool_min));
+            }
+            walletInstance->TopUpKeyPool();
+        }
+        walletInstance->CheckKeypoolMinSize();
+    }
 
     CBlockIndex *pindexRescan = chainActive.Genesis();
     if (!GetBoolArg("-rescan", false))
