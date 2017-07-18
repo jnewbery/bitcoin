@@ -37,6 +37,7 @@ std::string HelpMessageCli()
     strUsage += HelpMessageOpt("-?", _("This help message"));
     strUsage += HelpMessageOpt("-conf=<file>", strprintf(_("Specify configuration file (default: %s)"), BITCOIN_CONF_FILENAME));
     strUsage += HelpMessageOpt("-datadir=<dir>", _("Specify data directory"));
+    strUsage += HelpMessageOpt("-getinfo", _("Get general information from the remote server"));
     AppendParamsHelpMessages(strUsage);
     strUsage += HelpMessageOpt("-named", strprintf(_("Pass named instead of positional arguments (default: %s)"), DEFAULT_NAMED));
     strUsage += HelpMessageOpt("-rpcconnect=<ip>", strprintf(_("Send commands to node running on <ip> (default: %s)"), DEFAULT_RPCCONNECT));
@@ -47,7 +48,6 @@ std::string HelpMessageCli()
     strUsage += HelpMessageOpt("-rpcclienttimeout=<n>", strprintf(_("Timeout in seconds during HTTP requests, or 0 for no timeout. (default: %d)"), DEFAULT_HTTP_CLIENT_TIMEOUT));
     strUsage += HelpMessageOpt("-stdin", _("Read extra arguments from standard input, one per line until EOF/Ctrl-D (recommended for sensitive information such as passphrases)"));
     strUsage += HelpMessageOpt("-rpcwallet=<walletname>", _("Send RPC for non-default wallet on RPC server (argument is wallet filename in bitcoind directory, required if bitcoind/-Qt runs with multiple wallets)"));
-    strUsage += HelpMessageOpt("-getinfo", _("Get general information from the remote server"));
 
     return strUsage;
 }
@@ -245,6 +245,8 @@ public:
         result.pushKV("difficulty", batch[ID_BLOCKCHAININFO]["result"]["difficulty"]);
         result.pushKV("testnet", UniValue(batch[ID_BLOCKCHAININFO]["result"]["chain"].get_str() == "test"));
         if (!batch[ID_WALLETINFO].isNull()) {
+            result.pushKV("walletversion", batch[ID_WALLETINFO]["result"]["walletversion"]);
+            result.pushKV("balance", batch[ID_WALLETINFO]["result"]["balance"]);
             result.pushKV("keypoololdest", batch[ID_WALLETINFO]["result"]["keypoololdest"]);
             result.pushKV("keypoolsize", batch[ID_WALLETINFO]["result"]["keypoolsize"]);
             if (!batch[ID_WALLETINFO]["result"]["unlocked_until"].isNull())
@@ -252,7 +254,7 @@ public:
             result.pushKV("paytxfee", batch[ID_WALLETINFO]["result"]["paytxfee"]);
         }
         result.pushKV("relayfee", batch[ID_NETWORKINFO]["result"]["relayfee"]);
-        result.pushKV("errors", batch[ID_NETWORKINFO]["result"]["warnings"]);
+        result.pushKV("warnings", batch[ID_NETWORKINFO]["result"]["warnings"]);
         return JSONRPCReplyObj(result, NullUniValue, 1);
     }
 };
@@ -325,7 +327,7 @@ UniValue CallRPC(BaseRequestHandler *rh, const std::string& strMethod, const std
 
     // Attach request data
     std::string strRequest = rh->PrepareRequest(strMethod, args).write() + "\n";
-    struct evbuffer * output_buffer = evhttp_request_get_output_buffer(req.get());
+    struct evbuffer* output_buffer = evhttp_request_get_output_buffer(req.get());
     assert(output_buffer);
     evbuffer_add(output_buffer, strRequest.data(), strRequest.size());
 
