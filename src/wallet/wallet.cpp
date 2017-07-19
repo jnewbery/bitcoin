@@ -3594,7 +3594,7 @@ static void LoadReserveKeysToSet(std::set<CKeyID>& setAddress, const std::set<in
     {
         CKeyPool keypool;
         if (!walletdb.ReadPool(id, keypool))
-            throw std::runtime_error(std::string(__func__) + ": read failed");
+            throw std::runtime_error(strprintf("%s: read failed for index %d", __func__, id));
         assert(keypool.vchPubKey.IsValid());
         CKeyID keyID = keypool.vchPubKey.GetID();
         setAddress.insert(keyID);
@@ -3610,10 +3610,11 @@ void CWallet::MarkReserveKeysAsUsed(const CKeyID& keyId)
         for (const int64_t& id : *setKeyPool) {
             CKeyPool keypool;
             if (!walletdb.ReadPool(id, keypool)) {
-                throw std::runtime_error(std::string(__func__) + ": read failed");
+                throw std::runtime_error(strprintf("%s: read failed for index %d", __func__, id));
             }
 
             if (keypool.vchPubKey.GetID() == keyId) {
+                LogPrintf("%s: Found keypool index %d\n", __func__, id);
                 foundIndex = id;
                 if (!keypool.fInternal) {
                     SetAddressBook(keyId, "", "receive");
@@ -3631,7 +3632,7 @@ void CWallet::MarkReserveKeysAsUsed(const CKeyID& keyId)
 
                 CKeyPool keypool;
                 if (!walletdb.ReadPool(id, keypool)) {
-                    throw std::runtime_error(std::string(__func__) + ": read failed");
+                    throw std::runtime_error(strprintf("%s: read failed for index %d", __func__, id));
                 }
 
                 KeepKey(id);
