@@ -3636,7 +3636,7 @@ void CWallet::MarkReserveKeysAsUsed(const CKeyID& keyId)
         }
     }
 
-    if (IsHDEnabled() && !TopUpKeyPool()) {
+    if (!TopUpKeyPool()) {
         LogPrintf("%s: Topping up keypool failed (locked wallet)\n", __func__);
     }
 
