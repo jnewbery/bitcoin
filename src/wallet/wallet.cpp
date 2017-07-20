@@ -3607,15 +3607,15 @@ void CWallet::MarkReserveKeysAsUsed(const CKeyID& keyId)
     CWalletDB walletdb(*dbw);
     for (std::set<int64_t> *setKeyPool : {&setInternalKeyPool, &setExternalKeyPool}) {
         int64_t foundIndex = -1;
-        for (const int64_t& id : *setKeyPool) {
+        for (const int64_t& index : *setKeyPool) {
             CKeyPool keypool;
-            if (!walletdb.ReadPool(id, keypool)) {
-                throw std::runtime_error(strprintf("%s: read failed for index %d", __func__, id));
+            if (!walletdb.ReadPool(index, keypool)) {
+                throw std::runtime_error(strprintf("%s: read failed for index %d", __func__, index));
             }
 
             if (keypool.vchPubKey.GetID() == keyId) {
-                LogPrintf("%s: Found keypool index %d\n", __func__, id);
-                foundIndex = id;
+                LogPrintf("%s: Found keypool index %d\n", __func__, index);
+                foundIndex = index;
                 if (!keypool.fInternal) {
                     SetAddressBook(keyId, "", "receive");
                 }
@@ -3627,15 +3627,15 @@ void CWallet::MarkReserveKeysAsUsed(const CKeyID& keyId)
         // mark all keys up to the found key as used
         if (foundIndex >= 0) {
             while (it != std::end(*setKeyPool)) {
-                const int64_t& id = *(it);
-                if (id > foundIndex) break; // set*KeyPool is ordered
+                const int64_t& index = *(it);
+                if (index > foundIndex) break; // set*KeyPool is ordered
 
                 CKeyPool keypool;
-                if (!walletdb.ReadPool(id, keypool)) {
-                    throw std::runtime_error(strprintf("%s: read failed for index %d", __func__, id));
+                if (!walletdb.ReadPool(index, keypool)) {
+                    throw std::runtime_error(strprintf("%s: read failed for index %d", __func__, index));
                 }
 
-                KeepKey(id);
+                KeepKey(index);
                 it = setKeyPool->erase(it);
             }
         }
