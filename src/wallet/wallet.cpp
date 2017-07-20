@@ -3630,11 +3630,6 @@ void CWallet::MarkReserveKeysAsUsed(const CKeyID& keyId)
                 const int64_t& index = *(it);
                 if (index > foundIndex) break; // set*KeyPool is ordered
 
-                CKeyPool keypool;
-                if (!walletdb.ReadPool(index, keypool)) {
-                    throw std::runtime_error(strprintf("%s: read failed for index %d", __func__, index));
-                }
-
                 KeepKey(index);
                 it = setKeyPool->erase(it);
             }
