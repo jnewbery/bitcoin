@@ -3578,7 +3578,7 @@ void CReserveKey::ReturnKey()
 
 void CWallet::CheckKeypoolMinSize() {
     unsigned int keypool_min = GetArg("-keypoolmin", DEFAULT_KEYPOOL_MIN);
-    if (IsHDEnabled() && (setInternalKeyPool.size() < keypool_min || (setExternalKeyPool.size() < keypool_min))) {
+    if (IsHDEnabled() && ((CanSupportFeature(FEATURE_HD_SPLIT) && setInternalKeyPool.size() < keypool_min) || (setExternalKeyPool.size() < keypool_min))) {
         // if the remaining keypool size is below the gap limit, shutdown
         LogPrintf("%s: Keypool is too small. Shutting down. internal keypool: %d, external keypool: %d, keypool minimum: %d\n",
                   __func__, setInternalKeyPool.size(), setExternalKeyPool.size(), keypool_min);
