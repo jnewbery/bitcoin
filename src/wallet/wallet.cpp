@@ -4040,10 +4040,12 @@ CWallet* CWallet::CreateWalletFromFile(const std::string walletFile)
                 LogPrintf("Parameter Interaction: keypool size (%d) must be larger than keypool minimum size for encrypted wallets (%d)\n", keypool_size, keypool_min);
                 SoftSetArg("-keypool", std::to_string(keypool_min));
             }
-            InitWarning(_("You are using an encrypted HD wallet. You may miss incoming or outgoing transactions."));
+            InitWarning(strprintf(_("You are using an encrypted HD wallet. If you are restoring an old HD wallet that has not been topped up with the most recently "
+                                    "derived keys your wallet may not detect transactions involving those keys. You should manually top-up your wallet keypool.")));
         } else {
             if (keypool_size < keypool_min && keypool_size < DEFAULT_KEYPOOL_MIN) {
-                InitWarning(_("Your keypool size is below the recommended limit for HD rescans. You may miss incoming or outgoing transactions."));
+                InitWarning(strprintf(_("Your keypool is configured to store %d keys, which is below the keypool minimum size of %d. Using a larger keypool will make it less "
+                                        "likely that your wallet will be missing transactions and funds if it is restored from an old backup."), keypool_size, keypool_min));
             }
             walletInstance->TopUpKeyPool();
         }
