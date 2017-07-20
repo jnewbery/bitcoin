@@ -3582,7 +3582,7 @@ void CWallet::CheckKeypoolMinSize() {
         // if the remaining keypool size is below the gap limit, shutdown
         LogPrintf("%s: Keypool is too small. Shutting down. internal keypool: %d, external keypool: %d, keypool minimum: %d\n",
                   __func__, setInternalKeyPool.size(), setExternalKeyPool.size(), keypool_min);
-        const static std::string error_msg = "Keypool is too small. Shutting down";
+        const std::string error_msg = "Keypool is too small. Shutting down";
         uiInterface.ThreadSafeMessageBox(error_msg, "", CClientUIInterface::MSG_ERROR);
         StartShutdown();
         throw std::runtime_error(error_msg);
