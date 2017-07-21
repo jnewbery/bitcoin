@@ -3568,7 +3568,7 @@ void CReserveKey::ReturnKey()
     vchPubKey = CPubKey();
 }
 
-static void LoadReserveKeysToSet(std::set<CKeyID>& setAddress, const std::set<int64_t>& setKeyPool, CWalletDB& walletdb) {
+static void LoadReserveKeysToMap(std::map<CKeyID, ReserveKey>& mapKeyPool, const std::set<int64_t>& setKeyPool, CWalletDB& walletdb) {
     for (const int64_t& id : setKeyPool)
     {
         CKeyPool keypool;
@@ -3576,25 +3576,26 @@ static void LoadReserveKeysToSet(std::set<CKeyID>& setAddress, const std::set<in
             throw std::runtime_error(std::string(__func__) + ": read failed");
         assert(keypool.vchPubKey.IsValid());
         CKeyID keyID = keypool.vchPubKey.GetID();
-        setAddress.insert(keyID);
+        mapKeyPool[keyID] = ReserveKey {id, keypool.fInternal};
     }
 }
 
-void CWallet::GetAllReserveKeys(std::set<CKeyID>& setAddress) const
+std::map<CKeyID, ReserveKey> CWallet::GetAllReserveKeys() const
 {
-    setAddress.clear();
+    std::map<CKeyID, ReserveKey> mapKeyPool;
 
     CWalletDB walletdb(*dbw);
 
     LOCK2(cs_main, cs_wallet);
-    LoadReserveKeysToSet(setAddress, setInternalKeyPool, walletdb);
-    LoadReserveKeysToSet(setAddress, setExternalKeyPool, walletdb);
+    LoadReserveKeysToMap(mapKeyPool, setInternalKeyPool, walletdb);
+    LoadReserveKeysToMap(mapKeyPool, setExternalKeyPool, walletdb);
 
-    for (const CKeyID& keyID : setAddress) {
-        if (!HaveKey(keyID)) {
+    for (const std::pair<CKeyID, ReserveKey>& keyPool : mapKeyPool) {
+        if (!HaveKey(keyPool.first)) {
             throw std::runtime_error(std::string(__func__) + ": unknown key in key pool");
         }
     }
+    return mapKeyPool;
 }
 
 void CWallet::GetScriptForMining(std::shared_ptr<CReserveScript> &script)
