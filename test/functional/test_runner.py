@@ -289,11 +289,10 @@ def run_tests(test_list, src_dir, build_dir, exeext, tmpdir, jobs=1, enable_cove
     flags.append("--cachedir=%s" % cache_dir)
 
     if enable_coverage:
-        coverage = RPCCoverage()
-        flags.append(coverage.flag)
-        logging.debug("Initializing coverage directory at %s" % coverage.dir)
-    else:
-        coverage = None
+        coverage_dir = os.path.join(tmpdir, "coverage")
+        os.mkdir(coverage_dir)
+        flags.append('--coveragedir=%s' % coverage_dir)
+        logging.debug("Initializing coverage directory at %s" % coverage_dir)
 
     if len(test_list) > 1 and jobs > 1:
         # Populate cache
@@ -321,15 +320,19 @@ def run_tests(test_list, src_dir, build_dir, exeext, tmpdir, jobs=1, enable_cove
 
     print_results(test_results, max_len_name, (int(time.time() - time0)))
 
-    if coverage:
-        coverage.report_rpc_coverage()
+    if enable_coverage:
+        uncovered = uncovered_rpcs(coverage_dir)
 
-        logging.debug("Cleaning up coverage data")
-        coverage.cleanup()
+        if uncovered:
+            print("Uncovered RPC commands:")
+            print("".join(("  - %s\n" % i) for i in sorted(uncovered)))
+        else:
+            print("All RPC commands covered.")
 
-    # Clear up the temp directory if all subdirectories are gone
-    if not os.listdir(tmpdir):
-        os.rmdir(tmpdir)
+    # Clear up the temp directory if all test subdirectories are gone
+    print(os.listdir(tmpdir))
+    if not (set(os.listdir(tmpdir)) - {'coverage'}):
+        shutil.rmtree(tmpdir)
 
     all_passed = all(map(lambda test_result: test_result.was_successful, test_results))
 
@@ -457,12 +460,11 @@ def check_script_list(src_dir):
             # On travis this warning is an error to prevent merging incomplete commits into master
             sys.exit(1)
 
-class RPCCoverage(object):
-    """
-    Coverage reporting utilities for test_runner.
+def uncovered_rpcs(coverage_dir):
+    """Return a set of untested RPC commands.  
 
     Coverage calculation works by having each test script subprocess write
-    coverage files into a particular directory. These files contain the RPC
+    coverage files into the coverage directory. These files contain the RPC
     commands invoked during testing, as well as a complete listing of RPC
     commands per `bitcoin-cli help` (`rpc_interface.txt`).
 
@@ -470,59 +472,32 @@ class RPCCoverage(object):
     the complete list to calculate uncovered RPC commands.
 
     See also: test/functional/test_framework/coverage.py
-
     """
-    def __init__(self):
-        self.dir = tempfile.mkdtemp(prefix="coverage")
-        self.flag = '--coveragedir=%s' % self.dir
+    # This is shared from `test/functional/test-framework/coverage.py`
+    reference_filename = 'rpc_interface.txt'
+    coverage_file_prefix = 'coverage.'
 
-    def report_rpc_coverage(self):
-        """
-        Print out RPC commands that were unexercised by tests.
+    coverage_ref_filename = os.path.join(coverage_dir, reference_filename)
+    coverage_filenames = set()
+    all_cmds = set()
+    covered_cmds = set()
 
-        """
-        uncovered = self._get_uncovered_rpc_commands()
+    if not os.path.isfile(coverage_ref_filename):
+        raise RuntimeError("No coverage reference found")
 
-        if uncovered:
-            print("Uncovered RPC commands:")
-            print("".join(("  - %s\n" % i) for i in sorted(uncovered)))
-        else:
-            print("All RPC commands covered.")
+    with open(coverage_ref_filename, 'r') as f:
+        all_cmds.update([i.strip() for i in f.readlines()])
 
-    def cleanup(self):
-        return shutil.rmtree(self.dir)
+    for root, dirs, files in os.walk(coverage_dir):
+        for filename in files:
+            if filename.startswith(coverage_file_prefix):
+                coverage_filenames.add(os.path.join(root, filename))
 
-    def _get_uncovered_rpc_commands(self):
-        """
-        Return a set of currently untested RPC commands.
+    for filename in coverage_filenames:
+        with open(filename, 'r') as f:
+            covered_cmds.update([i.strip() for i in f.readlines()])
 
-        """
-        # This is shared from `test/functional/test-framework/coverage.py`
-        reference_filename = 'rpc_interface.txt'
-        coverage_file_prefix = 'coverage.'
-
-        coverage_ref_filename = os.path.join(self.dir, reference_filename)
-        coverage_filenames = set()
-        all_cmds = set()
-        covered_cmds = set()
-
-        if not os.path.isfile(coverage_ref_filename):
-            raise RuntimeError("No coverage reference found")
-
-        with open(coverage_ref_filename, 'r') as f:
-            all_cmds.update([i.strip() for i in f.readlines()])
-
-        for root, dirs, files in os.walk(self.dir):
-            for filename in files:
-                if filename.startswith(coverage_file_prefix):
-                    coverage_filenames.add(os.path.join(root, filename))
-
-        for filename in coverage_filenames:
-            with open(filename, 'r') as f:
-                covered_cmds.update([i.strip() for i in f.readlines()])
-
-        return all_cmds - covered_cmds
-
+    return all_cmds - covered_cmds
 
 if __name__ == '__main__':
     main()
