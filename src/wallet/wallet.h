@@ -82,7 +82,6 @@ class CTxMemPool;
 class CBlockPolicyEstimator;
 class CWalletTx;
 struct FeeCalculation;
-struct ReserveKey { int64_t index; bool internal; };
 enum class FeeEstimateMode;
 
 /** (client) version numbers for particular wallet features */
@@ -705,6 +704,7 @@ private:
     std::set<int64_t> setInternalKeyPool;
     std::set<int64_t> setExternalKeyPool;
     int64_t m_max_keypool_index;
+    std::map<CKeyID, int64_t> m_pool_key_to_id;
 
     int64_t nTimeFirstKey;
 
@@ -974,10 +974,10 @@ public:
     bool TopUpKeyPool(unsigned int kpSize = 0);
     void ReserveKeyFromKeyPool(int64_t& nIndex, CKeyPool& keypool, bool fRequestedInternal);
     void KeepKey(int64_t nIndex);
-    void ReturnKey(int64_t nIndex, bool fInternal);
+    void ReturnKey(int64_t nIndex, bool fInternal, const CPubKey& pubkey);
     bool GetKeyFromPool(CPubKey &key, bool internal = false);
     int64_t GetOldestKeyPoolTime();
-    std::map<CKeyID, ReserveKey> GetAllReserveKeys() const;
+    const std::map<CKeyID, int64_t>& GetAllReserveKeys() const { return m_pool_key_to_id; }
 
     std::set< std::set<CTxDestination> > GetAddressGroupings();
     std::map<CTxDestination, CAmount> GetAddressBalances();
