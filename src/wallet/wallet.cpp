@@ -3267,6 +3267,7 @@ size_t CWallet::KeypoolCountExternalKeys()
 
 void CWallet::LoadKeyPool(int64_t nIndex, const CKeyPool &keypool)
 {
+    AssertLockHeld(cs_wallet);
     if (keypool.fInternal) {
         setInternalKeyPool.insert(nIndex);
     } else {
