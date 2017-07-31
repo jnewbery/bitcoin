@@ -1051,7 +1051,6 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransactionRef& ptx, const CBlockI
              * This can happen when restoring an old wallet backup that does not contain
              * the mostly recently created transactions from newer versions of the wallet.
              */
-            std::map<CKeyID, int64_t> keyPool = GetAllReserveKeys();
 
             // loop though all outputs
             for (const CTxOut& txout: tx.vout) {
@@ -1059,8 +1058,8 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransactionRef& ptx, const CBlockI
                 std::vector<CKeyID> vAffected;
                 CAffectedKeysVisitor(*this, vAffected).Process(txout.scriptPubKey);
                 for (const CKeyID &keyid : vAffected) {
-                    std::map<CKeyID, int64_t>::const_iterator mi = keyPool.find(keyid);
-                    if (mi != keyPool.end()) {
+                    std::map<CKeyID, int64_t>::const_iterator mi = m_pool_key_to_id.find(keyid);
+                    if (mi != m_pool_key_to_id.end()) {
                         LogPrintf("%s: Detected a used keypool key, mark all keypool key up to this key as used\n", __func__);
                         MarkReserveKeysAsUsed(mi->second);
 
