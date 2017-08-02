@@ -3650,7 +3650,6 @@ void CWallet::ShutdownIfKeypoolCritical() {
                                       "then you may need to do a complete reindex. Consider raising the prune limit temporarily for both restarts to avoid this.";
         uiInterface.ThreadSafeMessageBox(error_msg, "", CClientUIInterface::MSG_ERROR);
         StartShutdown();
-        throw std::runtime_error(error_msg);
     }
 }
 
@@ -4056,18 +4055,12 @@ CWallet* CWallet::CreateWalletFromFile(const std::string walletFile)
     if (walletInstance->IsHDEnabled()) {
         unsigned int keypool_size = GetArg("-keypool", DEFAULT_KEYPOOL_SIZE);
         unsigned int keypool_critical = GetArg("-keypoolcritical", DEFAULT_KEYPOOL_CRITICAL);
-        if (walletInstance->IsCrypted()) {
-            if (keypool_size < keypool_critical) {
-                LogPrintf("Parameter Interaction: keypool size (%d) must be larger than keypool critical size for encrypted wallets (%d)\n", keypool_size, keypool_critical);
-                ForceSetArg("-keypool", std::to_string(keypool_critical));
-            }
-        } else {
-            if (keypool_size < keypool_critical) {
-                InitWarning(strprintf(_("Your keypool is configured to store %d keys, which is below the keypool critical size of %d. Using a larger keypool will make it less "
-                                        "likely that your wallet will be missing transactions and funds if it is restored from an old backup."), keypool_size, keypool_critical));
-            }
-            walletInstance->TopUpKeyPool();
+        if (keypool_size < keypool_critical) {
+            LogPrintf("Parameter Interaction: keypool size (%d) must be larger than keypool critical size for encrypted wallets (%d)\n", keypool_size, keypool_critical);
+            ForceSetArg("-keypool", std::to_string(keypool_critical));
         }
+
+        walletInstance->TopUpKeyPool();
         walletInstance->ShutdownIfKeypoolCritical();
     }
 
