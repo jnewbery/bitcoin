@@ -4056,7 +4056,7 @@ CWallet* CWallet::CreateWalletFromFile(const std::string walletFile)
         unsigned int keypool_size = GetArg("-keypool", DEFAULT_KEYPOOL_SIZE);
         unsigned int keypool_critical = GetArg("-keypoolcritical", DEFAULT_KEYPOOL_CRITICAL);
         if (keypool_size < keypool_critical) {
-            LogPrintf("Parameter Interaction: keypool size (%d) must be larger than keypool critical size for encrypted wallets (%d)\n", keypool_size, keypool_critical);
+            LogPrintf("Parameter Interaction: keypool size (%d) must be larger than keypool critical size (%d)\n", keypool_size, keypool_critical);
             ForceSetArg("-keypool", std::to_string(keypool_critical));
         }
 
