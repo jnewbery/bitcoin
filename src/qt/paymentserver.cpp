@@ -648,7 +648,7 @@ void PaymentServer::fetchPaymentACK(CWallet* wallet, SendCoinsRecipient recipien
     }
     else {
         CPubKey newKey;
-        if (wallet->GetKeyFromPool(newKey)) {
+        if (wallet->GetKeyFromPool(newKey) && (!wallet->IsHDEnabled() || wallet->HasUnusedKeys(GetArg("-keypoolcritical", DEFAULT_KEYPOOL_CRITICAL)))) {
             CKeyID keyID = newKey.GetID();
             wallet->SetAddressBook(keyID, strAccount, "refund");
 
