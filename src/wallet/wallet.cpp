@@ -420,7 +420,7 @@ void CWallet::SetBestChain(const CBlockLocator& loc)
     LOCK(cs_wallet); //nWalletMaxVersion
     unsigned int keypool_min = GetArg("-keypoolmin", DEFAULT_KEYPOOL_MIN);
     if (GetBoolArg("-bypasskeypoolcritical", false) ||
-        (IsHDEnabled() && (!m_update_best_block || (CanSupportFeature(FEATURE_HD_SPLIT) && setInternalKeyPool.size() < keypool_min) || (setExternalKeyPool.size() < keypool_min)))) {
+        (IsHDEnabled() && (!m_update_best_block || !HasUnusedKeys(keypool_min)))) {
         // If the keypool has dropped below -keypoolmin, then don't update the bestblock height. We can rescan later once the wallet is unlocked.
 
         if (m_update_best_block) {
@@ -3667,9 +3667,7 @@ void CReserveKey::ReturnKey()
 void CWallet::ShutdownIfKeypoolCritical() {
     LOCK(cs_wallet);
     unsigned int keypool_critical = GetArg("-keypoolcritical", DEFAULT_KEYPOOL_CRITICAL);
-    if (!GetBoolArg("-bypasskeypoolcritical", false) &&
-        IsHDEnabled() &&
-        ((CanSupportFeature(FEATURE_HD_SPLIT) && setInternalKeyPool.size() < keypool_critical) || (setExternalKeyPool.size() < keypool_critical))) {
+    if (!GetBoolArg("-bypasskeypoolcritical", false) && IsHDEnabled() && !HasUnusedKeys(keypool_critical)) {
         // if the remaining keypool size is below the gap limit, shutdown
         LogPrintf("%s: Number of keys in keypool is below critical minimum. Shutting down. internal keypool: %d, external keypool: %d, keypool minimum: %d\n",
                   __func__, setInternalKeyPool.size(), setExternalKeyPool.size(), keypool_critical);
@@ -3705,6 +3703,11 @@ void CWallet::MarkReserveKeysAsUsed(int64_t keypool_id)
         walletdb.ErasePool(index);
         it = setKeyPool->erase(it);
     }
+}
+
+bool CWallet::HasUnusedKeys(int min_keys) const
+{
+    return setExternalKeyPool.size() >= min_keys && (setInternalKeyPool.size() >= min_keys || !CanSupportFeature(FEATURE_HD_SPLIT));
 }
 
 void CWallet::GetScriptForMining(std::shared_ptr<CReserveScript> &script)
