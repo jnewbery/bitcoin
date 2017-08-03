@@ -60,15 +60,15 @@ class KeypoolRestoreTest(BitcoinTestFramework):
 
         self.log.info("Generate keys for wallet")
 
-        for _ in range(90):
-            addr_oldpool = self.nodes[1].getnewaddress()
-        for _ in range(10):
+        for _ in range(80):
             self.nodes[1].getnewaddress()
         if encrypted:
             # Keypool can't top up because the wallet is encrypted
-            assert_raises_jsonrpc(-12, "Keypool ran out", self.nodes[1].getnewaddress)
+            assert_raises_jsonrpc(-12, "Keypool is at critical level or has run out, please call keypoolrefill first", self.nodes[1].getnewaddress)
             self.nodes[1].walletpassphrase("test", 10)
         for _ in range(10):
+            addr_oldpool = self.nodes[1].getnewaddress()
+        for _ in range(20):
             addr_extpool = self.nodes[1].getnewaddress()
 
         self.stop_node(1)
