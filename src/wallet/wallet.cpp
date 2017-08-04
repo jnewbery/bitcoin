@@ -419,8 +419,14 @@ void CWallet::SetBestChain(const CBlockLocator& loc)
 {
     LOCK(cs_wallet); //nWalletMaxVersion
     unsigned int keypool_min = GetArg("-keypoolmin", DEFAULT_KEYPOOL_MIN);
-    if (IsHDEnabled() && ((CanSupportFeature(FEATURE_HD_SPLIT) && setInternalKeyPool.size() < keypool_min) || (setExternalKeyPool.size() < keypool_min))) {
+    if (IsHDEnabled() && (!m_update_best_block || (CanSupportFeature(FEATURE_HD_SPLIT) && setInternalKeyPool.size() < keypool_min) || (setExternalKeyPool.size() < keypool_min))) {
         // If the keypool has dropped below -keypoolmin, then don't update the bestblock height. We can rescan later once the wallet is unlocked.
+
+        if (m_update_best_block) {
+            LogPrintf("Keypool has fallen below keypool_min (%s). Wallet will no longer watch for new transactions and best block height will not be advanced.\n", keypool_min);
+            LogPrintf("Unlock wallet, top up keypool and rescan to resume watching for new transactions.\n");
+            m_update_best_block = false;
+        }
         return;
     }
     CWalletDB walletdb(*dbw);
@@ -1615,6 +1621,7 @@ CBlockIndex* CWallet::ScanForWalletTransactions(CBlockIndex* pindexStart, bool f
 {
     int64_t nNow = GetTime();
     const CChainParams& chainParams = Params();
+    bool keypool_above_min = true;
 
     CBlockIndex* pindex = pindexStart;
     CBlockIndex* ret = nullptr;
@@ -1635,6 +1642,9 @@ CBlockIndex* CWallet::ScanForWalletTransactions(CBlockIndex* pindexStart, bool f
                 LogPrintf("Still rescanning. At block %d. Progress=%f\n", pindex->nHeight, GuessVerificationProgress(chainParams.TxData(), pindex));
             }
 
+            unsigned int keypool_min = GetArg("-keypoolmin", DEFAULT_KEYPOOL_MIN);
+            keypool_above_min &= (CanSupportFeature(FEATURE_HD_SPLIT) && setInternalKeyPool.size() < keypool_min) || (setExternalKeyPool.size() < keypool_min);
+
             CBlock block;
             if (ReadBlockFromDisk(block, pindex, Params().GetConsensus())) {
                 for (size_t posInBlock = 0; posInBlock < block.vtx.size(); ++posInBlock) {
@@ -1651,6 +1661,15 @@ CBlockIndex* CWallet::ScanForWalletTransactions(CBlockIndex* pindexStart, bool f
         ShowProgress(_("Rescanning..."), 100); // hide progress dialog in GUI
 
         fScanningWallet = false;
+    }
+
+    // Update m_update_best_block if we've scanned from before the previous best block with keypool above Keypool_min
+    CWalletDB walletdb(*dbw);
+    CBlockLocator loc;
+    walletdb.ReadBestBlock(loc);
+    CBlockIndex* pindexBestBlock = FindForkInGlobalIndex(chainActive, loc);
+    if (IsHDEnabled() && pindexStart->nHeight <= pindexBestBlock->nHeight) {
+        m_update_best_block = keypool_above_min;
     }
     return ret;
 }
