@@ -1260,15 +1260,17 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             return false;
         }
 
-        if (nServices & ((1 << 7) | (1 << 5))) {
-            if (GetTime() < 1533096000) {
-                // Immediately disconnect peers that use service bits 6 or 8 until August 1st, 2018
-                // These bits have been used as a flag to indicate that a node is running incompatible
-                // consensus rules instead of changing the network magic, so we're stuck disconnecting
-                // based on these service bits, at least for a while.
-                pfrom->fDisconnect = true;
-                return false;
-            }
+        if (nServices & (NODE_UNSUPPORTED_SERVICE_BIT_5 | NODE_UNSUPPORTED_SERVICE_BIT_7) &&
+            GetTime() < 1533096000) {  // August 1st, 2018
+            // Immediately disconnect peers that use service bits 5 or 7.
+            // These bits are used by nodes that follow an incompatible fork of
+            // the Bitcoin blockchain. Disconnect immediately to avoid network
+            // isolation after the hard fork.
+            // TODO: remove in the first release after August 1st 2018. By that
+            // time we expect the incompatible software to have updated their
+            // network magic.
+            pfrom->fDisconnect = true;
+            return false;
         }
 
         if (nVersion < MIN_PEER_PROTO_VERSION)
@@ -3323,3 +3325,4 @@ public:
         mapOrphanTransactionsByPrev.clear();
     }
 } instance_of_cnetprocessingcleanup;
+

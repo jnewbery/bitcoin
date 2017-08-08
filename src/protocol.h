@@ -267,6 +267,18 @@ enum ServiceFlags : uint64_t {
     // NODE_XTHIN means the node supports Xtreme Thinblocks
     // If this is turned off then the node will not service nor make xthin requests
     NODE_XTHIN = (1 << 4),
+    // NODE_UNSUPPORTED_SERVICE_BIT_5 is used by incompatible Bcash nodes which do not
+    // follow Bitcoin consensus rules.
+    // Immediately disconnect nodes that signal this service bit.
+    // TODO: remove this constant on August 1st 2018. By that time BCash will have
+    // changed network magic to fully separate from the Bitcoin Network.
+    NODE_UNSUPPORTED_SERVICE_BIT_5 = (1 << 5),
+    // NODE_UNSUPPORTED_SERVICE_BIT_7 is used by incompatible Segwit2x nodes which
+    // do not follow Bitcoin consensus rules.
+    // Immediately disconnect nodes that signal this service bit.
+    // TODO: remove this constant on August 1st 2018. By that time Segwit2x will have
+    // changed network magic to fully separate from the Bitcoin Network.
+    NODE_UNSUPPORTED_SERVICE_BIT_7 = (1 << 7),
 
     // Bits 24-31 are reserved for temporary experiments. Just pick a bit that
     // isn't getting used, or one not being used much, and notify the
