@@ -18,14 +18,13 @@ Repeat test twice, once with encrypted wallet and once with unencrypted wallet:
 """
 import os
 import shutil
-import tempfile
 
 from test_framework.test_framework import BitcoinTestFramework, BITCOIND_PROC_WAIT_TIMEOUT
 from test_framework.util import (
     assert_equal,
     assert_raises_jsonrpc,
-    connect_nodes,
-    connect_nodes_bi
+    connect_nodes_bi,
+    sync_blocks,
 )
 
 class KeypoolRestoreTest(BitcoinTestFramework):
@@ -33,17 +32,17 @@ class KeypoolRestoreTest(BitcoinTestFramework):
         super().__init__()
         self.setup_clean_chain = True
         self.num_nodes = 2
-        self.extra_args = [['-usehd=0'], ['-usehd=1', '-keypool=100', '-keypoolcritical=20']]
+        self.extra_args = [['-usehd=0'], ['-usehd=1', '-keypool=100', '-keypoolmin=20', '-keypoolcritical=20']]
 
     def run_test(self):
         self.tmpdir = self.options.tmpdir
         self.nodes[0].generate(101)
 
-        self.log.info("Test keypool restore (unencrypted wallet)")
-        self._test_restore(encrypted=False)
-
         self.log.info("Test keypool restore (encrypted wallet)")
         self._test_restore(encrypted=True)
+
+        self.log.info("Test keypool restore (unencrypted wallet)")
+        self._test_restore(encrypted=False)
 
     def _test_restore(self, encrypted):
 
@@ -57,6 +56,7 @@ class KeypoolRestoreTest(BitcoinTestFramework):
 
         shutil.copyfile(self.tmpdir + "/node1/regtest/wallet.dat", self.tmpdir + "/wallet.bak")
         self.nodes[1] = self.start_node(1, self.tmpdir, self.extra_args[1])
+        connect_nodes_bi(self.nodes, 0, 1)
 
         self.log.info("Generate keys for wallet")
 
@@ -71,39 +71,30 @@ class KeypoolRestoreTest(BitcoinTestFramework):
         for _ in range(20):
             addr_extpool = self.nodes[1].getnewaddress()
 
-        self.stop_node(1)
-
         self.log.info("Send funds to wallet")
 
         self.nodes[0].sendtoaddress(addr_oldpool, 10)
+        self.nodes[0].generate(1)
         self.nodes[0].sendtoaddress(addr_extpool, 5)
         self.nodes[0].generate(1)
+        sync_blocks(self.nodes)
 
-        self.log.info("Empty datadir and restart node")
+        self.log.info("Restart node with wallet backup")
 
-        # self.stop_node(1)
-        shutil.rmtree(self.tmpdir + "/node1/regtest/chainstate")
-        shutil.rmtree(self.tmpdir + "/node1/regtest/blocks")
+        self.stop_node(1)
+
         shutil.copyfile(self.tmpdir + "/wallet.bak", self.tmpdir + "/node1/regtest/wallet.dat")
 
         if encrypted:
             self.log.info("Encrypted wallet - verify node shuts down to avoid loss of funds")
 
-            with tempfile.SpooledTemporaryFile(max_size=2**16) as log_stderr:
-                self.nodes[1] = self.start_node(1, self.tmpdir, self.extra_args[1], stderr=log_stderr)
-                connect_nodes(self.nodes[0], 1)
+            self.assert_start_raises_init_error(1, self.tmpdir, self.extra_args[1], expected_msg="Number of keys in keypool is below critical minimum and the wallet is encrypted. Bitcoin will now shutdown to avoid loss of funds.")
 
-                # node1 should shutdown because it can't topup its keypool
-                self.bitcoind_processes[1].wait(2)
+            shutil.rmtree(self.tmpdir + "/node1/regtest/chainstate")
+            shutil.rmtree(self.tmpdir + "/node1/regtest/blocks")
+            os.remove(self.tmpdir + "/node1/regtest/wallet.dat")
+            self.nodes[1] = self.start_node(1, self.tmpdir, self.extra_args[1])
 
-                log_stderr.seek(0)
-                stderr = log_stderr.read().decode('utf-8')
-                assert "Number of keys in keypool is below critical minimum and the wallet is encrypted. Bitcoin will now shutdown to avoid loss of funds." in stderr
-
-                shutil.rmtree(self.tmpdir + "/node1/regtest/chainstate")
-                shutil.rmtree(self.tmpdir + "/node1/regtest/blocks")
-                os.remove(self.tmpdir + "/node1/regtest/wallet.dat")
-                self.nodes[1] = self.start_node(1, self.tmpdir, self.extra_args[1])
         else:
             self.log.info("Unencrypted wallet - verify keypool is restored and balance is correct")
 
