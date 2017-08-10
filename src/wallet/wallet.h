@@ -872,6 +872,8 @@ public:
     void UnlockAllCoins();
     void ListLockedCoins(std::vector<COutPoint>& vOutpts) const;
 
+    bool GetBestBlock(CBlockLocator& locator) const;
+
     /*
      * Rescan abort properties
      */

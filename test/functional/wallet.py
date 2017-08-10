@@ -41,6 +41,8 @@ class WalletTest(BitcoinTestFramework):
         walletinfo = self.nodes[0].getwalletinfo()
         assert_equal(walletinfo['immature_balance'], 50)
         assert_equal(walletinfo['balance'], 0)
+        assert_equal(walletinfo['bestblock'], 0)
+        assert_equal(walletinfo['bestblockheight'], 0)
 
         self.sync_all()
         self.nodes[1].generate(101)

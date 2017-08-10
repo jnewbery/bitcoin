@@ -3678,6 +3678,12 @@ void CWallet::ListLockedCoins(std::vector<COutPoint>& vOutpts) const
     }
 }
 
+bool CWallet::GetBestBlock(CBlockLocator& locator) const
+{
+    AssertLockHeld(cs_wallet);
+    return CWalletDB(*dbw).ReadBestBlock(locator);
+}
+
 /** @} */ // end of Actions
 
 class CAffectedKeysVisitor : public boost::static_visitor<void> {
