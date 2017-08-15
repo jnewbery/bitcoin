@@ -235,7 +235,8 @@ class BitcoinTestFramework(object):
             raise
 
         if self.options.coveragedir is not None:
-            coverage.write_all_rpc_commands(self.options.coveragedir, node.rpc)
+            for node in nodes:
+                coverage.write_all_rpc_commands(self.options.coveragedir, node.rpc)
 
         return nodes
 
@@ -248,9 +249,11 @@ class BitcoinTestFramework(object):
     def stop_nodes(self):
         """Stop multiple bitcoind test nodes"""
         for node in self.nodes:
+            # Issue RPC to stop nodes
             node.stop_node()
-        # All connections must be gone now
+
         for node in self.nodes:
+            # Wait for nodes to stop
             while not node.is_node_stopped():
                 time.sleep(0.1)
 

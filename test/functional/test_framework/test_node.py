@@ -59,7 +59,6 @@ class TestNode():
 
     def start(self):
         """Start the node."""
-        # import pdb; pdb.set_trace()
         self.process = subprocess.Popen(self.args + self.extra_args, stderr=self.stderr)
         self.running = True
         self.log.debug("bitcoind started, waiting for RPC to come up")
@@ -77,7 +76,7 @@ class TestNode():
                 self.rpc_connected = True
                 self.url = self.rpc.url
                 self.log.debug("RPC successfully started")
-                return True
+                return
             except IOError as e:
                 if e.errno != errno.ECONNREFUSED:  # Port not yet open?
                     raise  # unknown IO error

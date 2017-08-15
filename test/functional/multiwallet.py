@@ -38,7 +38,7 @@ class MultiWalletTest(BitcoinTestFramework):
         w1 = self.nodes[0].get_wallet_rpc("w1")
         w2 = self.nodes[0].get_wallet_rpc("w2")
         w3 = self.nodes[0].get_wallet_rpc("w3")
-        wallet_bad = self.nodes[0].get_wallet_rpc("wallet/bad")
+        wallet_bad = self.nodes[0].get_wallet_rpc("bad")
 
         w1.generate(1)
 
