@@ -1532,9 +1532,28 @@ UniValue getchaintxstats(const JSONRPCRequest& request)
     return ret;
 }
 
+UniValue dumpmempool(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 0)
+        throw std::runtime_error(
+            "dumpmempool\n"
+            "\nDumps the mempool to disk.\n"
+            "\nExamples:\n"
+            + HelpExampleCli("dumpmempool", "")
+            + HelpExampleRpc("dumpmempool", "")
+        );
+
+    if (!DumpMempool()) {
+        throw JSONRPCError(RPC_MISC_ERROR, "Unable to dump mempool to disk");
+    }
+
+    return true;
+}
+
 static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         okSafe argNames
   //  --------------------- ------------------------  -----------------------  ------ ----------
+    { "blockchain",         "dumpmempool",            &dumpmempool,            true,  {} },
     { "blockchain",         "getblockchaininfo",      &getblockchaininfo,      true,  {} },
     { "blockchain",         "getchaintxstats",        &getchaintxstats,        true,  {"nblocks", "blockhash"} },
     { "blockchain",         "getbestblockhash",       &getbestblockhash,       true,  {} },
