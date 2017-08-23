@@ -143,11 +143,17 @@ class TestNodeCLI():
     def __init__(self, binary, datadir):
         self.binary = binary
         self.datadir = datadir
+        self.args = []
 
     def __getattr__(self, command):
         def dispatcher(*args, **kwargs):
             return self.send_cli(command, *args, **kwargs)
         return dispatcher
+
+    def __call__(self, args):
+        # TestNodeCLI is callable with bitcoin-cli command-line args
+        self.args = args
+        return self
 
     def send_cli(self, command, *args, **kwargs):
         """Run bitcoin-cli command. Deserializes returned string as python object."""
@@ -156,6 +162,13 @@ class TestNodeCLI():
         named_args = [str(key) + "=" + str(value) for (key, value) in kwargs.items()]
         assert not (pos_args and named_args), "Cannot use positional arguments and named arguments in the same bitcoin-cli call"
         p_args = [self.binary, "-datadir=" + self.datadir]
+
+        # Use bitcoin-cli command line args
+        if self.args is not []:
+            p_args.extend(self.args)
+            # Clear args for next call to bitcoin-cli
+            self.args = []
+
         if named_args:
             p_args += ["-named"]
         p_args += [command] + pos_args + named_args
