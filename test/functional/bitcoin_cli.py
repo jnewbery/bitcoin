@@ -14,19 +14,18 @@ class TestBitcoinCli(BitcoinTestFramework):
         self.num_nodes = 1
 
     def run_test(self):
-        """Main test logic"""
 
         self.log.info("Compare responses from gewallettinfo RPC and `bitcoin-cli getwalletinfo`")
-        cli_get_info = self.nodes[0].cli.getwalletinfo()
-        rpc_get_info = self.nodes[0].getwalletinfo()
-
-        assert_equal(cli_get_info, rpc_get_info)
+        assert_equal(self.nodes[0].cli.getwalletinfo(), self.nodes[0].getwalletinfo())
 
         self.log.info("Compare responses from getblockchaininfo RPC and `bitcoin-cli getblockchaininfo`")
-        cli_get_info = self.nodes[0].cli.getblockchaininfo()
-        rpc_get_info = self.nodes[0].getblockchaininfo()
+        assert_equal(self.nodes[0].cli.getblockchaininfo(), self.nodes[0].getblockchaininfo())
 
-        assert_equal(cli_get_info, rpc_get_info)
+        self.log.info("Compare responses from getmininginfo RPC and `bitcoin-cli getmininginfo`")
+        assert_equal(self.nodes[0].cli.getmininginfo(), self.nodes[0].getmininginfo())
+
+        self.log.info("Compare responses from getnetworkinfo RPC and `bitcoin-cli getnetworkinfo`")
+        assert_equal(self.nodes[0].cli.getnetworkinfo(), self.nodes[0].getnetworkinfo())
 
 if __name__ == '__main__':
     TestBitcoinCli().main()
