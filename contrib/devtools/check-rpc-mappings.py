@@ -1,32 +1,28 @@
-#!/usr/bin/python3
-'''
-Check RPC argument consistency.
-'''
-import sys, os, re
+#!/usr/bin/env python3
+# Copyright (c) 2017 The Bitcoin Core developers
+# Distributed under the MIT software license, see the accompanying
+# file COPYING or http://www.opensource.org/licenses/mit-license.php.
+""" Check RPC argument consistency."""
+
 from collections import defaultdict
+import os
+import re
+import sys
 
 # Source files (relative to root) to scan for dispatch tables
 SOURCES = [
-"src/rpc/server.cpp",
-"src/rpc/blockchain.cpp",
-"src/rpc/mining.cpp",
-"src/rpc/misc.cpp",
-"src/rpc/net.cpp",
-"src/rpc/rawtransaction.cpp",
-"src/wallet/rpcwallet.cpp",
+    "src/rpc/server.cpp",
+    "src/rpc/blockchain.cpp",
+    "src/rpc/mining.cpp",
+    "src/rpc/misc.cpp",
+    "src/rpc/net.cpp",
+    "src/rpc/rawtransaction.cpp",
+    "src/wallet/rpcwallet.cpp",
 ]
 # Source file (relative to root) containing conversion mapping
 SOURCE_CLIENT = 'src/rpc/client.cpp'
 # Argument names that should be ignored in consistency checks
-IGNORE_DUMMY_ARGS = {'dummy','arg0','arg1','arg2','arg3','arg4','arg5','arg6','arg7','arg8','arg9'}
-
-def parse_string(s):
-    assert(s[0] == '"')
-    assert(s[-1] == '"')
-    return s[1:-1]
-
-def make_string(s):
-    return '"%s"' % s
+IGNORE_DUMMY_ARGS = {'dummy', 'arg0', 'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6', 'arg7', 'arg8', 'arg9'}
 
 class RPCCommand:
     def __init__(self, name, args):
@@ -37,11 +33,15 @@ class RPCArgument:
     def __init__(self, names, idx):
         self.names = names
         self.idx = idx
+        self.convert = False
+
+def parse_string(s):
+    assert s[0] == '"'
+    assert s[-1] == '"'
+    return s[1:-1]
 
 def process_commands(fname):
-    '''
-    Find and parse dispatch table in implementation file `fname`.
-    '''
+    """Find and parse dispatch table in implementation file `fname`."""
     cmds = []
     in_rpcs = False
     with open(fname, "r") as f:
@@ -61,17 +61,15 @@ def process_commands(fname):
                     name = parse_string(m.group(2))
                     args_str = m.group(4).strip()
                     if args_str:
-                        args = [RPCArgument(parse_string(x.strip()).split('|'), idx) for idx,x in enumerate(args_str.split(','))]
+                        args = [RPCArgument(parse_string(x.strip()).split('|'), idx) for idx, x in enumerate(args_str.split(','))]
                     else:
                         args = []
                     cmds.append(RPCCommand(name, args))
-    assert(not in_rpcs) # If this assertion is hit, something went wrong with parsing the C++ file: update the regexps
+    assert not in_rpcs, "Something went wrong with parsing the C++ file: update the regexps"
     return cmds
 
 def process_mapping(fname):
-    '''
-    Find and parse conversion table in implementation file `fname`.
-    '''
+    """Find and parse conversion table in implementation file `fname`."""
     cmds = []
     in_rpcs = False
     with open(fname, "r") as f:
@@ -92,9 +90,8 @@ def process_mapping(fname):
                     idx = int(m.group(2))
                     argname = parse_string(m.group(3))
                     cmds.append((name, idx, argname))
-    assert(not in_rpcs)
+    assert not in_rpcs
     return cmds
-
 
 def main():
     root = sys.argv[1]
@@ -110,8 +107,7 @@ def main():
 
     # Get current convert mapping for client
     client = SOURCE_CLIENT
-    mapping_order = process_mapping(os.path.join(root, client))
-    mapping = set(mapping_order)
+    mapping = set(process_mapping(os.path.join(root, client)))
 
     print('* Checking consistency between dispatch tables and vRPCConvertParams')
 
@@ -134,7 +130,7 @@ def main():
     # and some aliases won't work.
     for cmd in cmds:
         for arg in cmd.args:
-            convert = [((cmd.name,arg.idx,argname) in mapping) for argname in arg.names]
+            convert = [((cmd.name, arg.idx, argname) in mapping) for argname in arg.names]
             if any(convert) != all(convert):
                 print('ERROR: %s argument %s has conflicts in vRPCConvertParams conversion specifier %s' % (cmd.name, arg.names, convert))
                 errors += 1
@@ -151,15 +147,16 @@ def main():
                 all_methods_by_argname[argname].append(cmd.name)
                 converts_by_argname[argname].append(arg.convert)
 
-    for argname,convert in converts_by_argname.items():
+    for argname, convert in converts_by_argname.items():
         if all(convert) != any(convert):
-            if argname in IGNORE_DUMMY_ARGS: # these are testing or dummy, don't warn for them
+            if argname in IGNORE_DUMMY_ARGS:
+                # these are testing or dummy, don't warn for them
                 continue
             print('WARNING: conversion mismatch for argument named %s (%s)' %
-                    (argname, list(zip(all_methods_by_argname[argname], converts_by_argname[argname]))))
+                  (argname, list(zip(all_methods_by_argname[argname], converts_by_argname[argname]))))
 
-    exit(errors > 0)
+    sys.exit(errors > 0)
+
 
 if __name__ == '__main__':
     main()
-
