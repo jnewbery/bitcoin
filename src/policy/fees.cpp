@@ -944,7 +944,10 @@ bool CBlockPolicyEstimator::Read(CAutoFile& filein)
         unsigned int nFileBestSeenHeight;
         filein >> nFileBestSeenHeight;
 
-        if (nVersionThatWrote > 149900) {
+        if (nVersionThatWrote < 149900) {
+            LogPrintf("%s: unable to read old version fee estimate file. Version: %d\n", __func__, nVersionThatWrote);
+        }
+        else { // nVersionThatWrote >= 149900
             unsigned int nFileHistoricalFirst, nFileHistoricalBest;
             filein >> nFileHistoricalFirst >> nFileHistoricalBest;
             if (nFileHistoricalFirst > nFileHistoricalBest || nFileHistoricalBest > nFileBestSeenHeight) {
