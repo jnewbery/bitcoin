@@ -78,9 +78,9 @@ class SegWitTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         self.num_nodes = 3
         # This test tests SegWit both pre and post-activation, so use the normal BIP9 activation.
-        self.extra_args = [["-walletprematurewitness", "-rpcserialversion=0", "-vbparams=segwit:0:999999999999"],
-                           ["-blockversion=4", "-promiscuousmempoolflags=517", "-prematurewitness", "-walletprematurewitness", "-rpcserialversion=1", "-vbparams=segwit:0:999999999999"],
-                           ["-blockversion=536870915", "-promiscuousmempoolflags=517", "-prematurewitness", "-walletprematurewitness", "-vbparams=segwit:0:999999999999"]]
+        self.extra_args = [["-rpcserialversion=0", "-vbparams=segwit:0:999999999999"],
+                           ["-blockversion=4", "-promiscuousmempoolflags=517", "-prematurewitness", "-rpcserialversion=1", "-vbparams=segwit:0:999999999999"],
+                           ["-blockversion=536870915", "-promiscuousmempoolflags=517", "-prematurewitness", "-vbparams=segwit:0:999999999999"]]
 
     def setup_network(self):
         super().setup_network()
