@@ -322,10 +322,6 @@ def get_auth_cookie(datadir):
 def log_filename(dirname, n_node, logname):
     return os.path.join(dirname, "node" + str(n_node), "regtest", logname)
 
-def get_bip9_status(node, key):
-    info = node.getblockchaininfo()
-    return info['softforks'][key]['bip9']
-
 def softfork_active(node, key):
     """Return whether a softfork is active."""
     return node.getblockchaininfo()['softforks'][key]['active']

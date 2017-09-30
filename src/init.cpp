@@ -440,6 +440,7 @@ std::string HelpMessage(HelpMessageMode mode)
         strUsage += HelpMessageOpt("-testsafemode", strprintf("Force safe mode (default: %u)", DEFAULT_TESTSAFEMODE));
         strUsage += HelpMessageOpt("-dropmessagestest=<n>", "Randomly drop 1 of every <n> network messages");
         strUsage += HelpMessageOpt("-fuzzmessagestest=<n>", "Randomly fuzz 1 of every <n> network messages");
+        strUsage += HelpMessageOpt("-segwitheight=<n>", "Set the activation height of segwit. -1 to disable. (regtest-only)");
         strUsage += HelpMessageOpt("-stopafterblockimport", strprintf("Stop running after importing blocks from disk (default: %u)", DEFAULT_STOPAFTERBLOCKIMPORT));
         strUsage += HelpMessageOpt("-stopatheight", strprintf("Stop running after reaching the given height in the main chain (default: %u)", DEFAULT_STOPATHEIGHT));
 
@@ -1152,6 +1153,21 @@ bool AppInitParameterInteraction()
             }
         }
     }
+
+    if (gArgs.IsArgSet("-segwitheight")) {
+        if (!chainparams.MineBlocksOnDemand()) {
+            return InitError("Segwit activation parameters may only be overridden on regtest.");
+        }
+        int64_t height = gArgs.GetArg("-segwitheight", chainparams.GetConsensus().SegwitHeight);
+        if (height < -1 || height >= std::numeric_limits<int>::max()) {
+            return InitError(strprintf("Activation height %ld for segwit is out of valid range. Use -1 to disable segwit.", height));
+        }
+        else if (height == -1) {
+            LogPrintf("Segwit disabled for testing\n");
+            height = std::numeric_limits<int>::max();
+        }
+        UpdateSegwitHeight(static_cast<int>(height));
+    }
     return true;
 }
 
@@ -1610,10 +1626,8 @@ bool AppInitMain()
         }
     }
 
-    if (chainparams.GetConsensus().vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout != 0) {
-        // Only advertise witness capabilities if they have a reasonable start time.
-        // This allows us to have the code merged without a defined softfork, by setting its
-        // end time to 0.
+    if (chainparams.GetConsensus().SegwitHeight != std::numeric_limits<int>::max()) {
+        // Advertise witness capabilities.
         // Note that setting NODE_WITNESS is never required: the only downside from not
         // doing so is that after activation, no upgraded nodes will fetch from you.
         nLocalServices = ServiceFlags(nLocalServices | NODE_WITNESS);

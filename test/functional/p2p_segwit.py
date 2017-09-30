@@ -119,7 +119,8 @@ class SegWitTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         self.num_nodes = 3
         # This test tests SegWit both pre and post-activation, so use the normal BIP9 activation.
-        self.extra_args = [["-whitelist=127.0.0.1", "-vbparams=segwit:0:999999999999"], ["-whitelist=127.0.0.1", "-acceptnonstdtxn=0", "-vbparams=segwit:0:999999999999"], ["-whitelist=127.0.0.1", "-vbparams=segwit:0:0"]]
+        self.segwitheight = str(random.randint(120, 150)) # Pick a random number for the hardcoded activation height
+        self.extra_args = [["-whitelist=127.0.0.1", "-segwitheight={}".format(self.segwitheight)], ["-whitelist=127.0.0.1", "-acceptnonstdtxn=0", "-segwitheight={}".format(self.segwitheight)], ["-whitelist=127.0.0.1", "-segwitheight=-1"]]
 
     def setup_network(self):
         self.setup_nodes()
@@ -189,7 +190,7 @@ class SegWitTest(BitcoinTestFramework):
         # For now, rely on earlier tests to have created at least one utxo for
         # us to use
         assert(len(self.utxo) > 0)
-        assert(get_bip9_status(self.nodes[0], 'segwit')['status'] != 'active')
+        assert not softfork_active(self.nodes[0], 'segwit')
 
         tx = CTransaction()
         tx.vin.append(CTxIn(COutPoint(self.utxo[0].sha256, self.utxo[0].n), b""))
@@ -271,43 +272,14 @@ class SegWitTest(BitcoinTestFramework):
         self.utxo.pop(0)
         self.utxo.append(UTXO(tx4.sha256, 0, tx4.vout[0].nValue))
 
-
-    # Mine enough blocks for segwit's vb state to be 'started'.
-    def advance_to_segwit_started(self):
-        height = self.nodes[0].getblockcount()
-        # Will need to rewrite the tests here if we are past the first period
-        assert(height < VB_PERIOD - 1)
-        # Genesis block is 'defined'.
-        assert_equal(get_bip9_status(self.nodes[0], 'segwit')['status'], 'defined')
-        # Advance to end of period, status should now be 'started'
-        self.nodes[0].generate(VB_PERIOD-height-1)
-        assert_equal(get_bip9_status(self.nodes[0], 'segwit')['status'], 'started')
-
-    # Mine enough blocks to lock in segwit, but don't activate.
-    # TODO: we could verify that lockin only happens at the right threshold of
-    # signalling blocks, rather than just at the right period boundary.
-    def advance_to_segwit_lockin(self):
-        height = self.nodes[0].getblockcount()
-        assert_equal(get_bip9_status(self.nodes[0], 'segwit')['status'], 'started')
-        # Advance to end of period, and verify lock-in happens at the end
-        self.nodes[0].generate(VB_PERIOD-1)
-        height = self.nodes[0].getblockcount()
-        assert((height % VB_PERIOD) == VB_PERIOD - 2)
-        assert_equal(get_bip9_status(self.nodes[0], 'segwit')['status'], 'started')
-        self.nodes[0].generate(1)
-        assert_equal(get_bip9_status(self.nodes[0], 'segwit')['status'], 'locked_in')
-
-
     # Mine enough blocks to activate segwit.
-    # TODO: we could verify that activation only happens at the right threshold
-    # of signalling blocks, rather than just at the right period boundary.
     def advance_to_segwit_active(self):
-        assert_equal(get_bip9_status(self.nodes[0], 'segwit')['status'], 'locked_in')
+        assert not softfork_active(self.nodes[0], 'segwit')
         height = self.nodes[0].getblockcount()
-        self.nodes[0].generate(VB_PERIOD - (height%VB_PERIOD) - 2)
-        assert_equal(get_bip9_status(self.nodes[0], 'segwit')['status'], 'locked_in')
+        self.nodes[0].generate(int(self.segwitheight) - height - 2)
+        assert not softfork_active(self.nodes[0], 'segwit')
         self.nodes[0].generate(1)
-        assert_equal(get_bip9_status(self.nodes[0], 'segwit')['status'], 'active')
+        assert softfork_active(self.nodes[0], 'segwit')
 
 
     # This test can only be run after segwit has activated
@@ -1503,13 +1475,13 @@ class SegWitTest(BitcoinTestFramework):
 
         # Restart with the new binary
         self.stop_node(node_id)
-        self.start_node(node_id, extra_args=["-vbparams=segwit:0:999999999999"])
+        self.start_node(node_id, extra_args=["-segwitheight=" + self.segwitheight])
         connect_nodes(self.nodes[0], node_id)
 
         sync_blocks(self.nodes)
 
         # Make sure that this peer thinks segwit has activated.
-        assert(get_bip9_status(self.nodes[node_id], 'segwit')['status'] == "active")
+        assert softfork_active(self.nodes[0], 'segwit')
 
         # Make sure this peers blocks match those of node0.
         height = self.nodes[node_id].getblockcount()
@@ -1628,10 +1600,6 @@ class SegWitTest(BitcoinTestFramework):
         # Node0 is segwit aware, node2 is not.
         for node in [self.nodes[0], self.nodes[2]]:
             gbt_results = node.getblocktemplate()
-            block_version = gbt_results['version']
-            # If we're not indicating segwit support, we will still be
-            # signalling for segwit activation.
-            assert_equal((block_version & (1 << VB_WITNESS_BIT) != 0), node == self.nodes[0])
             # If we don't specify the segwit rule, then we won't get a default
             # commitment.
             assert('default_witness_commitment' not in gbt_results)
@@ -1649,14 +1617,10 @@ class SegWitTest(BitcoinTestFramework):
             gbt_results = node.getblocktemplate({"rules" : ["segwit"]})
             block_version = gbt_results['version']
             if node == self.nodes[2]:
-                # If this is a non-segwit node, we should still not get a witness
-                # commitment, nor a version bit signalling segwit.
-                assert_equal(block_version & (1 << VB_WITNESS_BIT), 0)
+                # If this is a non-segwit node, we should still not get a witness commitment.
                 assert('default_witness_commitment' not in gbt_results)
             else:
-                # For segwit-aware nodes, check the version bit and the witness
-                # commitment are correct.
-                assert(block_version & (1 << VB_WITNESS_BIT) != 0)
+                # For segwit-aware nodes, check the witness commitment is correct.
                 assert('default_witness_commitment' in gbt_results)
                 witness_commitment = gbt_results['default_witness_commitment']
 
@@ -1892,28 +1856,14 @@ class SegWitTest(BitcoinTestFramework):
         # Test logic begins here
         self.test_node.wait_for_verack()
 
-        self.log.info("Starting tests before segwit lock in:")
+        self.log.info("Starting tests before segwit activation")
 
         self.test_witness_services() # Verifies NODE_WITNESS
         self.test_non_witness_transaction() # non-witness tx's are accepted
-        self.test_unnecessary_witness_before_segwit_activation()
         self.test_block_relay(segwit_activated=False)
-
-        # Advance to segwit being 'started'
-        self.advance_to_segwit_started()
-        sync_blocks(self.nodes)
         self.test_getblocktemplate_before_lockin()
-
-        sync_blocks(self.nodes)
-
-        # At lockin, nothing should change.
-        self.log.info("Testing behavior post lockin, pre-activation")
-        self.advance_to_segwit_lockin()
-
-        # Retest unnecessary witnesses
         self.test_unnecessary_witness_before_segwit_activation()
         self.test_witness_tx_relay_before_segwit_activation()
-        self.test_block_relay(segwit_activated=False)
         self.test_p2sh_witness(segwit_activated=False)
         self.test_standardness_v0(segwit_activated=False)
 
