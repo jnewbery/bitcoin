@@ -324,7 +324,7 @@ def log_filename(dirname, n_node, logname):
 
 def get_bip9_status(node, key):
     info = node.getblockchaininfo()
-    return info['bip9_softforks'][key]
+    return info['softforks'][key]['bip9']
 
 def set_node_times(nodes, t):
     for node in nodes:
