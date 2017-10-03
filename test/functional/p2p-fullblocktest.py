@@ -10,15 +10,22 @@ by the pull-tester.
 We use the testing framework in which we expect a particular answer from
 each test.
 """
+import copy
+import struct
+import time
 
+from test_framework.blocktools import *
+from test_framework.comptool import TestManager, TestInstance, RejectResult
+from test_framework.key import CECKey
+from test_framework.mininode import (
+    CBlockHeader,
+    NetworkThread,
+    uint256_from_compact,
+    MAX_BLOCK_BASE_SIZE,
+)
+from test_framework.script import *
 from test_framework.test_framework import ComparisonTestFramework
 from test_framework.util import *
-from test_framework.comptool import TestManager, TestInstance, RejectResult
-from test_framework.blocktools import *
-import time
-from test_framework.key import CECKey
-from test_framework.script import *
-import struct
 
 class PreviousSpendableOutput(object):
     def __init__(self, tx = CTransaction(), n = -1):
