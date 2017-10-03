@@ -4,7 +4,19 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Utilities for manipulating blocks and transactions."""
 
-from .mininode import *
+from .mininode import (
+    CBlock,
+    COIN,
+    COutPoint,
+    CTransaction,
+    CTxIn,
+    CTxInWitness,
+    CTxOut,
+    hash256,
+    ser_string,
+    ser_uint256,
+    uint256_from_str,
+)
 from .script import CScript, OP_TRUE, OP_CHECKSIG, OP_RETURN
 
 # Create a block (with regtest difficulty)
@@ -70,7 +82,7 @@ def serialize_script_num(value):
 # otherwise an anyone-can-spend output.
 def create_coinbase(height, pubkey=None):
     coinbase = CTransaction()
-    coinbase.vin.append(CTxIn(COutPoint(0, 0xffffffff), 
+    coinbase.vin.append(CTxIn(COutPoint(0, 0xffffffff),
                         ser_string(serialize_script_num(height)), 0xffffffff))
     coinbaseoutput = CTxOut()
     coinbaseoutput.nValue = 50 * COIN
