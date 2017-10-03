@@ -19,8 +19,12 @@ from .mininode import (
 )
 from .script import CScript, OP_TRUE, OP_CHECKSIG, OP_RETURN
 
-# Create a block (with regtest difficulty)
+# The commitment header to place in the coinbase transaction output. See BIP141
+WITNESS_COMMITMENT_HEADER = b"\xaa\x21\xa9\xed"
+
 def create_block(hashprev, coinbase, nTime=None):
+    """Create a block with regtest difficulty."""
+
     block = CBlock()
     if nTime is None:
         import time
@@ -34,19 +38,18 @@ def create_block(hashprev, coinbase, nTime=None):
     block.calc_sha256()
     return block
 
-# From BIP141
-WITNESS_COMMITMENT_HEADER = b"\xaa\x21\xa9\xed"
-
-
 def get_witness_script(witness_root, witness_nonce):
+    """Return the script to place in the coinbase transaction for the witness commitment."""
+
     witness_commitment = uint256_from_str(hash256(ser_uint256(witness_root) + ser_uint256(witness_nonce)))
     output_data = WITNESS_COMMITMENT_HEADER + ser_uint256(witness_commitment)
     return CScript([OP_RETURN, output_data])
 
-
-# According to BIP141, blocks with witness rules active must commit to the
-# hash of all in-block transactions including witness.
 def add_witness_commitment(block, nonce=0):
+    """Add a witness commitment to the block coinbase transaction output.
+
+    See BIP 141 for block witness commitment rules."""
+
     # First calculate the merkle root of the block's
     # transactions, with witnesses.
     witness_nonce = nonce
@@ -61,8 +64,11 @@ def add_witness_commitment(block, nonce=0):
     block.hashMerkleRoot = block.calc_merkle_root()
     block.rehash()
 
-
 def serialize_script_num(value):
+    """Serialize a number into a script.
+
+    This is used to put the block height into the coinbase transaction (see BIP 34)."""
+
     r = bytearray(0)
     if value == 0:
         return r
@@ -77,10 +83,12 @@ def serialize_script_num(value):
         r[-1] |= 0x80
     return r
 
-# Create a coinbase transaction, assuming no miner fees.
-# If pubkey is passed in, the coinbase output will be a P2PK output;
-# otherwise an anyone-can-spend output.
 def create_coinbase(height, pubkey=None):
+    """Create a coinbase transaction, assuming no miner fees.
+
+    If pubkey is passed in, the coinbase output will be a P2PK output;
+    otherwise an anyone-can-spend output."""
+
     coinbase = CTransaction()
     coinbase.vin.append(CTxIn(COutPoint(0, 0xffffffff),
                         ser_string(serialize_script_num(height)), 0xffffffff))
@@ -96,9 +104,11 @@ def create_coinbase(height, pubkey=None):
     coinbase.calc_sha256()
     return coinbase
 
-# Create a transaction.
-# If the scriptPubKey is not specified, make it anyone-can-spend.
 def create_transaction(prevtx, n, sig, value, scriptPubKey=CScript()):
+    """Create a transaction.
+
+    If the scriptPubKey is not specified, make it anyone-can-spend."""
+
     tx = CTransaction()
     assert(n < len(prevtx.vout))
     tx.vin.append(CTxIn(COutPoint(prevtx.sha256, n), sig, 0xffffffff))
@@ -107,12 +117,14 @@ def create_transaction(prevtx, n, sig, value, scriptPubKey=CScript()):
     return tx
 
 def get_legacy_sigopcount_block(block, fAccurate=True):
+    """Return the legacy sigops count for the block."""
     count = 0
     for tx in block.vtx:
         count += get_legacy_sigopcount_tx(tx, fAccurate)
     return count
 
 def get_legacy_sigopcount_tx(tx, fAccurate=True):
+    """Return the legacy sigops count for the transaction."""
     count = 0
     for i in tx.vout:
         count += i.scriptPubKey.GetSigOpCount(fAccurate)
