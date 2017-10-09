@@ -4,9 +4,12 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test the ZMQ API."""
 import configparser
+from binascii import hexlify
+from io import BytesIO
 import os
 import struct
 
+from test_framework.mininode import CTransaction
 from test_framework.test_framework import BitcoinTestFramework, SkipTest
 from test_framework.util import (assert_equal,
                                  bytes_to_hex_str,
@@ -71,12 +74,18 @@ class ZMQTest (BitcoinTestFramework):
         msg = self.zmqSubSocket.recv_multipart()
         topic = msg[0]
         assert_equal(topic, b"rawtx")
+
+        # Check that the rawtx txid is the same as hashtx. rawtx includes the witness,
+        # so we need to deserialize, calculate the txid and then compare.
+        tx = CTransaction()
         body = msg[1]
+        tx.deserialize(BytesIO(body))
+        tx.rehash()
+
+        assert_equal(tx.hash, hexlify(txhash).decode('ascii'))
+
         msgSequence = struct.unpack('<I', msg[-1])[-1]
         assert_equal(msgSequence, 0) # must be sequence 0 on rawtx
-
-        # Check that the rawtx hashes to the hashtx
-        assert_equal(hash256(body), txhash)
 
         self.log.info("Wait for block")
         msg = self.zmqSubSocket.recv_multipart()
