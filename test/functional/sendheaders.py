@@ -91,6 +91,7 @@ from test_framework.mininode import (
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
+    disconnect_nodes,
     p2p_port,
     sync_blocks,
     wait_until,
@@ -561,6 +562,32 @@ class SendHeadersTest(BitcoinTestFramework):
         test_node.wait_for_disconnect()
 
         self.log.info("Part 5: success!")
+
+        self.log.info("Part 6: Test handling of invalid header")
+        # Mine a block on node1 and propagate it to node0
+        block, = self.nodes[0].generate(1)
+        self.sync_all()
+
+        # Disconnect nodes 0 and 1
+        disconnect_nodes(self.nodes[0], 1)
+
+        # Disconnect the remaining mininode
+        inv_node.connection.disconnect_node()
+        inv_node.wait_for_disconnect()
+
+        assert_equal(len(self.nodes[0].getpeerinfo()), 0)
+
+        # Invalidate the block on node0
+        self.nodes[0].invalidateblock(block)
+
+        # Reconnect node 0 to 1 as an outbound, non-whitelisted, non-manual peer
+        ip_port = "127.0.0.1:" + str(p2p_port(1))
+        self.nodes[0].addnode(ip_port, "onetry")
+        self.nodes[0].updatepeer(self.nodes[0].getpeerinfo()[-1]["id"], False, False)
+
+        # node1 will get booted when it sends a header for the invalidated block
+        wait_until(lambda: len(self.nodes[0].getpeerinfo()) == 0, lock=mininode_lock)
+        import pdb; pdb.set_trace()
 
         # Finally, check that the inv node never received a getdata request,
         # throughout the test
