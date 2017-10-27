@@ -2524,7 +2524,7 @@ size_t CConnman::GetNodeCount(NumConnections flags)
 bool CConnman::GetNodeStats(NodeId nodeid, CNodeStats& stats)
 {
     LOCK(cs_vNodes);
-    for(CNode* pnode : vNodes) {
+    for (CNode* pnode : vNodes) {
         if (pnode->id == nodeid) {
             pnode->copyStats(stats);
             return true;

@@ -85,6 +85,8 @@ Low-level RPC changes
 
 - `dumpwallet` no longer allows overwriting files. This is a security measure
   as well as prevents dangerous user mistakes.
+- `getpeerinfo` can now take an `id` argument to only return information about the peer with
+  the specified id. 
 
 Credits
 =======

@@ -101,7 +101,7 @@ class NetTest(BitcoinTestFramework):
         assert_equal(peer_info[0][0]['addrbind'], self.nodes[0].getpeerinfo(peer_id)[0]['addrbind'])
 
         # Check that getpeerinfo fails for an invalid peer_id
-        assert_raises_rpc_error(-8, "not found", self.nodes[0].getpeerinfo, 5000)
+        assert_raises_rpc_error(-5, "not found", self.nodes[0].getpeerinfo, 5000)
 
 
     def _test_updatepeer(self):
@@ -119,7 +119,7 @@ class NetTest(BitcoinTestFramework):
         assert not peer_info['addnode']
 
         # Check that updatepeer fails for an invalid peer_id
-        assert_raises_rpc_error(-8, "not found", self.nodes[0].updatepeer, 5000)
+        assert_raises_rpc_error(-5, "not found", self.nodes[0].updatepeer, 5000)
 
 if __name__ == '__main__':
     NetTest().main()
