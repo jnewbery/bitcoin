@@ -5,7 +5,7 @@ This streams the combined log output to stdout. Use combine_logs.py > outputfile
 to write to an outputfile."""
 
 import argparse
-from collections import defaultdict, namedtuple, deque
+from collections import defaultdict, namedtuple
 import heapq
 import itertools
 import os
@@ -38,13 +38,9 @@ def main():
         print("Unexpected arguments" + str(unknown_args))
         sys.exit(1)
 
-    combine_logs(dir_test=unknown_args[0], use_color=args.color, use_html=args.html)
+    log_events = read_logs(unknown_args[0])
 
-
-def combine_logs(dir_test, use_color=False, use_html=False, max_lines_to_print=None):
-    log_events = read_logs(dir_test)
-    print_logs(log_events, use_color, use_html, max_lines_to_print)
-
+    print_logs(log_events, color=args.color, html=args.html)
 
 def read_logs(tmp_dir):
     """Reads log files.
@@ -89,10 +85,8 @@ def get_log_events(source, logfile):
     except FileNotFoundError:
         print("File %s could not be opened. Continuing without it." % logfile, file=sys.stderr)
 
-
-def print_logs(log_events, color, html, max_lines_to_print):
+def print_logs(log_events, color=False, html=False):
     """Renders the iterator of log events into text or html."""
-    log_events = deque(log_events, max_lines_to_print)
     if not html:
         colors = defaultdict(lambda: '')
         if color:
