@@ -11,6 +11,22 @@ bool CKeyStore::AddKey(const CKey &key) {
     return AddKeyPubKey(key, key.GetPubKey());
 }
 
+void CBasicKeyStore::ImplicitlyLearnRelatedKeyScripts(const CPubKey& pubkey)
+{
+    AssertLockHeld(cs_KeyStore);
+    // This adds the redeemscripts necessary to detect P2WPKH and P2SH-P2WPKH
+    // outputs. Technically P2WPKH outputs don't have a redeemscript to be
+    // spent. However, our current IsMine logic requires the corresponding
+    // P2SH-P2WPKH redeemscript to be present in the wallet in order to accept
+    // payment even to P2WPKH outputs.
+    if (pubkey.IsCompressed()) {
+        CScript script = GetScriptForDestination(WitnessV0KeyHash(pubkey.GetID()));
+        // This does not use AddCScript, as it may be overridden.
+        CScriptID id(script);
+        mapScripts[id] = std::move(script);
+    }
+}
+
 bool CBasicKeyStore::GetPubKey(const CKeyID &address, CPubKey &vchPubKeyOut) const
 {
     CKey key;
@@ -30,6 +46,7 @@ bool CBasicKeyStore::GetPubKey(const CKeyID &address, CPubKey &vchPubKeyOut) con
 bool CBasicKeyStore::AddKeyPubKey(const CKey& key, const CPubKey &pubkey)
 {
     LOCK(cs_KeyStore);
+    ImplicitlyLearnRelatedKeyScripts(pubkey);
     mapKeys[pubkey.GetID()] = key;
     return true;
 }
@@ -110,8 +127,10 @@ bool CBasicKeyStore::AddWatchOnly(const CScript &dest)
     LOCK(cs_KeyStore);
     setWatchOnly.insert(dest);
     CPubKey pubKey;
-    if (ExtractPubKey(dest, pubKey))
+    if (ExtractPubKey(dest, pubKey)) {
         mapWatchKeys[pubKey.GetID()] = pubKey;
+        ImplicitlyLearnRelatedKeyScripts(pubKey);
+    }
     return true;
 }
 

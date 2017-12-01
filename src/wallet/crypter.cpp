@@ -244,6 +244,7 @@ bool CCryptoKeyStore::AddCryptedKey(const CPubKey &vchPubKey, const std::vector<
         return false;
     }
 
+    ImplicitlyLearnRelatedKeyScripts(vchPubKey);
     mapCryptedKeys[vchPubKey.GetID()] = make_pair(vchPubKey, vchCryptedSecret);
     return true;
 }
