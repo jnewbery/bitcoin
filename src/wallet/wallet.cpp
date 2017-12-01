@@ -1056,6 +1056,7 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransactionRef& ptx, const CBlockI
                     std::map<CKeyID, int64_t>::const_iterator mi = m_pool_key_to_index.find(keyid);
                     if (mi != m_pool_key_to_index.end()) {
                         LogPrintf("%s: Detected a used keypool key, mark all keypool key up to this key as used\n", __func__);
+                        AddRelatedScripts(txout.scriptPubKey, mi->first);
                         MarkReserveKeysAsUsed(mi->second);
 
                         if (!TopUpKeyPool()) {
@@ -4223,5 +4224,20 @@ CTxDestination CWallet::AddDestinationForScript(const CScript& script, OutputTyp
         return witdest;
     }
     default: assert(false);
+    }
+}
+
+void CWallet::AddRelatedScripts(const CScript& scriptPubKey, const CKeyID& keyid)
+{
+    CTxDestination segwit = WitnessV0KeyHash(keyid);
+    CTxDestination p2sh = CScriptID(GetScriptForDestination(segwit));
+    // For SegWit scriptPubKeys, add the redeemscript explicitly to the wallet, so that
+    // older software versions (without implicit scripts) correctly treat these as ours.
+    if (scriptPubKey == GetScriptForDestination(segwit) || scriptPubKey == GetScriptForDestination(p2sh)) {
+        CTxDestination witdest = WitnessV0KeyHash(keyid);
+        CScript witprog = GetScriptForDestination(witdest);
+        if (IsSolvable(*this, witprog)) {
+            AddCScript(witprog);
+        }
     }
 }

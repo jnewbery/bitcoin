@@ -1145,6 +1145,9 @@ public:
 
     CTxDestination AddDestinationForKey(const CPubKey& key, OutputType);
     CTxDestination AddDestinationForScript(const CScript& script, OutputType);
+
+    //! Explicitly add related scripts for a key (which must already be available implicitly).
+    void AddRelatedScripts(const CScript& scriptPubKey, const CKeyID& key);
 };
 
 /** A key allocated from the key pool. */
