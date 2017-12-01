@@ -42,6 +42,8 @@ CFeeRate payTxFee(DEFAULT_TRANSACTION_FEE);
 unsigned int nTxConfirmTarget = DEFAULT_TX_CONFIRM_TARGET;
 bool bSpendZeroConfChange = DEFAULT_SPEND_ZEROCONF_CHANGE;
 bool fWalletRbf = DEFAULT_WALLET_RBF;
+OutputType g_address_type = OUTPUT_TYPE_NONE;
+OutputType g_change_type = OUTPUT_TYPE_NONE;
 
 const char * DEFAULT_WALLET_DAT = "wallet.dat";
 const uint32_t BIP32_HARDENED_KEY_LIMIT = 0x80000000;
@@ -833,7 +835,7 @@ bool CWallet::GetAccountPubkey(CPubKey &pubKey, std::string strAccount, bool bFo
             bForceNew = true;
         else {
             // Check if the current key has been used
-            CScript scriptPubKey = GetScriptForDestination(account.vchPubKey.GetID());
+            CScript scriptPubKey = GetScriptForDestination(AddDestinationForKey(account.vchPubKey, g_address_type));
             for (std::map<uint256, CWalletTx>::iterator it = mapWallet.begin();
                  it != mapWallet.end() && account.vchPubKey.IsValid();
                  ++it)
@@ -850,7 +852,7 @@ bool CWallet::GetAccountPubkey(CPubKey &pubKey, std::string strAccount, bool bFo
         if (!GetKeyFromPool(account.vchPubKey, false))
             return false;
 
-        SetAddressBook(account.vchPubKey.GetID(), strAccount, "receive");
+        SetAddressBook(AddDestinationForKey(account.vchPubKey, g_address_type), strAccount, "receive");
         walletdb.WriteAccount(strAccount, account);
     }
 
@@ -2742,7 +2744,7 @@ bool CWallet::CreateTransaction(const std::vector<CRecipient>& vecSend, CWalletT
                     return false;
                 }
 
-                scriptChange = GetScriptForDestination(vchPubKey.GetID());
+                scriptChange = GetScriptForDestination(AddDestinationForKey(vchPubKey, g_change_type));
             }
             CTxOut change_prototype_txout(0, scriptChange);
             size_t change_prototype_size = GetSerializeSize(change_prototype_txout, SER_DISK, 0);
@@ -4134,4 +4136,92 @@ bool CWalletTx::AcceptToMemoryPool(const CAmount& nAbsurdFee, CValidationState& 
                                 nullptr /* plTxnReplaced */, false /* bypass_limits */, nAbsurdFee);
     fInMempool = ret;
     return ret;
+}
+
+static const std::string OUTPUT_TYPE_STRING_LEGACY = "legacy";
+static const std::string OUTPUT_TYPE_STRING_P2SH = "p2sh";
+static const std::string OUTPUT_TYPE_STRING_BECH32 = "bech32";
+
+OutputType ParseOutputType(const std::string& type, OutputType default_type)
+{
+    if (type == "") {
+        return default_type;
+    } else if (type == OUTPUT_TYPE_STRING_LEGACY) {
+        return OUTPUT_TYPE_LEGACY;
+    } else if (type == OUTPUT_TYPE_STRING_P2SH) {
+        return OUTPUT_TYPE_P2SH;
+    } else if (type == OUTPUT_TYPE_STRING_BECH32) {
+        return OUTPUT_TYPE_BECH32;
+    } else {
+        return OUTPUT_TYPE_NONE;
+    }
+}
+
+
+const std::string& FormatOutputType(OutputType type)
+{
+    switch (type) {
+    case OUTPUT_TYPE_LEGACY: return OUTPUT_TYPE_STRING_LEGACY;
+    case OUTPUT_TYPE_P2SH: return OUTPUT_TYPE_STRING_P2SH;
+    case OUTPUT_TYPE_BECH32: return OUTPUT_TYPE_STRING_BECH32;
+    default: assert(false);
+    }
+}
+
+std::vector<CTxDestination> GetAllDestinationsForKey(const CPubKey& key)
+{
+    CKeyID keyid = key.GetID();
+    if (key.IsCompressed()) {
+        CTxDestination segwit = WitnessV0KeyHash(keyid);
+        CTxDestination p2sh = CScriptID(GetScriptForDestination(segwit));
+        return std::vector<CTxDestination>{std::move(keyid), std::move(p2sh), std::move(segwit)};
+    } else {
+        return std::vector<CTxDestination>{std::move(keyid)};
+    }
+}
+
+CTxDestination CWallet::AddDestinationForKey(const CPubKey& key, OutputType type)
+{
+    switch (type) {
+    case OUTPUT_TYPE_LEGACY: return key.GetID();
+    case OUTPUT_TYPE_P2SH:
+    case OUTPUT_TYPE_BECH32: {
+        CTxDestination witdest = WitnessV0KeyHash(key.GetID());
+        CScript witprog = GetScriptForDestination(witdest);
+        // Check if the resulting program is solvable (i.e. doesn't use an uncompressed key)
+        if (!IsSolvable(*this, witprog)) return key.GetID();
+        // Even though CBasicKeyStore knows about P2WPKH redeemscripts implicitly, add it explicitly
+        // so that downgrades to software without this are supported (as long as the wallet file is
+        // up to date).
+        AddCScript(witprog);
+        if (type == OUTPUT_TYPE_P2SH) {
+            return CScriptID(witprog);
+        } else {
+            return witdest;
+        }
+    }
+    default: assert(false);
+    }
+}
+
+CTxDestination CWallet::AddDestinationForScript(const CScript& script, OutputType type)
+{
+    // Note that scripts over 520 bytes are not yet supported.
+    switch (type) {
+    case OUTPUT_TYPE_LEGACY:
+    case OUTPUT_TYPE_P2SH:
+        return CScriptID(script);
+    case OUTPUT_TYPE_BECH32: {
+        WitnessV0ScriptHash hash;
+        CSHA256().Write(script.data(), script.size()).Finalize(hash.begin());
+        CTxDestination witdest = hash;
+        CScript witprog = GetScriptForDestination(witdest);
+        // Check if the resulting program is solvable (i.e. doesn't use an uncompressed key)
+        if (!IsSolvable(*this, witprog)) return CScriptID(script);
+        AddCScript(witprog);
+        // Add the redeemscript, so that P2WSH and P2SH-P2WSH outputs are recognized as ours.
+        return witdest;
+    }
+    default: assert(false);
+    }
 }

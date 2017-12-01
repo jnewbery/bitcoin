@@ -645,10 +645,15 @@ void PaymentServer::fetchPaymentACK(CWallet* wallet, const SendCoinsRecipient& r
     else {
         CPubKey newKey;
         if (wallet->GetKeyFromPool(newKey)) {
-            CKeyID keyID = newKey.GetID();
-            wallet->SetAddressBook(keyID, strAccount, "refund");
+            // BIP70 requests encode the scriptPubKey directly, so we are not restricted to address
+            // types supported by the receiver. As a result, we choose the address format we also
+            // use for change. Despite an actual payment and not change, this is a close match:
+            // it's the output type we use subject to privacy issues, but not restricted by what
+            // other software supports.
+            CTxDestination dest = wallet->AddDestinationForKey(newKey, g_change_type);
+            wallet->SetAddressBook(dest, strAccount, "refund");
 
-            CScript s = GetScriptForDestination(keyID);
+            CScript s = GetScriptForDestination(dest);
             payments::Output* refund_to = payment.add_refund_to();
             refund_to->set_script(&s[0], s.size());
         }

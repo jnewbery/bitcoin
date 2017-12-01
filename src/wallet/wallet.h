@@ -99,6 +99,19 @@ enum WalletFeature
     FEATURE_LATEST = FEATURE_COMPRPUBKEY // HD is optional, use FEATURE_COMPRPUBKEY as latest version
 };
 
+enum OutputType
+{
+    OUTPUT_TYPE_NONE,
+    OUTPUT_TYPE_LEGACY,
+    OUTPUT_TYPE_P2SH,
+    OUTPUT_TYPE_BECH32,
+
+    OUTPUT_TYPE_DEFAULT = OUTPUT_TYPE_P2SH
+};
+
+extern OutputType g_address_type;
+extern OutputType g_change_type;
+
 
 /** A key pool entry */
 class CKeyPool
@@ -1129,6 +1142,9 @@ public:
      * deadlock
      */
     void BlockUntilSyncedToCurrentChain();
+
+    CTxDestination AddDestinationForKey(const CPubKey& key, OutputType);
+    CTxDestination AddDestinationForScript(const CScript& script, OutputType);
 };
 
 /** A key allocated from the key pool. */
@@ -1217,5 +1233,11 @@ bool CWallet::DummySignTx(CMutableTransaction &txNew, const ContainerType &coins
     }
     return true;
 }
+
+OutputType ParseOutputType(const std::string& str, OutputType default_type = OUTPUT_TYPE_DEFAULT);
+const std::string& FormatOutputType(OutputType type);
+
+/** Get all destinations (potentially) supported by the wallet for the given key. */
+std::vector<CTxDestination> GetAllDestinationsForKey(const CPubKey& key);
 
 #endif // BITCOIN_WALLET_WALLET_H

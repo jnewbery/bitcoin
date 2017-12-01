@@ -131,7 +131,11 @@ UniValue importprivkey(const JSONRPCRequest& request)
     CKeyID vchAddress = pubkey.GetID();
     {
         pwallet->MarkDirty();
-        pwallet->SetAddressBook(vchAddress, strLabel, "receive");
+
+        // We don't know which corresponding address will be used; label them all
+        for (const auto& dest : GetAllDestinationsForKey(pubkey)) {
+            pwallet->SetAddressBook(dest, strLabel, "receive");
+        }
 
         // Don't throw error in case a key is already there
         if (pwallet->HaveKey(vchAddress)) {
@@ -433,7 +437,9 @@ UniValue importpubkey(const JSONRPCRequest& request)
 
     LOCK2(cs_main, pwallet->cs_wallet);
 
-    ImportAddress(pwallet, pubKey.GetID(), strLabel);
+    for (const auto& dest : GetAllDestinationsForKey(pubKey)) {
+        ImportAddress(pwallet, dest, strLabel);
+    }
     ImportScript(pwallet, GetScriptForRawPubKey(pubKey), strLabel, false);
 
     if (fRescan)
