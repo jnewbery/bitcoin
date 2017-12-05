@@ -157,32 +157,6 @@ EXTENDED_SCRIPTS = [
 # Place EXTENDED_SCRIPTS first since it has the 3 longest running tests
 ALL_SCRIPTS = EXTENDED_SCRIPTS + BASE_SCRIPTS
 
-def check_script_prefixes():
-    """Check that no more than `EXPECTED_VIOLATION_COUNT` of the
-       test scripts don't start with one of the allowed name prefixes."""
-    EXPECTED_VIOLATION_COUNT = 75
-    LEEWAY = 10
-
-    ok = {"feature", "interface", "mempool", "mining",
-          "p2p", "rpc", "wallet"}
-    excess = set(x.split(" ",1)[0] for x in ALL_SCRIPTS)
-    excess.discard("example_test.py")
-
-    for prefix in ok:
-        excess -= set(x for x in excess if x.startswith(prefix+"_"))
-
-    if len(excess) < EXPECTED_VIOLATION_COUNT:
-        print("{}HURRAY!{} Number of functional tests violating naming convention reduced!".format(BOLD[1], BOLD[0]))
-        print("Consider reducing EXPECTED_VIOLATION_COUNT from %d to %d" % (EXPECTED_VIOLATION_COUNT, len(excess)))
-
-    assert len(excess) <= EXPECTED_VIOLATION_COUNT + LEEWAY, "Too many tests not following naming convention! (%d found, expected: <= %d)" % (len(excess), EXPECTED_VIOLATION_COUNT)
-
-    if 0 < len(excess) <= LEEWAY:
-        print("INFO: tests not meeting naming conventions:")
-        print("  %s" % ("\n  ".join(sorted(excess))))
-
-check_script_prefixes()
-
 NON_SCRIPTS = [
     # These are python files that live in the functional tests directory, but are not test scripts.
     "combine_logs.py",
@@ -286,6 +260,7 @@ def main():
         sys.exit(0)
 
     check_script_list(config["environment"]["SRCDIR"])
+    check_script_prefixes()
 
     if not args.keepcache:
         shutil.rmtree("%s/test/cache" % config["environment"]["BUILDDIR"], ignore_errors=True)
@@ -483,6 +458,26 @@ def check_script_list(src_dir):
         if os.getenv('TRAVIS') == 'true':
             # On travis this warning is an error to prevent merging incomplete commits into master
             sys.exit(1)
+
+def check_script_prefixes():
+    """Check that no more than `EXPECTED_VIOLATION_COUNT` of the
+       test scripts don't start with one of the allowed name prefixes."""
+    EXPECTED_VIOLATION_COUNT = 77
+
+    good_prefixes = ["feature_", "interface_", "mempool_", "mining_", "p2p_", "rpc_", "wallet_", "example_test"]
+    good_prefixes_re = re.compile("|".join(good_prefixes))
+
+    bad_script_names = [script for script in ALL_SCRIPTS if good_prefixes_re.match(script) is None]
+
+    if len(bad_script_names) < EXPECTED_VIOLATION_COUNT:
+        print("{}HURRAY!{} Number of functional tests violating naming convention reduced!".format(BOLD[1], BOLD[0]))
+        print("Consider reducing EXPECTED_VIOLATION_COUNT from %d to %d" % (EXPECTED_VIOLATION_COUNT, len(bad_script_names)))
+    elif len(bad_script_names) == EXPECTED_VIOLATION_COUNT:
+        pass
+    else:
+        print("INFO: tests not meeting naming conventions:")
+        print("  %s" % ("\n  ".join(sorted(bad_script_names))))
+        raise(AssertionError("Too many tests not following naming convention! (%d found, expected: <= %d)" % (len(bad_script_names), EXPECTED_VIOLATION_COUNT)))
 
 class RPCCoverage(object):
     """
