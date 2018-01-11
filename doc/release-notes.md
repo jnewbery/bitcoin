@@ -75,43 +75,51 @@ There is a checkbox to mark the transaction as final.
 The RPC default remains unchanged: to use RBF, launch with `-walletrbf=1` or
 use the `replaceable` argument for individual transactions.
 
-Default wallet directory change
---------------------------
-On new installations (if the data directory doesn't exist), wallets will now be stored in a
-new `wallets/` subdirectory inside the data directory. If this `wallets/` subdirectory
-doesn't exist (i.e. on existing nodes), the current datadir root is used instead, as it was.
-The location of the wallets directory can be overridden by specifying a `-walletdir=<path>`
-option.
+Wallets directory configuration (`-walletdir`)
+----------------------------------------------
 
-External wallet files
----------------------
+Bitcoin Core now has more flexibility in where the wallets directory can be located.
 
-The `-wallet=<path>` option now accepts full paths instead of requiring wallets
-to be located in the bitcoin data directory. The new `-walletdir=<path>` option
-also accepts both full paths and relative paths.
+- For new installations (where the data directory doesn't already exist),
+  wallets will now be stored in a new `wallets/` subdirectory inside the data
+  directory by default.
+- For existing nodes (where the data directory already exists), wallets will be
+  stored in the data directory root by default. If a `wallets/` subdirectory
+  already exists in the data directory root, then wallets will be stored in the
+  `wallets/` subdirectory by default.
+- The location of the wallets directory can be overridden by specifying a
+  `-walletdir=<path>` option where `<path>` can be an absolute path or a
+  relative path (relative to the current working directory). `<path>` can
+  also be a path to symlink to a directory.
 
-For backwards compatibility, `<walletdir>` defaults to `<datadir>` instead of
-`<datadir>/wallets` if the `wallets` subdirectory does not exist. On new
-bitcoin installations, the `wallets` subdirectory will be created when
-`<datadir>` is initialized.
+Wallet configuration (`-wallet`)
+--------------------------------
 
-Care should be taken when choosing wallet locations on external storage, since
-funds may be lost if a wallet database becomes unavailable during operation.
+The `-wallet` argument now accepts full paths instead of requiring wallets
+to be located in the wallets directory. The `-wallet` argument can be an
+absolute path or a relative path (relative to the wallets directory).
 
-Newly created wallet format
----------------------------
+- if the `-wallet` argument specifies a path that does not exist, Bitcoin
+  Core will create a wallet directory at the specified location (containing a
+  wallet.dat data file, a db.log file, and database/log.?????????? files).
+- if the `-wallet` argument specifies a directory containing a wallet.dat
+  file (or a symlink to a directory containing a wallet.dat file), Bitcoin
+  Core will use that directory as a wallet directory
+- for backwards compatibility, if the `-wallet` argument specifies an existing
+  wallet data file, Bitcoin Core will use that file as the wallet data file
+  and the parent of that file as the wallet directory.
 
-If `-wallet=<path>` is specified with a path that does not exist, it will now
-create a wallet directory at the specified location (containing a wallet.dat
-data file, a db.log file, and database/log.?????????? files) instead of just
-creating a data file at the path and storing log files in the parent
-directory. This should make backing up wallets more straightforward than
+If Bitcoin Core is running with multiple wallets, the wallet name must be specified
+when accessing a wallet over RPC (in the URI endpoint) or bitcoin-cli (in the
+`-rpcwallet` argument). The name should be specified exactly as written in the
+`-wallet` argument.
+
+This should make backing up wallets more straightforward than
 before because the specified wallet path can just be directly archived without
 having to look in the parent directory for transaction log files.
 
-For backwards compatibility, wallet paths that are names of existing data files
-in the `-walletdir` directory will continue to be accepted and interpreted the
-same as before.
+Care should be taken when choosing wallet locations on external storage, since
+funds may be lost if a wallet database becomes unavailable during operation.
 
 Low-level RPC changes
 ----------------------
