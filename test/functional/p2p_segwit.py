@@ -1420,7 +1420,7 @@ class SegWitTest(BitcoinTestFramework):
 
 
     # Test P2SH wrapped witness programs.
-    def test_p2sh_witness(self, segwit_activated):
+    def test_p2sh_witness(self):
         self.log.info("Testing P2SH witness transactions")
 
         assert(len(self.utxo))
@@ -1443,7 +1443,7 @@ class SegWitTest(BitcoinTestFramework):
         test_transaction_acceptance(self.nodes[0].rpc, self.test_node, tx, with_witness=False, accepted=True)
         block = self.build_next_block()
         self.update_witness_block_with_transactions(block, [tx])
-        test_witness_block(self.nodes[0].rpc, self.test_node, block, accepted=True, with_witness=segwit_activated)
+        test_witness_block(self.nodes[0].rpc, self.test_node, block, accepted=True, with_witness=True)
         sync_blocks(self.nodes)
 
         # Now test attempts to spend the output.
@@ -1452,11 +1452,8 @@ class SegWitTest(BitcoinTestFramework):
         spend_tx.vout.append(CTxOut(tx.vout[0].nValue-1000, CScript([OP_TRUE])))
         spend_tx.rehash()
 
-        # This transaction should not be accepted into the mempool pre- or
-        # post-segwit.  Mempool acceptance will use SCRIPT_VERIFY_WITNESS which
-        # will require a witness to spend a witness program regardless of
-        # segwit activation.  Note that older bitcoind's that are not
-        # segwit-aware would also reject this for failing CLEANSTACK.
+        # This transaction should not be accepted into the mempool since it fails
+        # SCRIPT_VERIFY_WITNESS.
         test_transaction_acceptance(self.nodes[0].rpc, self.test_node, spend_tx, with_witness=False, accepted=False)
 
         # Try to put the witness script in the scriptSig, should also fail.
@@ -1464,25 +1461,19 @@ class SegWitTest(BitcoinTestFramework):
         spend_tx.rehash()
         test_transaction_acceptance(self.nodes[0].rpc, self.test_node, spend_tx, with_witness=False, accepted=False)
 
-        # Now put the witness script in the witness, should succeed after
-        # segwit activates.
+        # Now put the witness script in the witness. The transaction should be accepted
         spend_tx.vin[0].scriptSig = scriptSig
         spend_tx.rehash()
         spend_tx.wit.vtxinwit.append(CTxInWitness())
         spend_tx.wit.vtxinwit[0].scriptWitness.stack = [ b'a', witness_program ]
 
         # Verify mempool acceptance
-        test_transaction_acceptance(self.nodes[0].rpc, self.test_node, spend_tx, with_witness=True, accepted=segwit_activated)
+        test_transaction_acceptance(self.nodes[0].rpc, self.test_node, spend_tx, with_witness=True, accepted=True)
         block = self.build_next_block()
         self.update_witness_block_with_transactions(block, [spend_tx])
 
-        # If we're before activation, then sending this without witnesses
-        # should be valid.  If we're after activation, then sending this with
-        # witnesses should be valid.
-        if segwit_activated:
-            test_witness_block(self.nodes[0].rpc, self.test_node, block, accepted=True)
-        else:
-            test_witness_block(self.nodes[0].rpc, self.test_node, block, accepted=True, with_witness=False)
+        # This block should be valid with witnesses.
+        test_witness_block(self.nodes[0].rpc, self.test_node, block, accepted=True)
 
         # Update self.utxo
         self.utxo.pop(0)
@@ -1924,8 +1915,7 @@ class SegWitTest(BitcoinTestFramework):
 
         sync_blocks(self.nodes)
 
-        # Test P2SH witness handling again
-        self.test_p2sh_witness(segwit_activated=True)
+        self.test_p2sh_witness()
         self.test_witness_commitments()
         self.test_block_malleability()
         self.test_witness_block_size()
