@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import subprocess
+import tempfile
 import time
 
 from .authproxy import JSONRPCException
@@ -42,7 +43,7 @@ class TestNode():
     To make things easier for the test writer, any unrecognised messages will
     be dispatched to the RPC connection."""
 
-    def __init__(self, i, dirname, extra_args, rpchost, timewait, binary, stderr, mocktime, coverage_dir, use_cli=False):
+    def __init__(self, i, dirname, extra_args, rpchost, timewait, binary, mocktime, coverage_dir, use_cli=False):
         self.index = i
         self.datadir = os.path.join(dirname, "node" + str(i))
         self.rpchost = rpchost
@@ -55,7 +56,6 @@ class TestNode():
             self.binary = os.getenv("BITCOIND", "bitcoind")
         else:
             self.binary = binary
-        self.stderr = stderr
         self.coverage_dir = coverage_dir
         # Most callers will just need to add extra args to the standard list below. For those callers that need more flexibity, they can just set the args property directly.
         self.extra_args = extra_args
@@ -81,13 +81,20 @@ class TestNode():
             assert self.rpc_connected and self.rpc is not None, "Error: no RPC connection"
             return getattr(self.rpc, name)
 
-    def start(self, extra_args=None, stderr=None, *args, **kwargs):
+    def start(self, extra_args=None, stdout=None, stderr=None, *args, **kwargs):
         """Start the node."""
         if extra_args is None:
             extra_args = self.extra_args
+        # Add a new stdout and stderr file for each time bitcoind is started
         if stderr is None:
-            stderr = self.stderr
-        self.process = subprocess.Popen(self.args + extra_args, stderr=stderr, *args, **kwargs)
+            stderr = tempfile.NamedTemporaryFile(dir=os.path.join(self.datadir, 'stderr'), delete=False)
+        if stdout is None:
+            stdout = tempfile.NamedTemporaryFile(dir=os.path.join(self.datadir, 'stdout'), delete=False)
+
+        # add environment variable LIBC_FATAL_STDERR_=1 so that libc errors are written to stderr and not the terminal
+        subp_env = dict(os.environ, LIBC_FATAL_STDERR_="1")
+
+        self.process = subprocess.Popen(self.args + extra_args, env=subp_env, stdout=stdout, stderr=stderr, *args, **kwargs)
         self.running = True
         self.log.debug("bitcoind started, waiting for RPC to come up")
 
