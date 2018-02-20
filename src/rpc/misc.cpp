@@ -19,11 +19,6 @@
 #include <timedata.h>
 #include <util.h>
 #include <utilstrencodings.h>
-#ifdef ENABLE_WALLET
-#include <wallet/rpcwallet.h>
-#include <wallet/wallet.h>
-#include <wallet/walletdb.h>
-#endif
 #include <warnings.h>
 
 #include <stdint.h>
@@ -67,22 +62,14 @@ static UniValue validateaddress(const JSONRPCRequest& request)
     ret.pushKV("isvalid", isValid);
     if (isValid)
     {
+        std::string currentAddress = EncodeDestination(dest);
+        ret.pushKV("address", currentAddress);
 
-#ifdef ENABLE_WALLET
-        if (HasWallets() && IsDeprecatedRPCEnabled("validateaddress")) {
-            ret.pushKVs(getaddressinfo(request));
-        }
-#endif
-        if (ret["address"].isNull()) {
-            std::string currentAddress = EncodeDestination(dest);
-            ret.pushKV("address", currentAddress);
+        CScript scriptPubKey = GetScriptForDestination(dest);
+        ret.pushKV("scriptPubKey", HexStr(scriptPubKey.begin(), scriptPubKey.end()));;
 
-            CScript scriptPubKey = GetScriptForDestination(dest);
-            ret.pushKV("scriptPubKey", HexStr(scriptPubKey.begin(), scriptPubKey.end()));
-
-            UniValue detail = DescribeAddress(dest);
-            ret.pushKVs(detail);
-        }
+        UniValue detail = DescribeAddress(dest);
+        ret.pushKVs(detail);
     }
     return ret;
 }

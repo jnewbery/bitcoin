@@ -20,13 +20,6 @@ class DeprecatedRpcTest(BitcoinTestFramework):
         # assert_raises_rpc_error(-5, "Invalid public key", self.nodes[0].createmultisig, 1, [self.nodes[0].getnewaddress()])
         # self.nodes[1].createmultisig(1, [self.nodes[1].getnewaddress()])
 
-        self.log.info("Test validateaddress deprecation")
-        SOME_ADDRESS = "mnvGjUy3NMj67yJ6gkK5o9e5RS33Z2Vqcu"  # This is just some random address to pass as a parameter to validateaddress
-        dep_validate_address = self.nodes[0].validateaddress(SOME_ADDRESS)
-        assert "ismine" not in dep_validate_address
-        not_dep_val = self.nodes[1].validateaddress(SOME_ADDRESS)
-        assert "ismine" in not_dep_val
-
         self.log.info("Test accounts deprecation")
         # The following account RPC methods are deprecated:
         # - getaccount
