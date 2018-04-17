@@ -29,11 +29,40 @@
 #include <wallet/fees.h>
 
 #include <assert.h>
+#include <algorithm>
 #include <future>
 
 #include <boost/algorithm/string/replace.hpp>
 
-std::vector<CWallet*> vpwallets;
+static std::vector<CWallet*> vpwallets;
+
+void AddWallet(CWallet* wallet)
+{
+    assert(wallet);
+    auto i = std::find(vpwallets.begin(), vpwallets.end(), wallet);
+    if (i == vpwallets.end()) vpwallets.push_back(wallet);
+}
+
+void RemoveWallet(CWallet* wallet)
+{
+    assert(wallet);
+    auto i = std::find(vpwallets.begin(), vpwallets.end(), wallet);
+    if (i != vpwallets.end()) vpwallets.erase(i);
+}
+
+std::vector<CWallet*> GetWallets()
+{
+    return vpwallets;
+}
+
+CWallet* GetWallet(const std::string& name)
+{
+    for (CWallet* wallet : vpwallets) {
+        if (wallet->GetName() == name) return wallet;
+    }
+    return nullptr;
+}
+
 /** Transaction fee set by the user */
 CFeeRate payTxFee(DEFAULT_TRANSACTION_FEE);
 unsigned int nTxConfirmTarget = DEFAULT_TX_CONFIRM_TARGET;

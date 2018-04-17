@@ -32,7 +32,10 @@
 #include <utility>
 #include <vector>
 
-extern std::vector<CWallet*> vpwallets;
+void AddWallet(CWallet* wallet);
+void RemoveWallet(CWallet* wallet);
+std::vector<CWallet*> GetWallets();
+CWallet* GetWallet(const std::string& name);
 
 /**
  * Settings
