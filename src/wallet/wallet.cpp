@@ -50,6 +50,11 @@ void RemoveWallet(CWallet* wallet)
     if (i != vpwallets.end()) vpwallets.erase(i);
 }
 
+bool HasWallets()
+{
+  return !vpwallets.empty();
+}
+
 std::vector<CWallet*> GetWallets()
 {
     return vpwallets;
