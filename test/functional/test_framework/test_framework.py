@@ -291,9 +291,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             for node in self.nodes:
                 coverage.write_all_rpc_commands(self.options.coveragedir, node.rpc)
 
-    def stop_node(self, i):
+    def stop_node(self, i, expected_stderr=b''):
         """Stop a bitcoind test node"""
-        self.nodes[i].stop_node()
+        self.nodes[i].stop_node(expected_stderr)
         self.nodes[i].wait_until_stopped()
 
     def stop_nodes(self):
@@ -306,9 +306,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             # Wait for nodes to stop
             node.wait_until_stopped()
 
-    def restart_node(self, i, extra_args=None):
+    def restart_node(self, i, extra_args=None, expected_stderr=b''):
         """Stop and start a test node"""
-        self.stop_node(i)
+        self.stop_node(i, expected_stderr)
         self.start_node(i, extra_args)
 
     def wait_for_node_exit(self, i, timeout):
