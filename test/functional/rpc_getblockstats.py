@@ -49,7 +49,7 @@ class GetblockstatsTest(BitcoinTestFramework):
         self.sync_all()
 
         self.nodes[0].sendtoaddress(address=address, amount=10, subtractfeefromamount=True)
-        self.nodes[0].sendtoaddress(address=address, amount=10, subtractfeefromamount=False)
+        self.nodes[0].sendtoaddress(address=address, amount=0.00001, subtractfeefromamount=False)
         self.nodes[0].settxfee(amount=0.003)
         self.nodes[0].sendtoaddress(address=address, amount=1, subtractfeefromamount=True)
         self.sync_all()
