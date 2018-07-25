@@ -11,6 +11,7 @@ from test_framework.util import (
     assert_equal,
     assert_raises_rpc_error,
 )
+from decimal import Decimal
 import json
 import os
 
@@ -49,6 +50,13 @@ class GetblockstatsTest(BitcoinTestFramework):
         self.sync_all()
 
         self.nodes[0].sendtoaddress(address=address, amount=10, subtractfeefromamount=True)
+
+        inputs = self.nodes[0].listunspent()[:3]
+        outputs = {self.nodes[0].getnewaddress():1,self.nodes[0].getnewaddress():2,self.nodes[0].getnewaddress():sum(i["amount"] for i in inputs)-Decimal("3.001")}
+        rawtx = self.nodes[0].createrawtransaction(inputs, outputs, 0, True)
+        signed_tx = self.nodes[0].signrawtransactionwithwallet(rawtx)
+        self.nodes[0].sendrawtransaction(signed_tx['hex'], True)
+
         self.nodes[0].sendtoaddress(address=address, amount=0.00001, subtractfeefromamount=False)
         self.nodes[0].settxfee(amount=0.003)
         self.nodes[0].sendtoaddress(address=address, amount=1, subtractfeefromamount=True)
