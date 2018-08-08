@@ -84,6 +84,11 @@ d. Announce 49 headers that don't connect.
    Expect: getheaders message each time.
 e. Announce one more that doesn't connect.
    Expect: disconnect.
+
+Part 6: Test handling of too-large getheaders
+a. reconnect to the node
+b. send a getheaders with a locator containing MAX_LOCATOR_SIZE + 1 elements
+c. wait for disconnect
 """
 from test_framework.blocktools import create_block, create_coinbase
 from test_framework.mininode import (
@@ -599,6 +604,20 @@ class SendHeadersTest(BitcoinTestFramework):
         test_node.wait_for_disconnect()
 
         self.log.info("Part 5: success!")
+
+        self.log.info("Part 6: Test max locator size in getheaders")
+
+        MAX_LOCATOR_SIZE = 64
+        # Reconnect to node
+        test_node = self.nodes[0].add_p2p_connection(BaseNode(), services=NODE_WITNESS)
+        test_node.wait_for_verack()
+
+        test_node.send_get_headers(locator=[tip] * (MAX_LOCATOR_SIZE + 1), hashstop=new_block_hashes[1])
+
+        # Should get disconnected
+        test_node.wait_for_disconnect()
+
+        self.log.info("Part 6: success!")
 
         # Finally, check that the inv node never received a getdata request,
         # throughout the test
