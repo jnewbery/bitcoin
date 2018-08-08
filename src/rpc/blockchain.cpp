@@ -1625,19 +1625,25 @@ static UniValue getchaintxstats(const JSONRPCRequest& request)
 }
 
 template<typename T>
-static T CalculateTruncatedMedian(std::vector<T>& scores)
+static T CalculateMedianByWeight(std::vector<std::pair<T, int64_t>>& scores, int64_t total_weight)
 {
-    size_t size = scores.size();
+    const size_t size = scores.size();
     if (size == 0) {
         return 0;
     }
 
     std::sort(scores.begin(), scores.end());
-    if (size % 2 == 0) {
-        return (scores[size / 2 - 1] + scores[size / 2]) / 2;
-    } else {
-        return scores[size / 2];
+
+    const int64_t median_weight = total_weight / 2;
+    int64_t cumulative_weight = 0;
+    for (const auto& element: scores) {
+        cumulative_weight += element.second;
+        if (cumulative_weight >= median_weight) {
+            return element.first;
+        }
     }
+
+    return scores.back().first;
 }
 
 template<typename T>
@@ -1753,7 +1759,7 @@ static UniValue getblockstats(const JSONRPCRequest& request)
     const bool loop_outputs = do_all || loop_inputs || stats.count("total_out");
     const bool do_calculate_size = do_mediantxsize ||
         SetHasKeys(stats, "total_size", "avgtxsize", "mintxsize", "maxtxsize", "swtotal_size");
-    const bool do_calculate_weight = do_all || SetHasKeys(stats, "total_weight", "avgfeerate", "swtotal_weight", "avgfeerate", "medianfeerate", "minfeerate", "maxfeerate");
+    const bool do_calculate_weight = do_all || SetHasKeys(stats, "total_weight", "avgfeerate", "swtotal_weight", "avgfeerate", "medianfeerate", "minfeerate", "maxfeerate", "mediantxsize", "medianfee");
     const bool do_calculate_sw = do_all || SetHasKeys(stats, "swtxs", "swtotal_size", "swtotal_weight");
 
     CAmount maxfee = 0;
@@ -1772,9 +1778,9 @@ static UniValue getblockstats(const JSONRPCRequest& request)
     int64_t total_size = 0;
     int64_t total_weight = 0;
     int64_t utxo_size_inc = 0;
-    std::vector<CAmount> fee_array;
-    std::vector<CAmount> feerate_array;
-    std::vector<int64_t> txsize_array;
+    std::vector<std::pair<CAmount, int64_t>> fee_array;
+    std::vector<std::pair<CAmount, int64_t>> feerate_array;
+    std::vector<std::pair<int64_t, int64_t>> txsize_array;
 
     for (const auto& tx : block.vtx) {
         outputs += tx->vout.size();
@@ -1794,22 +1800,22 @@ static UniValue getblockstats(const JSONRPCRequest& request)
         inputs += tx->vin.size(); // Don't count coinbase's fake input
         total_out += tx_total_out; // Don't count coinbase reward
 
+        int64_t weight = 0;
+        if (do_calculate_weight) {
+            weight = GetTransactionWeight(*tx);
+            total_weight += weight;
+        }
+
         int64_t tx_size = 0;
         if (do_calculate_size) {
 
             tx_size = tx->GetTotalSize();
             if (do_mediantxsize) {
-                txsize_array.push_back(tx_size);
+                txsize_array.emplace_back(std::make_pair(tx_size, weight));
             }
             maxtxsize = std::max(maxtxsize, tx_size);
             mintxsize = std::min(mintxsize, tx_size);
             total_size += tx_size;
-        }
-
-        int64_t weight = 0;
-        if (do_calculate_weight) {
-            weight = GetTransactionWeight(*tx);
-            total_weight += weight;
         }
 
         if (do_calculate_sw && tx->HasWitness()) {
@@ -1840,7 +1846,7 @@ static UniValue getblockstats(const JSONRPCRequest& request)
             CAmount txfee = tx_total_in - tx_total_out;
             assert(MoneyRange(txfee));
             if (do_medianfee) {
-                fee_array.push_back(txfee);
+                fee_array.emplace_back(std::make_pair(txfee, weight));
             }
             maxfee = std::max(maxfee, txfee);
             minfee = std::min(minfee, txfee);
@@ -1849,7 +1855,7 @@ static UniValue getblockstats(const JSONRPCRequest& request)
             // New feerate uses satoshis per virtual byte instead of per serialized byte
             CAmount feerate = weight ? (txfee * WITNESS_SCALE_FACTOR) / weight : 0;
             if (do_medianfeerate) {
-                feerate_array.push_back(feerate);
+                feerate_array.emplace_back(std::make_pair(feerate, weight));
             }
             maxfeerate = std::max(maxfeerate, feerate);
             minfeerate = std::min(minfeerate, feerate);
@@ -1866,10 +1872,10 @@ static UniValue getblockstats(const JSONRPCRequest& request)
     ret_all.pushKV("maxfee", maxfee);
     ret_all.pushKV("maxfeerate", maxfeerate);
     ret_all.pushKV("maxtxsize", maxtxsize);
-    ret_all.pushKV("medianfee", CalculateTruncatedMedian(fee_array));
-    ret_all.pushKV("medianfeerate", CalculateTruncatedMedian(feerate_array));
+    ret_all.pushKV("medianfee", CalculateMedianByWeight(fee_array, total_weight));
+    ret_all.pushKV("medianfeerate", CalculateMedianByWeight(feerate_array, total_weight));
     ret_all.pushKV("mediantime", pindex->GetMedianTimePast());
-    ret_all.pushKV("mediantxsize", CalculateTruncatedMedian(txsize_array));
+    ret_all.pushKV("mediantxsize", CalculateMedianByWeight(txsize_array, total_weight));
     ret_all.pushKV("minfee", (minfee == MAX_MONEY) ? 0 : minfee);
     ret_all.pushKV("minfeerate", (minfeerate == MAX_MONEY) ? 0 : minfeerate);
     ret_all.pushKV("mintxsize", mintxsize == MAX_BLOCK_SERIALIZED_SIZE ? 0 : mintxsize);
