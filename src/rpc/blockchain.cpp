@@ -1755,6 +1755,13 @@ static UniValue getblockstats(const JSONRPCRequest& request)
             "  \"dust_bins\": xxxxx,   (numeric_array) The total number of outputs that are dust at several fee-rates\n"
             "  \"mto_consolidations\": xxxxx,   (numeric) The total number of transactions with at least 3 inputs and exactly 1 output\n"
             "  \"mto_output_count\": xxxxx,   (numeric) The total number of outputs spent in all mto_consolidation transactions\n"
+            "  \"mto_total_value\": xxxxx,   (numeric) The sum of values of all outputs from mto_consolidation transactions\n"
+            "  \"value_of_nested_p2wpkh_outputs_spent\": xxxxx,   (numeric) The total value of spent nested P2WPKH outputs\n"
+            "  \"value_of_nested_p2wsh_outputs_spent\": xxxxx,   (numeric) The total value of spent nested P2WSH outputs\n"
+            "  \"value_of_native_p2wpkh_outputs_spent\": xxxxx,   (numeric) The total value of spent native P2WPKH outputs\n"
+            "  \"value_of_native_p2wsh_outputs_spent\": xxxxx,   (numeric) The total value of spent native P2WSH outputs\n"
+            "  \"value_of_native_p2wpkh_outputs_created\": xxxxx,   (numeric) The total value of new native P2WPKH outputs\n"
+            "  \"value_of_native_p2wsh_outputs_created\": xxxxx,   (numeric) The total value of new native P2WSH outputs\n"
             "}\n"
             "\nExamples:\n"
             + HelpExampleCli("getblockstats", "1000 '[\"minfeerate\",\"avgfeerate\"]'")
@@ -1800,15 +1807,15 @@ static UniValue getblockstats(const JSONRPCRequest& request)
     }
 
     const CBlock block = GetBlockChecked(pindex);
-
     const bool do_all = stats.size() == 0; // Calculate everything if nothing selected (default)
     const bool do_mediantxsize = do_all || stats.count("mediantxsize") != 0;
     const bool do_medianfee = do_all || stats.count("medianfee") != 0;
     const bool do_feerate_percentiles = do_all || stats.count("feerate_percentiles") != 0;
     const bool loop_inputs = do_all || do_medianfee || do_feerate_percentiles ||
-        SetHasKeys(stats, "utxo_size_inc", "totalfee", "avgfee", "avgfeerate", "minfee", "maxfee", "minfeerate", "maxfeerate", "nested_p2wpkh_outputs_spent", "nested_p2wsh_outputs_spent", "native_p2wpkh_outputs_spent", "native_p2wsh_outputs_spent", "txs_spending_nested_p2wpkh_outputs", "txs_spending_nested_p2wsh_outputs", "txs_spending_native_p2wpkh_outputs", "txs_spending_native_p2wsh_outputs", "dust_bins", "txs_signalling_opt_in_rbf");
+
+        SetHasKeys(stats, "utxo_size_inc", "totalfee", "avgfee", "avgfeerate", "minfee", "maxfee", "minfeerate", "maxfeerate", "nested_p2wpkh_outputs_spent", "nested_p2wsh_outputs_spent", "native_p2wpkh_outputs_spent", "native_p2wsh_outputs_spent", "txs_spending_nested_p2wpkh_outputs", "txs_spending_nested_p2wsh_outputs", "txs_spending_native_p2wpkh_outputs", "txs_spending_native_p2wsh_outputs", "dust_bins", "txs_signalling_opt_in_rbf", "mto_total_value", "value_of_nested_p2wpkh_outputs_spent", "value_of_nested_p2wsh_outputs_spent", "value_of_native_p2wpkh_outputs_spent", "value_of_native_p2wsh_outputs_spent");
     const bool loop_outputs = do_all || loop_inputs || stats.count("total_out") ||
-        SetHasKeys(stats, "new_p2wpkh_outputs", "new_p2wsh_outputs", "txs_creating_p2wpkh_outputs", "txs_creating_p2wsh_outputs");
+        SetHasKeys(stats, "new_p2wpkh_outputs", "new_p2wsh_outputs", "txs_creating_p2wpkh_outputs", "txs_creating_p2wsh_outputs", "value_of_native_p2wpkh_outputs_created", "value_of_native_p2wsh_outputs_created");
     const bool do_calculate_size = do_mediantxsize ||
         SetHasKeys(stats, "total_size", "avgtxsize", "mintxsize", "maxtxsize", "swtotal_size");
     const bool do_calculate_weight = do_all || SetHasKeys(stats, "total_weight", "avgfeerate", "swtotal_weight", "avgfeerate", "feerate_percentiles", "minfeerate", "maxfeerate");
@@ -1837,6 +1844,12 @@ static UniValue getblockstats(const JSONRPCRequest& request)
     int64_t native_p2wsh_outputs_spent = 0;
     int64_t nested_p2wpkh_outputs_spent = 0;
     int64_t nested_p2wsh_outputs_spent = 0;
+    int64_t value_of_native_p2wpkh_outputs_created = 0;
+    int64_t value_of_native_p2wsh_outputs_created = 0;
+    int64_t value_of_native_p2wpkh_outputs_spent = 0;
+    int64_t value_of_native_p2wsh_outputs_spent = 0;
+    int64_t value_of_nested_p2wpkh_outputs_spent = 0;
+    int64_t value_of_nested_p2wsh_outputs_spent = 0;
     int64_t txs_spending_nested_p2wpkh_outputs = 0;
     int64_t txs_spending_nested_p2wsh_outputs = 0;
     int64_t txs_spending_native_p2wpkh_outputs = 0;
@@ -1854,6 +1867,7 @@ static UniValue getblockstats(const JSONRPCRequest& request)
     std::vector<int64_t> cons_in_count;
     int64_t many_to_one_consolidating_txs = 0;
     int64_t many_to_one_consolidated_outputs = 0;
+    CAmount many_to_one_total_value = 0;
 
     // Batch ranges =  [(1), (2), (3-4), (5-9), (10-49), (50-99), (100+)]
     constexpr int NUM_OUTCOUNT_BINS = 7;
@@ -1896,9 +1910,11 @@ static UniValue getblockstats(const JSONRPCRequest& request)
                 if (scriptPubKey.IsPayToWitnessScriptHash()) {
                     ++new_p2wsh_outputs;
                     creates_p2wsh_output = true;
+                    value_of_native_p2wsh_outputs_created += out.nValue;
                 } else if (scriptPubKey.IsNativePayToWitnessPubKeyHash()) {
                     ++new_p2wpkh_outputs;
                     creates_p2wpkh_output = true;
+                    value_of_native_p2wpkh_outputs_created += out.nValue;
                 }
 
                 tx_total_out += out.nValue;
@@ -1934,10 +1950,12 @@ static UniValue getblockstats(const JSONRPCRequest& request)
             outputs_consolidated += tx->vin.size();
         }
 
+        bool tx_is_many_to_one = false;
         // Look for transactions with high number of inputs and low outputs
         if ((tx->vin.size() >= CONSOLIDATION_THRESHOLD) && tx->vout.size() == 1) {
           ++many_to_one_consolidating_txs;
           many_to_one_consolidated_outputs += tx->vin.size();
+          tx_is_many_to_one = true;
         }
 
         int64_t tx_size = 0;
@@ -1994,15 +2012,19 @@ static UniValue getblockstats(const JSONRPCRequest& request)
                 if (in.SpendsNestedPayToWitnessPubKeyHashOutput(scriptPubKey)) {
                     spends_nested_p2wpkh_output = true;
                     ++nested_p2wpkh_outputs_spent;
+                    value_of_nested_p2wpkh_outputs_spent += prevoutput.nValue;
                 } else if (in.SpendsNestedPayToWitnessScriptHashOutput(scriptPubKey)) {
                     spends_nested_p2wsh_output = true;
                     ++nested_p2wsh_outputs_spent;
+                    value_of_nested_p2wsh_outputs_spent += prevoutput.nValue;
                 } else if (in.SpendsNativePayToWitnessPubKeyHashOutput(scriptPubKey)) {
                     spends_native_p2wpkh_output = true;
                     ++native_p2wpkh_outputs_spent;
+                    value_of_native_p2wpkh_outputs_spent += prevoutput.nValue;
                 } else if (in.SpendsNativePayToWitnessScriptHashOutput(scriptPubKey)) {
                     spends_native_p2wsh_output = true;
                     ++native_p2wsh_outputs_spent;
+                    value_of_native_p2wsh_outputs_spent += prevoutput.nValue;
                 }
 
                 tx_total_in += prevoutput.nValue;
@@ -2047,6 +2069,10 @@ static UniValue getblockstats(const JSONRPCRequest& request)
             }
             maxfeerate = std::max(maxfeerate, feerate);
             minfeerate = std::min(minfeerate, feerate);
+
+            if (tx_is_many_to_one) {
+                many_to_one_total_value += tx_total_out;
+            }
         }
     }
 
@@ -2124,6 +2150,14 @@ static UniValue getblockstats(const JSONRPCRequest& request)
 
     ret_all.pushKV("mto_consolidations", many_to_one_consolidating_txs);
     ret_all.pushKV("mto_output_count", many_to_one_consolidated_outputs);
+    ret_all.pushKV("mto_total_value", many_to_one_total_value);
+
+    ret_all.pushKV("value_of_nested_p2wpkh_outputs_spent", value_of_nested_p2wpkh_outputs_spent);
+    ret_all.pushKV("value_of_nested_p2wsh_outputs_spent", value_of_nested_p2wsh_outputs_spent);
+    ret_all.pushKV("value_of_native_p2wpkh_outputs_spent", value_of_native_p2wpkh_outputs_spent);
+    ret_all.pushKV("value_of_native_p2wsh_outputs_spent", value_of_native_p2wsh_outputs_spent);
+    ret_all.pushKV("value_of_native_p2wpkh_outputs_created", value_of_native_p2wpkh_outputs_created);
+    ret_all.pushKV("value_of_native_p2wsh_outputs_created", value_of_native_p2wsh_outputs_created);
 
     if (do_all) {
         return ret_all;
