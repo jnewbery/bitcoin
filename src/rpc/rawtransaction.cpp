@@ -242,28 +242,17 @@ static UniValue gettxoutproof(const JSONRPCRequest& request)
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
         }
     } else {
+        if (!g_txindex) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "blockhash must be provided when txindex is disabled.");
+        }
+
+        // Allow txindex to catch up if we need to query it and before we acquire cs_main.
+        if (!pblockindex) {
+            g_txindex->BlockUntilSyncedToCurrentChain();
+        }
+
         LOCK(cs_main);
 
-        // Loop through txids and try to find which block they're in. Exit loop once a block is found.
-        for (const auto& tx : setTxids) {
-            const Coin& coin = AccessByTxid(*pcoinsTip, tx);
-            if (!coin.IsSpent()) {
-                pblockindex = chainActive[coin.nHeight];
-                break;
-            }
-        }
-    }
-
-
-    // Allow txindex to catch up if we need to query it and before we acquire cs_main.
-    if (g_txindex && !pblockindex) {
-        g_txindex->BlockUntilSyncedToCurrentChain();
-    }
-
-    LOCK(cs_main);
-
-    if (pblockindex == nullptr)
-    {
         CTransactionRef tx;
         if (!GetTransaction(oneTxid, tx, Params().GetConsensus(), hashBlock) || hashBlock.IsNull())
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Transaction not yet in block");
