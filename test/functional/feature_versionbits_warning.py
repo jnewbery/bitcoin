@@ -65,7 +65,7 @@ class VersionBitsWarningTest(BitcoinTestFramework):
         node = self.nodes[0]
         node.add_p2p_connection(P2PInterface())
 
-        node_deterministic_address = node.get_deterministic_priv_key().address
+        node_deterministic_address = node.deterministic_address.address
         # Mine one period worth of blocks
         node.generatetoaddress(VB_PERIOD, node_deterministic_address)
 

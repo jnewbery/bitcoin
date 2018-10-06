@@ -43,7 +43,7 @@ class PreciousTest(BitcoinTestFramework):
 
     def run_test(self):
         self.log.info("Ensure submitblock can in principle reorg to a competing chain")
-        gen_address = lambda i: self.nodes[i].get_deterministic_priv_key().address  # A non-wallet address to mine to
+        gen_address = lambda i: self.nodes[i].deterministic_address.address  # A non-wallet address to mine to
         self.nodes[0].generatetoaddress(1, gen_address(0))
         assert_equal(self.nodes[0].getblockcount(), 1)
         hashZ = self.nodes[1].generatetoaddress(2, gen_address(1))[-1]
