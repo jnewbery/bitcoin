@@ -2,43 +2,34 @@
 # Copyright (c) 2018 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""Verify that it could not start two bitcoind in the same datadir"""
-
-from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal
-
+"""Check that it's not possible to start a second bitcoind instance using the same datadir or wallet."""
 import os
 
-def get_node_output(*, node, ret_code_expected):
-    ret_code = node.process.wait(timeout=5)
-    assert_equal(ret_code, ret_code_expected)
-    node.stdout.seek(0)
-    node.stderr.seek(0)
-    out = node.stdout.read()
-    err = node.stderr.read()
-    node.stdout.close()
-    node.stderr.close()
-
-    # Clean up TestNode state
-    node.running = False
-    node.process = None
-    node.rpc_connected = False
-    node.rpc = None
-
-    return out, err
+from test_framework.test_framework import BitcoinTestFramework
 
 class FilelockTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 2
 
-    def run_test(self):
-        self.nodes[1].stop()
-        self.log.info("Using datadir {}".format(self.nodes[0].datadir))
-        self.nodes[1].start(['-datadir={}'.format(self.nodes[0].datadir), '-noserver'])
-        _, output = get_node_output(node=self.nodes[1], ret_code_expected=1)
-        assert(b'Error: Cannot obtain a lock on data directory %b. Bitcoin Core is probably already running.' % os.path.join(self.nodes[0].datadir, 'regtest').encode('utf-8') in output)
+    def setup_network(self):
+        self.add_nodes(self.num_nodes, extra_args=None)
+        self.nodes[0].start([])
+        self.nodes[0].wait_for_rpc_connection()
 
+    def run_test(self):
+        datadir = os.path.join(self.nodes[0].datadir, 'regtest')
+        wallet_dir = os.path.join(datadir, 'wallets')
+        self.log.info("Using datadir {}".format(datadir))
+
+        self.log.info("Check that we can't start a second bitcoind instance using the same datadir")
+        expected_msg = "Error: Cannot obtain a lock on data directory {}. Bitcoin Core is probably already running.".format(datadir)
+        self.nodes[1].assert_start_raises_init_error(extra_args=['-datadir={}'.format(self.nodes[0].datadir), '-noserver'], expected_msg=expected_msg)
+
+        if self.is_wallet_compiled():
+            self.log.info("Check that we can't start a second bitcoind instance using the same wallet")
+            expected_msg = "Error: Error initializing wallet database environment \"{}\"!".format(wallet_dir)
+            self.nodes[1].assert_start_raises_init_error(extra_args=['-walletdir={}'.format(wallet_dir), '-noserver'], expected_msg=expected_msg)
 
 if __name__ == '__main__':
     FilelockTest().main()
