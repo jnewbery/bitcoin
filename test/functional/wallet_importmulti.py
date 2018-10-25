@@ -288,12 +288,10 @@ class ImportMultiTest(BitcoinTestFramework):
                                "timestamp": "now",
                                "keys": [key.privkey],
                                "watchonly": True},
-                              False,
-                              error_code=-8,
-                              error_message='Watch-only addresses should not include private keys')
+                              True)
         self.test_address(address,
                           iswatchonly=False,
-                          ismine=False)
+                          ismine=True)
 
         # ScriptPubKey + Private key + internal
         self.log.info("Should import a scriptPubKey with internal and with private key")
@@ -393,9 +391,11 @@ class ImportMultiTest(BitcoinTestFramework):
                                "redeemscript": multisig.redeem_script,
                                "keys": multisig.privkeys[0:2],
                                "watchonly": True},
-                              False,
-                              error_code=-8,
-                              error_message='Watch-only addresses should not include private keys')
+                              True)
+        self.test_address(multisig.p2sh_addr,
+                          iswatchonly=True,
+                          solvable=True,
+                          ismine=False)
 
         # Address + Public key + !Internal + Wrong pubkey
         self.log.info("Should not import an address with a wrong public key")
