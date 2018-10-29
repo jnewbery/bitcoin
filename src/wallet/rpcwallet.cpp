@@ -740,13 +740,15 @@ static UniValue getbalance(const JSONRPCRequest& request)
                 "The available balance is what the wallet considers currently spendable, and is\n"
                 "thus affected by options which limit spendability such as -spendzeroconfchange.\n",
                 {
-                    {"dummy", RPCArg::Type::STR, true},
+                    {"include_untrusted", RPCArg::Type::STR, true},
                     {"minconf", RPCArg::Type::NUM, true},
                     {"include_watchonly", RPCArg::Type::NUM, true},
                 }}
                 .ToString() +
             "\nArguments:\n"
-            "1. (dummy)           (string, optional) Remains for backward compatibility. Must be excluded or set to \"*\".\n"
+            "1. include_untrusted (string, optional, default=true) By default, getbalance will only return the balance of 'trusted' coins.\n"
+            "                     Coins are trusted if they are confirmed, or if they are an output from a transaction that was created by this\n"
+            "                     wallet and is in the mempool. Set include_untrusted to \"*\" to also include untrusted coins.\n"
             "2. minconf           (numeric, optional, default=0) Only include transactions confirmed at least this many times.\n"
             "3. include_watchonly (bool, optional, default=false) Also include balance in watch-only addresses (see 'importaddress')\n"
             "\nResult:\n"
@@ -767,9 +769,14 @@ static UniValue getbalance(const JSONRPCRequest& request)
     auto locked_chain = pwallet->chain().lock();
     LOCK(pwallet->cs_wallet);
 
-    const UniValue& dummy_value = request.params[0];
-    if (!dummy_value.isNull() && dummy_value.get_str() != "*") {
-        throw JSONRPCError(RPC_METHOD_DEPRECATED, "dummy first argument must be excluded or set to \"*\".");
+    const UniValue& include_untrusted_uv = request.params[0];
+    bool include_untrusted = false;
+    if (!include_untrusted_uv.isNull()) {
+        // include_untrusted must be a string and must be "*" for backwards compatibility.
+        if (!include_untrusted_uv.isStr() || include_untrusted_uv.get_str() != "*") {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "include_untrusted must be absent or set to \"*\"");
+        }
+        include_untrusted = true;
     }
 
     int min_depth = 0;
@@ -782,7 +789,7 @@ static UniValue getbalance(const JSONRPCRequest& request)
         filter = filter | ISMINE_WATCH_ONLY;
     }
 
-    return ValueFromAmount(pwallet->GetBalance(filter, min_depth));
+    return ValueFromAmount(pwallet->GetBalance(filter, min_depth, include_untrusted));
 }
 
 static UniValue getunconfirmedbalance(const JSONRPCRequest &request)
@@ -4368,7 +4375,7 @@ static const CRPCCommand commands[] =
     { "wallet",             "encryptwallet",                    &encryptwallet,                 {"passphrase"} },
     { "wallet",             "getaddressesbylabel",              &getaddressesbylabel,           {"label"} },
     { "wallet",             "getaddressinfo",                   &getaddressinfo,                {"address"} },
-    { "wallet",             "getbalance",                       &getbalance,                    {"dummy","minconf","include_watchonly"} },
+    { "wallet",             "getbalance",                       &getbalance,                    {"include_untrusted","minconf","include_watchonly"} },
     { "wallet",             "getnewaddress",                    &getnewaddress,                 {"label","address_type"} },
     { "wallet",             "getrawchangeaddress",              &getrawchangeaddress,           {"address_type"} },
     { "wallet",             "getreceivedbyaddress",             &getreceivedbyaddress,          {"address","minconf"} },
