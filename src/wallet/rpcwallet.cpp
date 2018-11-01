@@ -682,7 +682,7 @@ static UniValue getbalance(const JSONRPCRequest& request)
         return NullUniValue;
     }
 
-    if (request.fHelp || (request.params.size() > 3 ))
+    if (request.fHelp || (request.params.size() > 3))
         throw std::runtime_error(
             "getbalance ( \"(dummy)\" minconf include_watchonly )\n"
             "\nReturns the total available balance.\n"
@@ -721,7 +721,7 @@ static UniValue getbalance(const JSONRPCRequest& request)
 
     isminefilter filter = ISMINE_SPENDABLE;
     if (!request.params[2].isNull() && request.params[2].get_bool()) {
-        filter = filter | ISMINE_WATCH_ONLY;
+        filter |= ISMINE_WATCH_ONLY;
     }
 
     return ValueFromAmount(pwallet->GetBalance(filter, min_depth));
