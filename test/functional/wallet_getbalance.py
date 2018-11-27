@@ -88,11 +88,11 @@ class WalletTest(BitcoinTestFramework):
         assert_equal(self.nodes[0].getbalance(minconf=1), Decimal('50'))
         assert_equal(self.nodes[1].getbalance(minconf=1), Decimal('50'))
         # getbalance with include_untrusted includes all unconfirmed and untrusted transactions
-        assert_equal(self.nodes[0].getbalance("*"), Decimal('69.99'))  # node 1's send plus change from node 0's send
-        assert_equal(self.nodes[1].getbalance("*"), Decimal('29.99'))  # change from node 1's send
+        assert_equal(self.nodes[0].getbalance("*"), Decimal('119.99'))  # node 1's send plus change from node 0's send
+        assert_equal(self.nodes[1].getbalance("*"), Decimal('79.99'))  # change from node 1's send
         # Same with minconf=0
-        assert_equal(self.nodes[0].getbalance("*"), Decimal('69.99'))
-        assert_equal(self.nodes[1].getbalance("*"), Decimal('29.99'))
+        assert_equal(self.nodes[0].getbalance("*"), Decimal('119.99'))
+        assert_equal(self.nodes[1].getbalance("*"), Decimal('79.99'))
         # getbalance with include_untrusted and a minconf will not show unconfirmed transactions
         assert_equal(self.nodes[0].getbalance("*", 1), Decimal('50'))
         assert_equal(self.nodes[1].getbalance("*", 1), Decimal('50'))
@@ -102,7 +102,7 @@ class WalletTest(BitcoinTestFramework):
         self.sync_all()
 
         # getbalance with include_untrusted will double-count bumped transactions
-        assert_equal(self.nodes[0].getbalance("*"), Decimal('129.99'))
+        assert_equal(self.nodes[0].getbalance("*"), Decimal('179.99'))
         assert_equal(self.nodes[1].getbalance("*"), Decimal('59.97'))
 
         self.nodes[1].generatetoaddress(1, 'mneYUmWYsuk7kySiURxCi3AGxrAqZxLgPZ')  # random address
@@ -111,6 +111,18 @@ class WalletTest(BitcoinTestFramework):
         # balances are correct after the transactions are confirmed
         assert_equal(self.nodes[0].getbalance("*"), Decimal('69.99'))  # node 1's send plus change from node 0's send
         assert_equal(self.nodes[1].getbalance("*"), Decimal('29.98'))  # change from node 0's send
+
+        # Send total balance away from node 1
+        txs = self.create_transactions(self.nodes[1], self.nodes[0].getnewaddress(), Decimal('29.97'), [Decimal('0.01')])
+        self.nodes[1].sendrawtransaction(txs[0]['hex'])
+        self.nodes[1].generatetoaddress(2, 'mneYUmWYsuk7kySiURxCi3AGxrAqZxLgPZ')  # random address
+        self.sync_all()
+
+        # getbalance with minconf=3 should still show the old balance (since the send does not have 3 confirmations)
+        assert_equal(self.nodes[1].getbalance(minconf=3), Decimal('29.98'))
+
+        # getbalance with minconf=2 will show the new balance.
+        assert_equal(self.nodes[1].getbalance(minconf=2), Decimal('0'))
 
 if __name__ == '__main__':
     WalletTest().main()
