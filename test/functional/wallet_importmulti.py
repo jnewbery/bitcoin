@@ -119,10 +119,15 @@ class ImportMultiTest(BitcoinTestFramework):
                         CScript([OP_HASH160, witness_script, OP_EQUAL]).hex(),  # p2sh-p2wsh
                         script_to_p2sh_p2wsh(script_code))  # p2sh-p2wsh addr
 
-    def test_importmulti(self, req, success, error_code=None, error_message=None):
+    def test_importmulti(self, req, success, warnings=None, error_code=None, error_message=None):
         """Run importmulti and assert success"""
         result = self.nodes[1].importmulti([req])
         assert_equal(result[0]['success'], success)
+        if warnings is None:
+            if 'warnings' in result[0].keys():
+                raise(AssertionError('unexpected warnings in result: {}'.format(result[0]['warnings'])))
+        else:
+            assert_equal(result[0]['warnings'], warnings)
         if error_code is not None:
             assert_equal(result[0]['error']['code'], error_code)
             assert_equal(result[0]['error']['message'], error_message)
@@ -225,7 +230,8 @@ class ImportMultiTest(BitcoinTestFramework):
                                "timestamp": "now",
                                "pubkeys": [key.pubkey],
                                "internal": False},
-                              True)
+                              True,
+                              warnings=['Assuming watchonly as not all private keys are provided.'])
         self.test_address(address,
                           iswatchonly=True,
                           ismine=False,
@@ -239,7 +245,8 @@ class ImportMultiTest(BitcoinTestFramework):
                                "timestamp": "now",
                                "pubkeys": [key.pubkey],
                                "internal": True},
-                              True)
+                              True,
+                              warnings=['Assuming watchonly as not all private keys are provided.'])
         self.test_address(address,
                           iswatchonly=True,
                           ismine=False,
@@ -270,6 +277,17 @@ class ImportMultiTest(BitcoinTestFramework):
         self.test_address(address,
                           iswatchonly=False,
                           ismine=True,
+                          ischange=False,
+                          timestamp=timestamp)
+        self.test_address(key.p2wpkh_addr,  # native segwit
+                          iswatchonly=False,
+                          ismine=True,
+                          ischange=True,  # TODO: importmulti should add all variant addresses to address book when importing privkeys, so ischange is correct
+                          timestamp=timestamp)
+        self.test_address(key.p2sh_p2wpkh_addr,  # nested segwit
+                          iswatchonly=False,
+                          ismine=True,
+                          ischange=True,  # TODO: importmulti should add all variant addresses to address book when importing privkeys, so ischange is correct
                           timestamp=timestamp)
 
         self.log.info("Should not import an address with private key if is already imported")
@@ -281,7 +299,8 @@ class ImportMultiTest(BitcoinTestFramework):
                               error_message='The wallet already contains the private key for this address or script')
 
         # Address + Private key + watchonly
-        self.log.info("Should not import an address with private key and with watchonly")
+        # watchonly is ignored
+        self.log.info("Allow importing an address with private key and with watchonly")
         key = self.get_key()
         address = key.p2pkh_addr
         self.test_importmulti({"scriptPubKey": {"address": address},
@@ -290,7 +309,19 @@ class ImportMultiTest(BitcoinTestFramework):
                                "watchonly": True},
                               True)
         self.test_address(address,
+                          ismine=True,
                           iswatchonly=False,
+                          ischange=False,
+                          solvable=True)
+        self.test_address(key.p2wpkh_addr,
+                          ismine=True,
+                          iswatchonly=False,
+                          ischange=True,  # TODO: importmulti should add all variant addresses to address book when importing privkeys, so ischange is correct
+                          solvable=True)
+        self.test_address(key.p2sh_p2wpkh_addr,
+                          iswatchonly=False,
+                          ischange=True,  # TODO: importmulti should add all variant addresses to address book when importing privkeys, so ischange is correct
+                          solvable=True,
                           ismine=True)
 
         # ScriptPubKey + Private key + internal
@@ -305,6 +336,17 @@ class ImportMultiTest(BitcoinTestFramework):
         self.test_address(address,
                           iswatchonly=False,
                           ismine=True,
+                          ischange=True,
+                          timestamp=timestamp)
+        self.test_address(key.p2wpkh_addr,
+                          iswatchonly=False,
+                          ismine=True,
+                          ischange=True,
+                          timestamp=timestamp)
+        self.test_address(key.p2sh_p2wpkh_addr,
+                          iswatchonly=False,
+                          ismine=True,
+                          ischange=True,
                           timestamp=timestamp)
 
         # Nonstandard scriptPubKey + Private key + !internal
@@ -351,14 +393,19 @@ class ImportMultiTest(BitcoinTestFramework):
         self.test_importmulti({"scriptPubKey": {"address": multisig.p2sh_addr},
                                "timestamp": "now",
                                "redeemscript": multisig.redeem_script},
-                              True)
-        self.test_address(multisig.p2sh_addr, timestamp=timestamp)
+                              True,
+                              warnings=['Assuming watchonly as not all private keys are provided.'])
+        self.test_address(multisig.p2sh_addr,
+                          ismine=False,
+                          iswatchonly=True,
+                          solvable=True,
+                          timestamp=timestamp)
 
         p2shunspent = self.nodes[1].listunspent(0, 999999, [multisig.p2sh_addr])[0]
         assert_equal(p2shunspent['spendable'], False)
         assert_equal(p2shunspent['solvable'], True)
 
-        # P2SH + Redeem script + Private Keys + !Watchonly
+        # P2SH + Redeem script + some Private Keys + !Watchonly
         multisig = self.get_multisig()
         self.nodes[1].generate(100)
         self.nodes[1].sendtoaddress(multisig.p2sh_addr, 10.00)
@@ -370,15 +417,19 @@ class ImportMultiTest(BitcoinTestFramework):
                                "timestamp": "now",
                                "redeemscript": multisig.redeem_script,
                                "keys": multisig.privkeys[0:2]},
-                              True)
+                              True,
+                              warnings=['Assuming watchonly as not all private keys are provided.'])
         self.test_address(multisig.p2sh_addr,
+                          ismine=False,
+                          iswatchonly=True,
+                          solvable=True,
                           timestamp=timestamp)
 
         p2shunspent = self.nodes[1].listunspent(0, 999999, [multisig.p2sh_addr])[0]
         assert_equal(p2shunspent['spendable'], False)
         assert_equal(p2shunspent['solvable'], True)
 
-        # P2SH + Redeem script + Private Keys + Watchonly
+        # P2SH + Redeem script + some Private Keys + Watchonly
         multisig = self.get_multisig()
         self.nodes[1].generate(100)
         self.nodes[1].sendtoaddress(multisig.p2sh_addr, 10.00)
@@ -428,7 +479,7 @@ class ImportMultiTest(BitcoinTestFramework):
                           iswatchonly=False,
                           ismine=False)
 
-        # Address + Private key + !watchonly + Wrong private key
+        # Address + wrong Private key + !watchonly
         self.log.info("Should not import an address with a wrong private key")
         key = self.get_key()
         address = key.p2pkh_addr
@@ -443,7 +494,7 @@ class ImportMultiTest(BitcoinTestFramework):
                           iswatchonly=False,
                           ismine=False)
 
-        # ScriptPubKey + Private key + internal + Wrong private key
+        # ScriptPubKey + wrong Private key + internal
         self.log.info("Should not import a scriptPubKey with internal and with a wrong private key")
         key = self.get_key()
         address = key.p2pkh_addr
@@ -498,13 +549,8 @@ class ImportMultiTest(BitcoinTestFramework):
                               True)
         self.test_address(address,
                           iswatchonly=True,
-                          solvable=False)
-        self.test_address(address,
-                          iswatchonly=True,
                           ismine=False,
-                          timestamp=timestamp)
-        self.test_address(address,
-                          iswatchonly=True,
+                          timestamp=timestamp,
                           solvable=False)
 
         # Import P2WPKH address with public key but no private key
@@ -514,10 +560,12 @@ class ImportMultiTest(BitcoinTestFramework):
         self.test_importmulti({"scriptPubKey": {"address": address},
                                "timestamp": "now",
                                "pubkeys": [key.pubkey]},
-                              True)
+                              True,
+                              warnings=['Assuming watchonly as not all private keys are provided.'])
         self.test_address(address,
                           ismine=False,
-                          solvable=True)
+                          solvable=True,
+                          timestamp=timestamp)
 
         # Import P2WPKH address with key and check it is spendable
         self.log.info("Should import a P2WPKH address with key")
@@ -529,7 +577,19 @@ class ImportMultiTest(BitcoinTestFramework):
                               True)
         self.test_address(address,
                           iswatchonly=False,
-                          ismine=True)
+                          ismine=True,
+                          ischange=False,
+                          timestamp=timestamp)
+        self.test_address(key.p2pkh_addr,
+                          iswatchonly=False,
+                          ismine=True,
+                          ischange=True,  # TODO: importmulti should add all variant addresses to address book when importing privkeys, so ischange is correct
+                          timestamp=timestamp)
+        self.test_address(key.p2sh_p2wpkh_addr,
+                          iswatchonly=False,
+                          ismine=True,
+                          ischange=True,  # TODO: importmulti should add all variant addresses to address book when importing privkeys, so ischange is correct
+                          timestamp=timestamp)
 
         # P2WSH multisig address without scripts or keys
         multisig = self.get_multisig()
@@ -537,8 +597,11 @@ class ImportMultiTest(BitcoinTestFramework):
         self.test_importmulti({"scriptPubKey": {"address": multisig.p2wsh_addr},
                                "timestamp": "now"},
                               True)
-        self.test_address(multisig.p2sh_addr,
-                          solvable=False)
+        self.test_address(multisig.p2wsh_addr,
+                          ismine=False,
+                          iswatchonly=True,
+                          solvable=False,
+                          timestamp=timestamp)
 
         # Same P2WSH multisig address as above, but now with witnessscript + private keys
         self.log.info("Should import a p2wsh with respective witness script and private keys")
@@ -569,7 +632,8 @@ class ImportMultiTest(BitcoinTestFramework):
                                "timestamp": "now",
                                "redeemscript": key.p2sh_p2wpkh_redeem_script,
                                "pubkeys": [key.pubkey]},
-                              True)
+                              True,
+                              warnings=['Assuming watchonly as not all private keys are provided.'])
         self.test_address(address,
                           solvable=True,
                           ismine=False)
@@ -584,8 +648,23 @@ class ImportMultiTest(BitcoinTestFramework):
                                "keys": [key.privkey]},
                               True)
         self.test_address(address,
+                          iswatchonly=False,
                           solvable=True,
-                          ismine=True)
+                          ismine=True,
+                          ischange=False,
+                          timestamp=timestamp)
+        self.test_address(key.p2pkh_addr,
+                          iswatchonly=False,
+                          solvable=True,
+                          ismine=True,
+                          ischange=True,  # TODO: importmulti should add all variant addresses to address book when importing privkeys, so ischange is correct
+                          timestamp=timestamp)
+        self.test_address(key.p2wpkh_addr,
+                          iswatchonly=False,
+                          solvable=True,
+                          ismine=True,
+                          ischange=True,  # TODO: importmulti should add all variant addresses to address book when importing privkeys, so ischange is correct
+                          timestamp=timestamp)
 
         # P2SH-P2WSH multisig + redeemscript with no private key
         multisig = self.get_multisig()
@@ -594,9 +673,12 @@ class ImportMultiTest(BitcoinTestFramework):
                                "timestamp": "now",
                                "redeemscript": multisig.p2wsh_script,
                                "witnessscript": multisig.redeem_script},
-                              True)
-        self.test_address(address,
-                          solvable=True)
+                              True,
+                              warnings=['Assuming watchonly as not all private keys are provided.'])
+        self.test_address(multisig.p2sh_p2wsh_addr,
+                          solvable=True,
+                          ismine=False,
+                          timestamp=timestamp)
 
 if __name__ == '__main__':
     ImportMultiTest().main()
