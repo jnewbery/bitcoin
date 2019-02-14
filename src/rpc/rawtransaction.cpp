@@ -28,6 +28,7 @@
 #include <script/standard.h>
 #include <uint256.h>
 #include <util/bip32.h>
+#include <util/moneystr.h>
 #include <util/strencodings.h>
 #include <validation.h>
 #include <validationinterface.h>
@@ -1063,12 +1064,15 @@ static UniValue sendrawtransaction(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
     CTransactionRef tx(MakeTransactionRef(std::move(mtx)));
 
-    bool allowhighfees = false;
-    if (!request.params[1].isNull()) allowhighfees = request.params[1].get_bool();
+    CAmount max_raw_tx_fee = maxTxFee;
+    if (request.params[1].isBool()) {
+        if (request.params[1].get_bool()) max_raw_tx_fee = 0;
+    }
+
     uint256 txid;
     TransactionError err;
     std::string err_string;
-    if (!BroadcastTransaction(tx, txid, err, err_string, allowhighfees)) {
+    if (!BroadcastTransaction(tx, txid, err, err_string, max_raw_tx_fee)) {
         throw JSONRPCTransactionError(err, err_string);
     }
 

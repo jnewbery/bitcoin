@@ -35,9 +35,9 @@ const char* TransactionErrorString(const TransactionError error);
  * @param[out] &txid the txid of the transaction, if successfully broadcast
  * @param[out] &error reference to UniValue to fill with error info on failure
  * @param[out] &err_string reference to std::string to fill with error string if available
- * @param[in]  allowhighfees whether to allow fees exceeding maxTxFee
+ * @param[in]  absurd_fee threshold for whether the fee is unacceptably high or not
  * return true on success, false on error (and fills in `error`)
  */
-bool BroadcastTransaction(CTransactionRef tx, uint256& txid, TransactionError& error, std::string& err_string, bool allowhighfees = false);
+bool BroadcastTransaction(CTransactionRef tx, uint256& txid, TransactionError& error, std::string& err_string, const CAmount absurd_fee);
 
 #endif // BITCOIN_NODE_TRANSACTION_H
