@@ -269,6 +269,9 @@ public:
     //! Register handler for RPC. Command is not copied, so reference
     //! needs to remain valid until Handler is disconnected.
     virtual std::unique_ptr<Handler> handleRpc(const CRPCCommand& command) = 0;
+
+    //! Notify handler of all memory pool transactions.
+    virtual void notifyMempoolTransactions(Notifications& notifications) = 0;
 };
 
 //! Interface to let node manage chain clients (wallets, or maybe tools for
