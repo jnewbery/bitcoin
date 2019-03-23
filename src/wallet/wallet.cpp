@@ -1890,6 +1890,9 @@ void CWallet::ReacceptWalletTransactions()
         CValidationState state;
         wtx.AcceptToMemoryPool(*locked_chain, state);
     }
+
+    // Update wallet transactions with current mempool transactions.
+    chain().notifyMempoolTransactions(*this);
 }
 
 bool CWalletTx::RelayWalletTransaction(interfaces::Chain::Lock& locked_chain)
