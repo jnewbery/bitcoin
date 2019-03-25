@@ -10,7 +10,7 @@ Version 2 compact blocks are post-segwit (wtxids)
 import random
 
 from test_framework.blocktools import create_block, create_coinbase, add_witness_commitment
-from test_framework.messages import BlockTransactions, BlockTransactionsRequest, calculate_shortid, CBlock, CBlockHeader, CInv, COutPoint, CTransaction, CTxIn, CTxInWitness, CTxOut, FromHex, HeaderAndShortIDs, msg_blocktxn, msg_cmpctblock, msg_getblocktxn, msg_getdata, msg_getheaders, msg_headers, msg_inv, msg_sendcmpct, msg_sendheaders, msg_tx, msg_witness_block, msg_witness_tx, msg_witness_blocktxn, MSG_WITNESS_FLAG, NODE_NETWORK, P2PHeaderAndShortIDs, PrefilledTransaction, ser_uint256, ToHex
+from test_framework.messages import BlockTransactions, BlockTransactionsRequest, calculate_shortid, CBlock, CBlockHeader, CInv, COutPoint, CTransaction, CTxIn, CTxInWitness, CTxOut, FromHex, HeaderAndShortIDs, msg_blocktxn, msg_cmpctblock, msg_getblocktxn, msg_getdata, msg_getheaders, msg_headers, msg_inv, msg_sendcmpct, msg_sendheaders, msg_tx, msg_witness_block, msg_witness_tx, msg_witness_blocktxn, MSG_WITNESS_FLAG, NODE_NETWORK, P2PHeaderAndShortIDs, PrefilledTransaction, ser_uint256
 from test_framework.mininode import mininode_lock, P2PInterface
 from test_framework.script import CScript, OP_TRUE, OP_DROP
 from test_framework.test_framework import BitcoinTestFramework
@@ -320,7 +320,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         """Compare the generated shortids to what we expect based on BIP 152, given bitcoind's choice of nonce."""
 
         # Generate a bunch of transactions.
-        self.nodes[0].generate(101)
         num_transactions = 25
         address = self.nodes[0].getnewaddress()
 
@@ -384,11 +383,12 @@ class CompactBlocksTest(BitcoinTestFramework):
         header_and_shortids.header.calc_sha256()
         assert_equal(header_and_shortids.header.sha256, block_hash)
 
-        # Make sure the prefilled_txn appears to have included the coinbase
+        # Make sure the prefilled_txn includes the coinbase
         assert len(header_and_shortids.prefilled_txn) >= 1
         assert_equal(header_and_shortids.prefilled_txn[0].index, 0)
 
         # Check that all prefilled_txn entries match what's in the block.
+        # We expect only the coinbase to be prefilled since the node sent all txs to the peer earlier.
         for entry in header_and_shortids.prefilled_txn:
             entry.tx.calc_sha256()
             # This checks the non-witness parts of the tx agree
@@ -445,7 +445,7 @@ class CompactBlocksTest(BitcoinTestFramework):
                 peer.send_header_for_blocks([block])
             wait_until(lambda: "getdata" in peer.last_message, timeout=30, lock=mininode_lock)
             assert_equal(len(peer.last_message["getdata"].inv), 1)
-            assert_equal(peer.last_message["getdata"].inv[0].type, 4)
+            assert_equal(peer.last_message["getdata"].inv[0].type, 4)  # type 4 is compact block
             assert_equal(peer.last_message["getdata"].inv[0].hash, block.sha256)
 
             # Send back a compactblock message that omits the coinbase
@@ -629,20 +629,17 @@ class CompactBlocksTest(BitcoinTestFramework):
         hashPrevBlock = int(self.nodes[0].getblockhash(cur_height - 5), 16)
         block = self.build_block_on_tip(self.nodes[0])
         block.hashPrevBlock = hashPrevBlock
+        add_witness_commitment(block)
         block.solve()
 
         comp_block = HeaderAndShortIDs()
         comp_block.initialize_from_block(block)
         peer.send_and_ping(msg_cmpctblock(comp_block.to_p2p()))
 
+        # The block header should be stored as a chain tip.
         tips = self.nodes[0].getchaintips()
-        found = False
-        for x in tips:
-            if x["hash"] == block.hash:
-                assert_equal(x["status"], "headers-only")
-                found = True
-                break
-        assert found
+        tip = next(x for x in tips if x['hash'] == block.hash)
+        assert_equal(tip['status'], 'headers-only')
 
         # Requesting this block via getblocktxn should silently fail
         # (to avoid fingerprinting attacks).
@@ -696,7 +693,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         # We should receive a getdata request
         wait_until(lambda: "getdata" in peer.last_message, timeout=10, lock=mininode_lock)
         assert_equal(len(peer.last_message["getdata"].inv), 1)
-        assert peer.last_message["getdata"].inv[0].type == 2 or peer.last_message["getdata"].inv[0].type == 2 | MSG_WITNESS_FLAG
+        assert_equal(peer.last_message["getdata"].inv[0].type, 2 | MSG_WITNESS_FLAG)
         assert_equal(peer.last_message["getdata"].inv[0].hash, block.sha256)
 
         # Deliver the block
@@ -720,6 +717,8 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         block, cmpct_block = announce_cmpct_block(self.nodes[0], stalling_peer)
 
+        # stalling peer doesn't send the block txs. Instead, delivery peer sends
+        # them as txs.
         for tx in block.vtx[1:]:
             delivery_peer.send_message(msg_witness_tx(tx))
         delivery_peer.sync_with_ping()
@@ -727,21 +726,25 @@ class CompactBlocksTest(BitcoinTestFramework):
         for tx in block.vtx[1:]:
             assert tx.hash in mempool
 
+        # node can construct the block after delivery peer sends a compact block.
         delivery_peer.send_and_ping(msg_cmpctblock(cmpct_block.to_p2p()))
         assert_equal(int(self.nodes[0].getbestblockhash(), 16), block.sha256)
 
         # Now test that delivering an invalid compact block won't break relay
-
         block, cmpct_block = announce_cmpct_block(self.nodes[0], stalling_peer)
         for tx in block.vtx[1:]:
             delivery_peer.send_message(msg_witness_tx(tx))
         delivery_peer.sync_with_ping()
 
+        # Malleate the coinbase witness before sending it to the node in a compact
+        # block from delivery node.
         cmpct_block.prefilled_txn[0].tx.wit.vtxinwit = [CTxInWitness()]
         cmpct_block.prefilled_txn[0].tx.wit.vtxinwit[0].scriptWitness.stack = [ser_uint256(1)]
         delivery_peer.send_and_ping(msg_cmpctblock(cmpct_block.to_p2p()))
         assert int(self.nodes[0].getbestblockhash(), 16) != block.sha256
 
+        # Send the coinbase to the node in a blocktxn message from the stalling peer.
+        # The node should still be able to reconstruct the block.
         msg = msg_blocktxn()
         msg.block_transactions.blockhash = block.sha256
         msg.block_transactions.transactions = block.vtx[1:]
@@ -791,18 +794,18 @@ class CompactBlocksTest(BitcoinTestFramework):
         peer.send_and_ping(msg)
 
         # Check that the tip didn't advance
-        assert int(self.nodes[0].getbestblockhash(), 16) is not block.sha256
+        assert int(self.nodes[0].getbestblockhash(), 16) != block.sha256
         peer.sync_with_ping()
 
     def test_invalid_cmpctblock_message(self, peer):
         """Test that the node disconnects a peer that sends an invalid compact block."""
-        self.nodes[0].generate(101)
         block = self.build_block_on_tip(self.nodes[0])
 
         cmpct_block = P2PHeaderAndShortIDs()
         cmpct_block.header = CBlockHeader(block)
         cmpct_block.prefilled_txn_length = 1
-        # This index will be too high
+
+        # This index is too high
         prefilled_txn = PrefilledTransaction(1, block.vtx[0])
         cmpct_block.prefilled_txn = [prefilled_txn]
         peer.send_await_disconnect(msg_cmpctblock(cmpct_block))
