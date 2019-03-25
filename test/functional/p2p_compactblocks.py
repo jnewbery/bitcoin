@@ -495,7 +495,7 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         block = self.build_block_with_transactions(self.nodes[0], utxo, 5)
         comp_block = HeaderAndShortIDs()
-        comp_block.initialize_from_block(block, use_witness=True)
+        comp_block.initialize_from_block(block)
 
         test_getblocktxn_response(comp_block, peer, [1, 2, 3, 4, 5])
 
@@ -507,7 +507,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         block = self.build_block_with_transactions(self.nodes[0], utxo, 5)
 
         # Now try interspersing the prefilled transactions
-        comp_block.initialize_from_block(block, prefill_list=[0, 1, 5], use_witness=True)
+        comp_block.initialize_from_block(block, prefill_list=[0, 1, 5])
         test_getblocktxn_response(comp_block, peer, [2, 3, 4])
         msg_bt.block_transactions = BlockTransactions(block.sha256, block.vtx[2:5])
         test_tip_after_message(self.nodes[0], peer, msg_bt, block.sha256)
@@ -520,7 +520,7 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         # Prefill 4 out of the 6 transactions, and verify that only the one
         # that was not in the mempool is requested.
-        comp_block.initialize_from_block(block, prefill_list=[0, 2, 3, 4], use_witness=True)
+        comp_block.initialize_from_block(block, prefill_list=[0, 2, 3, 4])
         test_getblocktxn_response(comp_block, peer, [5])
 
         msg_bt.block_transactions = BlockTransactions(block.sha256, [block.vtx[5]])
@@ -543,7 +543,7 @@ class CompactBlocksTest(BitcoinTestFramework):
             peer.last_message.pop("getblocktxn", None)
 
         # Send compact block
-        comp_block.initialize_from_block(block, prefill_list=[0], use_witness=True)
+        comp_block.initialize_from_block(block, prefill_list=[0])
         test_tip_after_message(self.nodes[0], peer, msg_cmpctblock(comp_block.to_p2p()), block.sha256)
         with mininode_lock:
             # Shouldn't have gotten a request for any transaction
@@ -670,7 +670,7 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         # Send compact block
         comp_block = HeaderAndShortIDs()
-        comp_block.initialize_from_block(block, prefill_list=[0], use_witness=True)
+        comp_block.initialize_from_block(block, prefill_list=[0])
         peer.send_and_ping(msg_cmpctblock(comp_block.to_p2p()))
         absolute_indexes = []
         with mininode_lock:
@@ -711,7 +711,7 @@ class CompactBlocksTest(BitcoinTestFramework):
             block = self.build_block_with_transactions(node, utxo, 5)
 
             cmpct_block = HeaderAndShortIDs()
-            cmpct_block.initialize_from_block(block, use_witness=True)
+            cmpct_block.initialize_from_block(block)
             msg = msg_cmpctblock(cmpct_block.to_p2p())
             peer.send_and_ping(msg)
             with mininode_lock:
@@ -739,8 +739,6 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         cmpct_block.prefilled_txn[0].tx.wit.vtxinwit = [CTxInWitness()]
         cmpct_block.prefilled_txn[0].tx.wit.vtxinwit[0].scriptWitness.stack = [ser_uint256(1)]
-
-        cmpct_block.use_witness = True
         delivery_peer.send_and_ping(msg_cmpctblock(cmpct_block.to_p2p()))
         assert int(self.nodes[0].getbestblockhash(), 16) != block.sha256
 
@@ -760,9 +758,7 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         [l.clear_block_announcement() for l in peers]
 
-        # ToHex() won't serialize with witness, but this block has no witnesses
-        # anyway. TODO: repeat this test with witness tx's to a segwit node.
-        self.nodes[0].submitblock(ToHex(block))
+        self.nodes[0].submitblock(block.serialize(with_witness=True).hex())
 
         for l in peers:
             wait_until(lambda: l.received_block_announcement(), timeout=30, lock=mininode_lock)
@@ -772,24 +768,25 @@ class CompactBlocksTest(BitcoinTestFramework):
                 l.last_message["cmpctblock"].header_and_shortids.header.calc_sha256()
                 assert_equal(l.last_message["cmpctblock"].header_and_shortids.header.sha256, block.sha256)
 
-    def test_invalid_tx_in_compactblock(self, peer, use_segwit=True):
+    def test_invalid_tx_in_compactblock(self, peer):
         """Test that we don't get disconnected if we relay a compact block with valid header and invalid transactions."""
         utxo = self.utxos[0]
 
         block = self.build_block_with_transactions(self.nodes[0], utxo, 5)
+
+        # Delete an intermediate transaction
         del block.vtx[3]
         block.hashMerkleRoot = block.calc_merkle_root()
-        if use_segwit:
-            # If we're testing with segwit, also drop the coinbase witness,
-            # but include the witness commitment.
-            add_witness_commitment(block)
-            block.vtx[0].wit.vtxinwit = []
+
+        # Also drop the coinbase witness but include the witness commitment.
+        add_witness_commitment(block)
+        block.vtx[0].wit.vtxinwit = []
         block.solve()
 
         # Now send the compact block with all transactions prefilled, and
         # verify that we don't get disconnected.
         comp_block = HeaderAndShortIDs()
-        comp_block.initialize_from_block(block, prefill_list=[0, 1, 2, 3, 4], use_witness=use_segwit)
+        comp_block.initialize_from_block(block, prefill_list=[0, 1, 2, 3, 4])
         msg = msg_cmpctblock(comp_block.to_p2p())
         peer.send_and_ping(msg)
 

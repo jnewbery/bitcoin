@@ -759,14 +759,13 @@ def calculate_shortid(k0, k1, tx_hash):
 # This version gets rid of the array lengths, and reinterprets the differential
 # encoding into indices that can be used for lookup.
 class HeaderAndShortIDs:
-    __slots__ = ("header", "nonce", "prefilled_txn", "shortids", "use_witness")
+    __slots__ = ("header", "nonce", "prefilled_txn", "shortids")
 
     def __init__(self, p2pheaders_and_shortids = None):
         self.header = CBlockHeader()
         self.nonce = 0
         self.shortids = []
         self.prefilled_txn = []
-        self.use_witness = False
 
         if p2pheaders_and_shortids is not None:
             self.header = p2pheaders_and_shortids.header
@@ -778,10 +777,7 @@ class HeaderAndShortIDs:
                 last_index = self.prefilled_txn[-1].index
 
     def to_p2p(self):
-        if self.use_witness:
-            ret = P2PHeaderAndShortWitnessIDs()
-        else:
-            ret = P2PHeaderAndShortIDs()
+        ret = P2PHeaderAndShortWitnessIDs()
         ret.header = self.header
         ret.nonce = self.nonce
         ret.shortids_length = len(self.shortids)
@@ -803,18 +799,15 @@ class HeaderAndShortIDs:
         return [ key0, key1 ]
 
     # Version 2 compact blocks use wtxid in shortids (rather than txid)
-    def initialize_from_block(self, block, nonce=0, prefill_list = [0], use_witness = False):
+    def initialize_from_block(self, block, nonce=0, prefill_list = [0]):
         self.header = CBlockHeader(block)
         self.nonce = nonce
         self.prefilled_txn = [ PrefilledTransaction(i, block.vtx[i]) for i in prefill_list ]
         self.shortids = []
-        self.use_witness = use_witness
         [k0, k1] = self.get_siphash_keys()
         for i in range(len(block.vtx)):
             if i not in prefill_list:
-                tx_hash = block.vtx[i].sha256
-                if use_witness:
-                    tx_hash = block.vtx[i].calc_sha256(with_witness=True)
+                tx_hash = block.vtx[i].calc_sha256(with_witness=True)
                 self.shortids.append(calculate_shortid(k0, k1, tx_hash))
 
     def __repr__(self):
