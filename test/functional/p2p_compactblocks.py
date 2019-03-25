@@ -92,7 +92,6 @@ class CompactBlocksTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 1
-        self.utxos = []
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
@@ -225,7 +224,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         block2.solve()
         peer.send_and_ping(msg_witness_block(block2))
         assert_equal(int(self.nodes[0].getbestblockhash(), 16), block2.sha256)
-        self.utxos.extend([[tx.sha256, i, out_value] for i in range(10)])
+        self.utxos = [[tx.sha256, i, out_value] for i in range(10)]
 
     def test_sendcmpct(self, peer, legacy_peer=None):
         """Test sendcmpct between peers preferring the same version
@@ -495,7 +494,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         utxo = self.utxos.pop(0)
 
         block = self.build_block_with_transactions(self.nodes[0], utxo, 5)
-        self.utxos.append([block.vtx[-1].sha256, 0, block.vtx[-1].vout[0].nValue])
         comp_block = HeaderAndShortIDs()
         comp_block.initialize_from_block(block, use_witness=True)
 
@@ -507,7 +505,6 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         utxo = self.utxos.pop(0)
         block = self.build_block_with_transactions(self.nodes[0], utxo, 5)
-        self.utxos.append([block.vtx[-1].sha256, 0, block.vtx[-1].vout[0].nValue])
 
         # Now try interspersing the prefilled transactions
         comp_block.initialize_from_block(block, prefill_list=[0, 1, 5], use_witness=True)
@@ -518,7 +515,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         # Now try giving one transaction ahead of time.
         utxo = self.utxos.pop(0)
         block = self.build_block_with_transactions(self.nodes[0], utxo, 5)
-        self.utxos.append([block.vtx[-1].sha256, 0, block.vtx[-1].vout[0].nValue])
         peer.send_and_ping(msg_tx(block.vtx[1]))
         assert block.vtx[1].hash in self.nodes[0].getrawmempool()
 
@@ -534,7 +530,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         # announced and verify reconstruction happens immediately.
         utxo = self.utxos.pop(0)
         block = self.build_block_with_transactions(self.nodes[0], utxo, 10)
-        self.utxos.append([block.vtx[-1].sha256, 0, block.vtx[-1].vout[0].nValue])
         for tx in block.vtx[1:]:
             peer.send_message(msg_tx(tx))
         peer.sync_with_ping()
@@ -664,7 +659,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         utxo = self.utxos.pop(0)
 
         block = self.build_block_with_transactions(self.nodes[0], utxo, 10)
-        self.utxos.append([block.vtx[-1].sha256, 0, block.vtx[-1].vout[0].nValue])
         # Relay the first 5 transactions from the block in advance
         for tx in block.vtx[1:6]:
             peer.send_message(msg_tx(tx))
@@ -711,7 +705,6 @@ class CompactBlocksTest(BitcoinTestFramework):
 
     def test_compactblock_reconstruction_multiple_peers(self, stalling_peer, delivery_peer):
         """Test that a compact block can be reconstructed from multiple peers."""
-        assert len(self.utxos)
 
         def announce_cmpct_block(node, peer):
             utxo = self.utxos.pop(0)
@@ -736,8 +729,6 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         delivery_peer.send_and_ping(msg_cmpctblock(cmpct_block.to_p2p()))
         assert_equal(int(self.nodes[0].getbestblockhash(), 16), block.sha256)
-
-        # self.utxos.append([block.vtx[-1].sha256, 0, block.vtx[-1].vout[0].nValue])
 
         # Now test that delivering an invalid compact block won't break relay
 
@@ -783,7 +774,6 @@ class CompactBlocksTest(BitcoinTestFramework):
 
     def test_invalid_tx_in_compactblock(self, peer, use_segwit=True):
         """Test that we don't get disconnected if we relay a compact block with valid header and invalid transactions."""
-        assert len(self.utxos)
         utxo = self.utxos[0]
 
         block = self.build_block_with_transactions(self.nodes[0], utxo, 5)
