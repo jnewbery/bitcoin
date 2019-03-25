@@ -130,7 +130,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.test_compactblock_construction(self.segwit_node, version=2)
 
         self.log.info("Testing compactblock requests (segwit node)... ")
-        self.test_compactblock_requests(self.segwit_node, 2)
+        self.test_compactblock_requests(self.segwit_node)
 
         self.log.info("Testing getblocktxn requests (segwit node)...")
         self.test_getblocktxn_requests(self.segwit_node, 2)
@@ -414,14 +414,11 @@ class CompactBlocksTest(BitcoinTestFramework):
     # Test that bitcoind requests compact blocks when we announce new blocks
     # via header or inv, and that responding to getblocktxn causes the block
     # to be successfully reconstructed.
-    # Post-segwit: upgraded nodes would only make this request of cb-version-2,
-    # NODE_WITNESS peers.  Unupgraded nodes would still make this request of
-    # any cb-version-1-supporting peer.
-    def test_compactblock_requests(self, test_node, version, segwit=True):
+    def test_compactblock_requests(self, test_node):
         # Try announcing a block with an inv or header, expect a compactblock
         # request
         for announce in ["inv", "header"]:
-            block = self.build_block_on_tip(self.nodes[0], segwit=segwit)
+            block = self.build_block_on_tip(self.nodes[0], True)
             with mininode_lock:
                 test_node.last_message.pop("getdata", None)
 
@@ -442,8 +439,7 @@ class CompactBlocksTest(BitcoinTestFramework):
             comp_block.nonce = 0
             [k0, k1] = comp_block.get_siphash_keys()
             coinbase_hash = block.vtx[0].sha256
-            if version == 2:
-                coinbase_hash = block.vtx[0].calc_sha256(True)
+            coinbase_hash = block.vtx[0].calc_sha256(True)
             comp_block.shortids = [calculate_shortid(k0, k1, coinbase_hash)]
             test_node.send_and_ping(msg_cmpctblock(comp_block.to_p2p()))
             assert_equal(int(self.nodes[0].getbestblockhash(), 16), block.hashPrevBlock)
@@ -454,10 +450,7 @@ class CompactBlocksTest(BitcoinTestFramework):
             assert_equal(absolute_indexes, [0])  # should be a coinbase request
 
             # Send the coinbase, and verify that the tip advances.
-            if version == 2:
-                msg = msg_witness_blocktxn()
-            else:
-                msg = msg_blocktxn()
+            msg = msg_witness_blocktxn()
             msg.block_transactions.blockhash = block.sha256
             msg.block_transactions.transactions = [block.vtx[0]]
             test_node.send_and_ping(msg)
