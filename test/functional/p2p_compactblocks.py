@@ -139,20 +139,23 @@ class CompactBlocksTest(BitcoinTestFramework):
 
     # Helper for enabling cb announcements
     # Send the sendcmpct request and sync headers
-    def request_cb_announcements(self, peer, version):
+    def request_cb_announcements(self, peer):
         tip = self.nodes[0].getbestblockhash()
         peer.get_headers(locator=[int(tip, 16)], hashstop=0)
 
         msg = msg_sendcmpct()
-        msg.version = version
+        msg.version = peer.version
         msg.announce = True
         peer.send_and_ping(msg)
 
     def run_test(self):
         # Setup the p2p connections
         self.segwit_peer_1 = self.nodes[0].add_p2p_connection(TestP2PConn())
+        self.segwit_peer_1.version = 2
         self.segwit_peer_2 = self.nodes[0].add_p2p_connection(TestP2PConn())
+        self.segwit_peer_2.version = 2
         self.legacy_peer = self.nodes[0].add_p2p_connection(TestP2PConn(), services=NODE_NETWORK)
+        self.legacy_peer.version = 1
 
         # Construct UTXOs for use in later tests.
         self.make_utxos(self.segwit_peer_1)
@@ -165,8 +168,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.test_sendcmpct_legacy(self.legacy_peer)
 
         self.log.info("Testing compactblock construction...")
-        self.test_compactblock_construction(self.legacy_peer, version=1)
-        self.test_compactblock_construction(self.segwit_peer_1, version=2)
+        self.test_compactblock_construction(self.legacy_peer)
+        self.test_compactblock_construction(self.segwit_peer_1)
 
         self.log.info("Testing compactblock requests...")
         self.test_compactblock_requests(self.segwit_peer_1)
@@ -175,8 +178,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.test_getblocktxn_requests(self.segwit_peer_1)
 
         self.log.info("Testing getblocktxn handler...")
-        self.test_getblocktxn_handler(self.segwit_peer_1, 2)
-        self.test_getblocktxn_handler(self.legacy_peer, 1)
+        self.test_getblocktxn_handler(self.segwit_peer_1)
+        self.test_getblocktxn_handler(self.legacy_peer)
 
         self.log.info("Testing compactblock requests/announcements not at chain tip...")
         self.test_compactblocks_not_at_tip(self.segwit_peer_1)
@@ -191,8 +194,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         # Test that if we submitblock to the node, we'll get a compact block
         # announcement to all peers.
         self.log.info("Testing end-to-end block relay...")
-        self.request_cb_announcements(self.legacy_peer, 1)
-        self.request_cb_announcements(self.segwit_peer_1, 2)
         self.test_end_to_end_block_relay([self.segwit_peer_1, self.legacy_peer])
 
         self.log.info("Testing handling of invalid compact blocks...")
@@ -318,7 +319,7 @@ class CompactBlocksTest(BitcoinTestFramework):
 
     # Compare the generated shortids to what we expect based on BIP 152, given
     # bitcoind's choice of nonce.
-    def test_compactblock_construction(self, peer, version):
+    def test_compactblock_construction(self, peer):
         # Generate a bunch of transactions.
         self.nodes[0].generate(101)
         num_transactions = 25
@@ -340,7 +341,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         peer.wait_for_block_announcement(tip)
 
         # Make sure we will receive a fast-announce compact block
-        self.request_cb_announcements(peer, version)
+        self.request_cb_announcements(peer)
 
         # Now mine a block, and look at the resulting compact block.
         peer.clear_block_announcement()
@@ -361,7 +362,7 @@ class CompactBlocksTest(BitcoinTestFramework):
             assert "cmpctblock" in peer.last_message
             # Convert the on-the-wire representation to absolute indexes
             header_and_shortids = HeaderAndShortIDs(peer.last_message["cmpctblock"].header_and_shortids)
-        self.check_compactblock_construction_from_block(version, header_and_shortids, block_hash, block)
+        self.check_compactblock_construction_from_block(peer.version, header_and_shortids, block_hash, block)
 
         # Now fetch the compact block using a normal non-announce getdata
         with mininode_lock:
@@ -377,7 +378,7 @@ class CompactBlocksTest(BitcoinTestFramework):
             assert "cmpctblock" in peer.last_message
             # Convert the on-the-wire representation to absolute indexes
             header_and_shortids = HeaderAndShortIDs(peer.last_message["cmpctblock"].header_and_shortids)
-        self.check_compactblock_construction_from_block(version, header_and_shortids, block_hash, block)
+        self.check_compactblock_construction_from_block(peer.version, header_and_shortids, block_hash, block)
 
     def check_compactblock_construction_from_block(self, version, header_and_shortids, block_hash, block):
         # Check that we got the right block!
@@ -550,7 +551,7 @@ class CompactBlocksTest(BitcoinTestFramework):
             # Shouldn't have gotten a request for any transaction
             assert "getblocktxn" not in peer.last_message
 
-    def test_getblocktxn_handler(self, peer, version):
+    def test_getblocktxn_handler(self, peer):
         # bitcoind will not send blocktxn responses for blocks whose height is
         # more than 10 blocks deep.
         MAX_GETBLOCKTXN_DEPTH = 10
@@ -575,7 +576,7 @@ class CompactBlocksTest(BitcoinTestFramework):
                     tx = peer.last_message["blocktxn"].block_transactions.transactions.pop(0)
                     tx.calc_sha256()
                     assert_equal(tx.sha256, block.vtx[index].sha256)
-                    if version == 1:
+                    if peer.version == 1:
                         # Witnesses should have been stripped
                         assert tx.wit.is_null()
                     else:
@@ -753,6 +754,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         assert_equal(int(self.nodes[0].getbestblockhash(), 16), block.sha256)
 
     def test_end_to_end_block_relay(self, peers):
+        for peer in peers:
+            self.request_cb_announcements(peer)
         utxo = self.utxos.pop(0)
 
         block = self.build_block_with_transactions(self.nodes[0], utxo, 10)
