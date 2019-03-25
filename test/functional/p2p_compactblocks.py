@@ -94,8 +94,6 @@ class CompactBlocksTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 1
-        # This test was written assuming SegWit is activated using BIP9 at height 432 (3x confirmation window).
-        # TODO: Rewrite this test to support SegWit being always active.
         self.utxos = []
 
     def skip_test_if_missing_module(self):
@@ -134,14 +132,13 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.segwit_node.send_and_ping(msg_block(block2))
         assert_equal(int(self.nodes[0].getbestblockhash(), 16), block2.sha256)
         self.utxos.extend([[tx.sha256, i, out_value] for i in range(10)])
-        return
 
     # Send balance to a segwit output
     def make_segwit_output(self, node):
         if node.getbalance() < 2:
             node.generate(101)
         address = node.getnewaddress("bech32")
-        node.sendtoaddress(address, node.getbalance()-1)
+        node.sendtoaddress(address, node.getbalance() - 1)
 
     # Test "sendcmpct" (between peers preferring the same version):
     # - No compact block announcements unless sendcmpct is sent.
