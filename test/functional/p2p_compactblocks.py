@@ -10,7 +10,7 @@ Version 2 compact blocks are post-segwit (wtxids)
 import random
 
 from test_framework.blocktools import create_block, create_coinbase, add_witness_commitment
-from test_framework.messages import BlockTransactions, BlockTransactionsRequest, calculate_shortid, CBlock, CBlockHeader, CInv, COutPoint, CTransaction, CTxIn, CTxInWitness, CTxOut, FromHex, HeaderAndShortIDs, msg_blocktxn, msg_cmpctblock, msg_getblocktxn, msg_getdata, msg_getheaders, msg_headers, msg_inv, msg_sendcmpct, msg_sendheaders, msg_tx, msg_witness_block, msg_witness_tx, msg_witness_blocktxn, MSG_WITNESS_FLAG, NODE_NETWORK, NODE_WITNESS, P2PHeaderAndShortIDs, PrefilledTransaction, ser_uint256, ToHex
+from test_framework.messages import BlockTransactions, BlockTransactionsRequest, calculate_shortid, CBlock, CBlockHeader, CInv, COutPoint, CTransaction, CTxIn, CTxInWitness, CTxOut, FromHex, HeaderAndShortIDs, msg_blocktxn, msg_cmpctblock, msg_getblocktxn, msg_getdata, msg_getheaders, msg_headers, msg_inv, msg_sendcmpct, msg_sendheaders, msg_tx, msg_witness_block, msg_witness_tx, msg_witness_blocktxn, MSG_WITNESS_FLAG, NODE_NETWORK, P2PHeaderAndShortIDs, PrefilledTransaction, ser_uint256, ToHex
 from test_framework.mininode import mininode_lock, P2PInterface
 from test_framework.script import CScript, OP_TRUE, OP_DROP
 from test_framework.test_framework import BitcoinTestFramework
@@ -111,8 +111,8 @@ class CompactBlocksTest(BitcoinTestFramework):
 
     def run_test(self):
         # Setup the p2p connections
-        self.segwit_peer_1 = self.nodes[0].add_p2p_connection(TestP2PConn(), services=NODE_NETWORK | NODE_WITNESS)
-        self.segwit_peer_2 = self.nodes[0].add_p2p_connection(TestP2PConn(), services=NODE_NETWORK | NODE_WITNESS)
+        self.segwit_peer_1 = self.nodes[0].add_p2p_connection(TestP2PConn())
+        self.segwit_peer_2 = self.nodes[0].add_p2p_connection(TestP2PConn())
         self.legacy_peer = self.nodes[0].add_p2p_connection(TestP2PConn(), services=NODE_NETWORK)
 
         # Construct UTXOs for use in later tests.
@@ -128,13 +128,13 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.test_compactblock_construction(self.legacy_peer, version=1)
         self.test_compactblock_construction(self.segwit_peer_1, version=2)
 
-        self.log.info("Testing compactblock requests (segwit node)... ")
+        self.log.info("Testing compactblock requests...")
         self.test_compactblock_requests(self.segwit_peer_1)
 
-        self.log.info("Testing getblocktxn requests (segwit node)...")
+        self.log.info("Testing getblocktxn requests...")
         self.test_getblocktxn_requests(self.segwit_peer_1)
 
-        self.log.info("Testing getblocktxn handler (segwit node should return witnesses)...")
+        self.log.info("Testing getblocktxn handler...")
         self.test_getblocktxn_handler(self.segwit_peer_1, 2)
         self.test_getblocktxn_handler(self.legacy_peer, 1)
 
@@ -150,8 +150,6 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         # Test that if we submitblock to node1, we'll get a compact block
         # announcement to all peers.
-        # (Post-segwit activation, blocks won't propagate from node0 to node1
-        # automatically, so don't bother testing a block announced to node0.)
         self.log.info("Testing end-to-end block relay...")
         self.request_cb_announcements(self.legacy_peer, 1)
         self.request_cb_announcements(self.segwit_peer_1, 2)
