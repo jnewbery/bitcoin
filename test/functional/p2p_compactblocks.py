@@ -517,8 +517,6 @@ class CompactBlocksTest(BitcoinTestFramework):
     # Incorrectly responding to a getblocktxn shouldn't cause the block to be
     # permanently failed.
     def test_incorrect_blocktxn_response(self, node, test_node, version):
-        if (len(self.utxos) == 0):
-            self.make_utxos()
         utxo = self.utxos.pop(0)
 
         block = self.build_block_with_transactions(node, utxo, 10)
