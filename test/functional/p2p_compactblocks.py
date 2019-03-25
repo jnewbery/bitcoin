@@ -116,9 +116,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.old_node = self.nodes[0].add_p2p_connection(TestP2PConn(), services=NODE_NETWORK)
         self.additional_segwit_node = self.nodes[0].add_p2p_connection(TestP2PConn(), services=NODE_NETWORK | NODE_WITNESS)
 
-        # We will need UTXOs to construct transactions in later tests.
+        # Construct UTXOs for use in later tests.
         self.make_utxos()
-        self.make_segwit_output(self.nodes[0])
 
         assert_equal(get_bip9_status(self.nodes[0], "segwit")["status"], 'active')
 
@@ -166,12 +165,13 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.log.info("Testing invalid index in cmpctblock message...")
         self.test_invalid_cmpctblock_message()
 
-    # Create 10 more anyone-can-spend utxo's for testing.
     def make_utxos(self):
+        """ Create 10 anyone-can-spend UTXOs for testing and send balance to bech32 output."""
         block = self.build_block_on_tip(self.nodes[0])
         self.segwit_node.send_and_ping(msg_block(block))
         assert int(self.nodes[0].getbestblockhash(), 16) == block.sha256
-        self.nodes[0].generate(100)
+        address = self.nodes[0].getnewaddress(address_type="bech32")
+        self.nodes[0].generatetoaddress(100, address)
 
         total_value = block.vtx[0].vout[0].nValue
         out_value = total_value // 10
@@ -188,13 +188,6 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.segwit_node.send_and_ping(msg_block(block2))
         assert_equal(int(self.nodes[0].getbestblockhash(), 16), block2.sha256)
         self.utxos.extend([[tx.sha256, i, out_value] for i in range(10)])
-
-    # Send balance to a segwit output
-    def make_segwit_output(self, node):
-        if node.getbalance() < 2:
-            node.generate(101)
-        address = node.getnewaddress("bech32")
-        node.sendtoaddress(address, node.getbalance() - 1)
 
     # Test "sendcmpct" (between peers preferring the same version):
     # - No compact block announcements unless sendcmpct is sent.
