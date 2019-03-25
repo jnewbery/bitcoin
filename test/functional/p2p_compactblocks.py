@@ -109,6 +109,17 @@ class CompactBlocksTest(BitcoinTestFramework):
         block.solve()
         return block
 
+    def check_announcement_of_new_block(self, peer, predicate):
+        peer.clear_block_announcement()
+        block_hash = int(self.nodes[0].generate(1)[0], 16)
+        peer.wait_for_block_announcement(block_hash, timeout=30)
+        assert peer.block_announced
+
+        with mininode_lock:
+            assert predicate(peer), (
+                "block_hash={!r}, cmpctblock={!r}, inv={!r}".format(
+                    block_hash, peer.last_message.get("cmpctblock", None), peer.last_message.get("inv", None)))
+
     def run_test(self):
         # Setup the p2p connections
         self.segwit_peer_1 = self.nodes[0].add_p2p_connection(TestP2PConn())
@@ -121,8 +132,9 @@ class CompactBlocksTest(BitcoinTestFramework):
         assert_equal(get_bip9_status(self.nodes[0], "segwit")["status"], 'active')
 
         self.log.info("Testing SENDCMPCT p2p message... ")
-        self.test_sendcmpct(self.segwit_peer_1, legacy_peer=self.legacy_peer)
+        self.test_sendcmpct(self.segwit_peer_1)
         self.test_sendcmpct(self.segwit_peer_2)
+        self.test_sendcmpct_legacy(self.legacy_peer)
 
         self.log.info("Testing compactblock construction...")
         self.test_compactblock_construction(self.legacy_peer, version=1)
@@ -194,8 +206,6 @@ class CompactBlocksTest(BitcoinTestFramework):
     #   made with compact blocks.
     # - If sendcmpct is then sent with boolean 1, then new block announcements
     #   are made with compact blocks.
-    # If old_node is passed in, request compact blocks with version=preferred-1
-    # and verify that it receives block announcements via compact block.
     def test_sendcmpct(self, peer, legacy_peer=None):
         # Make sure we get a SENDCMPCT message from our peer
         def received_sendcmpct():
@@ -210,23 +220,12 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         tip = int(self.nodes[0].getbestblockhash(), 16)
 
-        def check_announcement_of_new_block(node, peer, predicate):
-            peer.clear_block_announcement()
-            block_hash = int(node.generate(1)[0], 16)
-            peer.wait_for_block_announcement(block_hash, timeout=30)
-            assert peer.block_announced
-
-            with mininode_lock:
-                assert predicate(peer), (
-                    "block_hash={!r}, cmpctblock={!r}, inv={!r}".format(
-                        block_hash, peer.last_message.get("cmpctblock", None), peer.last_message.get("inv", None)))
-
         # We shouldn't get any block announcements via cmpctblock yet.
-        check_announcement_of_new_block(self.nodes[0], peer, lambda p: "cmpctblock" not in p.last_message)
+        self.check_announcement_of_new_block(peer, lambda p: "cmpctblock" not in p.last_message)
 
         # Try one more time, this time after requesting headers.
         peer.request_headers_and_sync(locator=[tip])
-        check_announcement_of_new_block(self.nodes[0], peer, lambda p: "cmpctblock" not in p.last_message and "inv" in p.last_message)
+        self.check_announcement_of_new_block(peer, lambda p: "cmpctblock" not in p.last_message and "inv" in p.last_message)
 
         # Test a few ways of using sendcmpct that should NOT
         # result in compact block announcements.
@@ -238,7 +237,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         sendcmpct.version = 3
         sendcmpct.announce = True
         peer.send_and_ping(sendcmpct)
-        check_announcement_of_new_block(self.nodes[0], peer, lambda p: "cmpctblock" not in p.last_message)
+        self.check_announcement_of_new_block(peer, lambda p: "cmpctblock" not in p.last_message)
 
         # Headers sync before next test.
         peer.request_headers_and_sync(locator=[tip])
@@ -247,7 +246,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         sendcmpct.version = 2
         sendcmpct.announce = False
         peer.send_and_ping(sendcmpct)
-        check_announcement_of_new_block(self.nodes[0], peer, lambda p: "cmpctblock" not in p.last_message)
+        self.check_announcement_of_new_block(peer, lambda p: "cmpctblock" not in p.last_message)
 
         # Headers sync before next test.
         peer.request_headers_and_sync(locator=[tip])
@@ -256,36 +255,38 @@ class CompactBlocksTest(BitcoinTestFramework):
         sendcmpct.version = 2
         sendcmpct.announce = True
         peer.send_and_ping(sendcmpct)
-        check_announcement_of_new_block(self.nodes[0], peer, lambda p: "cmpctblock" in p.last_message)
+        self.check_announcement_of_new_block(peer, lambda p: "cmpctblock" in p.last_message)
 
         # Try one more time (no headers sync should be needed!)
-        check_announcement_of_new_block(self.nodes[0], peer, lambda p: "cmpctblock" in p.last_message)
+        self.check_announcement_of_new_block(peer, lambda p: "cmpctblock" in p.last_message)
 
         # Try one more time, after turning on sendheaders
         peer.send_and_ping(msg_sendheaders())
-        check_announcement_of_new_block(self.nodes[0], peer, lambda p: "cmpctblock" in p.last_message)
+        self.check_announcement_of_new_block(peer, lambda p: "cmpctblock" in p.last_message)
 
         # Try one more time, after sending version 1, announce=false message.
         sendcmpct.version = 1
         sendcmpct.announce = False
         peer.send_and_ping(sendcmpct)
-        check_announcement_of_new_block(self.nodes[0], peer, lambda p: "cmpctblock" in p.last_message)
+        self.check_announcement_of_new_block(peer, lambda p: "cmpctblock" in p.last_message)
 
         # Now turn off announcements
         sendcmpct.version = 2
         sendcmpct.announce = False
         peer.send_and_ping(sendcmpct)
-        check_announcement_of_new_block(self.nodes[0], peer, lambda p: "cmpctblock" not in p.last_message and "headers" in p.last_message)
+        self.check_announcement_of_new_block(peer, lambda p: "cmpctblock" not in p.last_message and "headers" in p.last_message)
 
-        if legacy_peer is not None:
-            # Verify that a peer using an older protocol version can receive
-            # announcements from this node.
-            sendcmpct.version = 1
-            sendcmpct.announce = True
-            legacy_peer.send_and_ping(sendcmpct)
-            # Header sync
-            legacy_peer.request_headers_and_sync(locator=[tip])
-            check_announcement_of_new_block(self.nodes[0], legacy_peer, lambda p: "cmpctblock" in p.last_message)
+    def test_sendcmpct_legacy(self, peer):
+        # Verify that a peer using an older protocol version can receive
+        # announcements from this node.
+        sendcmpct = msg_sendcmpct()
+        sendcmpct.version = 1
+        sendcmpct.announce = True
+        peer.send_and_ping(sendcmpct)
+        # Header sync
+        tip = int(self.nodes[0].getbestblockhash(), 16)
+        peer.request_headers_and_sync(locator=[tip])
+        self.check_announcement_of_new_block(peer, lambda p: "cmpctblock" in p.last_message)
 
     # This test actually causes bitcoind to (reasonably!) disconnect us, so do this last.
     def test_invalid_cmpctblock_message(self, peer):
