@@ -126,8 +126,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.test_sendcmpct(self.additional_segwit_node)
 
         self.log.info("Testing compactblock construction...")
-        self.test_compactblock_construction(self.old_node, 1)
-        self.test_compactblock_construction(self.segwit_node, 2)
+        self.test_compactblock_construction(self.old_node, version=1)
+        self.test_compactblock_construction(self.segwit_node, version=2)
 
         self.log.info("Testing compactblock requests (segwit node)... ")
         self.test_compactblock_requests(self.segwit_node, 2)
@@ -305,7 +305,7 @@ class CompactBlocksTest(BitcoinTestFramework):
 
     # Compare the generated shortids to what we expect based on BIP 152, given
     # bitcoind's choice of nonce.
-    def test_compactblock_construction(self, test_node, version, use_witness_address=True):
+    def test_compactblock_construction(self, test_node, version):
         # Generate a bunch of transactions.
         self.nodes[0].generate(101)
         num_transactions = 25
@@ -319,8 +319,8 @@ class CompactBlocksTest(BitcoinTestFramework):
             if not tx.wit.is_null():
                 segwit_tx_generated = True
 
-        if use_witness_address:
-            assert segwit_tx_generated  # check that our test is not broken
+        # check that our test is not broken
+        assert segwit_tx_generated
 
         # Wait until we've seen the block announcement for the resulting tip
         tip = int(self.nodes[0].getbestblockhash(), 16)
