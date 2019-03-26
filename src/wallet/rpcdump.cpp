@@ -1498,7 +1498,7 @@ UniValue importmulti(const JSONRPCRequest& mainRequest)
                                       "and coins using this key may not appear in the wallet. This error could be "
                                       "caused by pruning or data corruption (see bitcoind log for details) and could "
                                       "be dealt with by downloading and rescanning the relevant blocks (see -reindex "
-                                      "and -rescan options).",
+                                      "option and rescan RPC).",
                                 GetImportTimestamp(request, now), scannedTime - TIMESTAMP_WINDOW - 1, TIMESTAMP_WINDOW)));
                     response.push_back(std::move(result));
                 }

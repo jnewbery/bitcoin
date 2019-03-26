@@ -37,7 +37,7 @@
 
 //! Responsible for reading and validating the -wallet arguments and verifying the wallet database.
 //! This function will perform salvage on the wallet if requested, as long as only one wallet is
-//! being loaded (WalletParameterInteraction forbids -salvagewallet, -zapwallettxes or -upgradewallet with multiwallet).
+//! being loaded (WalletParameterInteraction forbids -upgradewallet with multiwallet).
 bool VerifyWallets(interfaces::Chain& chain, const std::vector<std::string>& wallet_files);
 
 //! Load wallet databases.
@@ -1134,7 +1134,7 @@ public:
     bool MarkReplaced(const uint256& originalHash, const uint256& newHash);
 
     //! Verify wallet naming and perform salvage on the wallet if required
-    static bool Verify(interfaces::Chain& chain, const WalletLocation& location, bool salvage_wallet, std::string& error_string, std::string& warning_string);
+    static bool Verify(interfaces::Chain& chain, const WalletLocation& location, std::string& error_string, std::string& warning_string);
 
     /* Initializes the wallet, returns a new CWallet instance or a null pointer in case of an error */
     static std::shared_ptr<CWallet> CreateWalletFromFile(interfaces::Chain& chain, const WalletLocation& location, uint64_t wallet_creation_flags = 0);

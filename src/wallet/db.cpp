@@ -339,8 +339,6 @@ bool BerkeleyBatch::Recover(const fs::path& file_path, void *callbackDataIn, boo
     // Call Salvage with fAggressive=true to
     // get as much data as possible.
     // Rewrite salvaged data to fresh wallet file
-    // Set -rescan so any missing transactions will be
-    // found.
     int64_t now = GetTime();
     newFilename = strprintf("%s.%d.bak", filename, now);
 

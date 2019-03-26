@@ -134,7 +134,7 @@ void UnloadWallet(std::shared_ptr<CWallet>&& wallet)
 
 std::shared_ptr<CWallet> LoadWallet(interfaces::Chain& chain, const WalletLocation& location, std::string& error, std::string& warning)
 {
-    if (!CWallet::Verify(chain, location, false, error, warning)) {
+    if (!CWallet::Verify(chain, location, error, warning)) {
         error = "Wallet file verification failed: " + error;
         return nullptr;
     }
@@ -1775,7 +1775,7 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
 
     {
         fAbortRescan = false;
-        ShowProgress(strprintf("%s " + _("Rescanning..."), GetDisplayName()), 0); // show rescan progress in GUI as dialog or on splashscreen, if -rescan on startup
+        ShowProgress(strprintf("%s " + _("Rescanning..."), GetDisplayName()), 0); // show rescan progress in GUI
         uint256 tip_hash;
         // The way the 'block_height' is initialized is just a workaround for the gcc bug #47679 since version 4.6.0.
         Optional<int> block_height = MakeOptional(false, int());
@@ -4017,7 +4017,7 @@ void CWallet::MarkPreSplitKeys()
     }
 }
 
-bool CWallet::Verify(interfaces::Chain& chain, const WalletLocation& location, bool salvage_wallet, std::string& error_string, std::string& warning_string)
+bool CWallet::Verify(interfaces::Chain& chain, const WalletLocation& location, std::string& error_string, std::string& warning_string)
 {
     // Do some checking on wallet path. It should be either a:
     //
@@ -4056,14 +4056,6 @@ bool CWallet::Verify(interfaces::Chain& chain, const WalletLocation& location, b
         error_string = strprintf("Error loading wallet %s. %s", location.GetName(), fsbridge::get_filesystem_error_message(e));
         return false;
     }
-
-    if (salvage_wallet) {
-        // Recover readable keypairs:
-        CWallet dummyWallet(chain, WalletLocation(), WalletDatabase::CreateDummy());
-        std::string backup_filename;
-        if (!WalletBatch::Recover(wallet_path, (void *)&dummyWallet, WalletBatch::RecoverKeysOnlyFilter, backup_filename)) {
-            return false;
-        }
     }
 
     return WalletBatch::VerifyDatabaseFile(wallet_path, warning_string, error_string);
@@ -4072,20 +4064,6 @@ bool CWallet::Verify(interfaces::Chain& chain, const WalletLocation& location, b
 std::shared_ptr<CWallet> CWallet::CreateWalletFromFile(interfaces::Chain& chain, const WalletLocation& location, uint64_t wallet_creation_flags)
 {
     const std::string& walletFile = WalletDataFilePath(location.GetPath()).string();
-
-    // needed to restore wallet transaction meta data after -zapwallettxes
-    std::vector<CWalletTx> vWtx;
-
-    if (gArgs.GetBoolArg("-zapwallettxes", false)) {
-        chain.initMessage(_("Zapping all transactions from wallet..."));
-
-        std::unique_ptr<CWallet> tempWallet = MakeUnique<CWallet>(chain, location, WalletDatabase::Create(location.GetPath()));
-        DBErrors nZapWalletRet = tempWallet->ZapWalletTx(vWtx);
-        if (nZapWalletRet != DBErrors::LOAD_OK) {
-            chain.initError(strprintf(_("Error loading %s: Wallet corrupted"), walletFile));
-            return nullptr;
-        }
-    }
 
     chain.initMessage(_("Loading wallet..."));
 
@@ -4355,28 +4333,6 @@ std::shared_ptr<CWallet> CWallet::CreateWalletFromFile(interfaces::Chain& chain,
         walletInstance->ChainStateFlushed(locked_chain->getTipLocator());
         walletInstance->database->IncrementUpdateCounter();
 
-        // Restore wallet transaction metadata after -zapwallettxes=1
-        if (gArgs.GetBoolArg("-zapwallettxes", false) && gArgs.GetArg("-zapwallettxes", "1") != "2")
-        {
-            WalletBatch batch(*walletInstance->database);
-
-            for (const CWalletTx& wtxOld : vWtx)
-            {
-                uint256 hash = wtxOld.GetHash();
-                std::map<uint256, CWalletTx>::iterator mi = walletInstance->mapWallet.find(hash);
-                if (mi != walletInstance->mapWallet.end())
-                {
-                    const CWalletTx* copyFrom = &wtxOld;
-                    CWalletTx* copyTo = &mi->second;
-                    copyTo->mapValue = copyFrom->mapValue;
-                    copyTo->vOrderForm = copyFrom->vOrderForm;
-                    copyTo->nTimeReceived = copyFrom->nTimeReceived;
-                    copyTo->nTimeSmart = copyFrom->nTimeSmart;
-                    copyTo->fFromMe = copyFrom->fFromMe;
-                    copyTo->nOrderPos = copyFrom->nOrderPos;
-                    batch.WriteTx(*copyTo);
-                }
-            }
         }
     }
 

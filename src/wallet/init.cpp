@@ -51,8 +51,6 @@ void WalletInit::AddWalletOptions() const
                                                             CURRENCY_UNIT, FormatMoney(DEFAULT_TRANSACTION_MINFEE)), false, OptionsCategory::WALLET);
     gArgs.AddArg("-paytxfee=<amt>", strprintf("Fee (in %s/kB) to add to transactions you send (default: %s)",
                                                             CURRENCY_UNIT, FormatMoney(CFeeRate{DEFAULT_PAY_TX_FEE}.GetFeePerK())), false, OptionsCategory::WALLET);
-    gArgs.AddArg("-rescan", "Rescan the block chain for missing wallet transactions on startup", false, OptionsCategory::WALLET);
-    gArgs.AddArg("-salvagewallet", "Attempt to recover private keys from a corrupt wallet on startup", false, OptionsCategory::WALLET);
     gArgs.AddArg("-spendzeroconfchange", strprintf("Spend unconfirmed change when sending transactions (default: %u)", DEFAULT_SPEND_ZEROCONF_CHANGE), false, OptionsCategory::WALLET);
     gArgs.AddArg("-txconfirmtarget=<n>", strprintf("If paytxfee is not set, include enough fee so transactions begin confirmation on average within n blocks (default: %u)", DEFAULT_TX_CONFIRM_TARGET), false, OptionsCategory::WALLET);
     gArgs.AddArg("-upgradewallet", "Upgrade wallet to latest format on startup", false, OptionsCategory::WALLET);
@@ -61,8 +59,6 @@ void WalletInit::AddWalletOptions() const
     gArgs.AddArg("-walletdir=<dir>", "Specify directory to hold wallets (default: <datadir>/wallets if it exists, otherwise <datadir>)", false, OptionsCategory::WALLET);
     gArgs.AddArg("-walletnotify=<cmd>", "Execute command when a wallet transaction changes (%s in cmd is replaced by TxID)", false, OptionsCategory::WALLET);
     gArgs.AddArg("-walletrbf", strprintf("Send transactions with full-RBF opt-in enabled (RPC only, default: %u)", DEFAULT_WALLET_RBF), false, OptionsCategory::WALLET);
-    gArgs.AddArg("-zapwallettxes=<mode>", "Delete all wallet transactions and only recover those parts of the blockchain through -rescan on startup"
-                               " (1 = keep tx meta data e.g. payment request information, 2 = drop tx meta data)", false, OptionsCategory::WALLET);
 
     gArgs.AddArg("-dblogsize=<n>", strprintf("Flush wallet database activity from memory to disk log every <n> megabytes (default: %u)", DEFAULT_WALLET_DBLOGSIZE), true, OptionsCategory::WALLET_DEBUG_TEST);
     gArgs.AddArg("-flushwallet", strprintf("Run a thread to flush wallet periodically (default: %u)", DEFAULT_FLUSHWALLET), true, OptionsCategory::WALLET_DEBUG_TEST);
@@ -86,32 +82,6 @@ bool WalletInit::ParameterInteraction() const
         LogPrintf("%s: parameter interaction: -blocksonly=1 -> setting -walletbroadcast=0\n", __func__);
     }
 
-    if (gArgs.GetBoolArg("-salvagewallet", false)) {
-        if (is_multiwallet) {
-            return InitError(strprintf("%s is only allowed with a single wallet file", "-salvagewallet"));
-        }
-        // Rewrite just private keys: rescan to find transactions
-        if (gArgs.SoftSetBoolArg("-rescan", true)) {
-            LogPrintf("%s: parameter interaction: -salvagewallet=1 -> setting -rescan=1\n", __func__);
-        }
-    }
-
-    bool zapwallettxes = gArgs.GetBoolArg("-zapwallettxes", false);
-    // -zapwallettxes implies dropping the mempool on startup
-    if (zapwallettxes && gArgs.SoftSetBoolArg("-persistmempool", false)) {
-        LogPrintf("%s: parameter interaction: -zapwallettxes enabled -> setting -persistmempool=0\n", __func__);
-    }
-
-    // -zapwallettxes implies a rescan
-    if (zapwallettxes) {
-        if (is_multiwallet) {
-            return InitError(strprintf("%s is only allowed with a single wallet file", "-zapwallettxes"));
-        }
-        if (gArgs.SoftSetBoolArg("-rescan", true)) {
-            LogPrintf("%s: parameter interaction: -zapwallettxes enabled -> setting -rescan=1\n", __func__);
-        }
-    }
-
     if (is_multiwallet) {
         if (gArgs.GetBoolArg("-upgradewallet", false)) {
             return InitError(strprintf("%s is only allowed with a single wallet file", "-upgradewallet"));
@@ -120,8 +90,6 @@ bool WalletInit::ParameterInteraction() const
 
     if (gArgs.GetBoolArg("-sysperms", false))
         return InitError("-sysperms is not allowed in combination with enabled wallet functionality");
-    if (gArgs.GetArg("-prune", 0) && gArgs.GetBoolArg("-rescan", false))
-        return InitError(_("Rescans are not possible in pruned mode. You will need to use -reindex which will download the whole blockchain again."));
 
     if (::minRelayTxFee.GetFeePerK() > HIGH_TX_FEE_PER_KB)
         InitWarning(AmountHighWarn("-minrelaytxfee") + " " +
@@ -154,11 +122,6 @@ bool VerifyWallets(interfaces::Chain& chain, const std::vector<std::string>& wal
     LogPrintf("Using wallet directory %s\n", GetWalletDir().string());
 
     chain.initMessage(_("Verifying wallet(s)..."));
-
-    // Parameter interaction code should have thrown an error if -salvagewallet
-    // was enabled with more than wallet file, so the wallet_files size check
-    // here should have no effect.
-    bool salvage_wallet = gArgs.GetBoolArg("-salvagewallet", false) && wallet_files.size() <= 1;
 
     // Keep track of each wallet absolute path to detect duplicates.
     std::set<fs::path> wallet_paths;
