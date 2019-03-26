@@ -1890,9 +1890,6 @@ void CWallet::ReacceptWalletTransactions()
         CValidationState state;
         wtx.AcceptToMemoryPool(*locked_chain, state);
     }
-
-    // Update wallet transactions with current mempool transactions.
-    chain().notifyMempoolTransactions(*this);
 }
 
 bool CWalletTx::RelayWalletTransaction(interfaces::Chain::Lock& locked_chain)
@@ -4401,9 +4398,13 @@ std::shared_ptr<CWallet> CWallet::CreateWalletFromFile(interfaces::Chain& chain,
 
 void CWallet::postInitProcess()
 {
-    // Add wallet transactions that aren't already in a block to mempool
+    // Add unconfirmed wallet transactions to the mempool
     // Do this here as mempool requires genesis block to be loaded
     ReacceptWalletTransactions();
+
+    // Fetch unconfirmed transactions from the mempool
+    auto locked_chain = chain().lock();
+    chain().fetchMempoolTransactions(*this);
 }
 
 bool CWallet::BackupWallet(const std::string& strDest)
