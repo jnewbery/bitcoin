@@ -186,9 +186,9 @@ class CompactBlocksTest(BitcoinTestFramework):
 
     def run_test(self):
         # Setup the p2p connections
-        self.segwit_node = self.nodes[0].add_p2p_connection(TestP2PConn(cmpct_version=2))
-        self.old_node = self.nodes[0].add_p2p_connection(TestP2PConn(cmpct_version=1), services=NODE_NETWORK)
-        self.additional_segwit_node = self.nodes[0].add_p2p_connection(TestP2PConn(cmpct_version=2))
+        self.segwit_peer_1 = self.nodes[0].add_p2p_connection(TestP2PConn(cmpct_version=2))
+        self.segwit_peer_2 = self.nodes[0].add_p2p_connection(TestP2PConn(cmpct_version=2))
+        self.legacy_peer = self.nodes[0].add_p2p_connection(TestP2PConn(cmpct_version=1), services=NODE_NETWORK)
 
         # We will need UTXOs to construct transactions in later tests.
         self.make_utxos()
@@ -196,45 +196,45 @@ class CompactBlocksTest(BitcoinTestFramework):
         assert_equal(get_bip9_status(self.nodes[0], "segwit")["status"], 'active')
 
         self.log.info("Testing SENDCMPCT p2p message... ")
-        self.test_sendcmpct(self.segwit_node, old_node=self.old_node)
-        self.test_sendcmpct(self.additional_segwit_node)
+        self.test_sendcmpct(self.segwit_peer_1, legacy_peer=self.legacy_peer)
+        self.test_sendcmpct(self.segwit_peer_2)
 
         self.log.info("Testing compactblock construction...")
-        self.test_compactblock_construction(self.old_node)
-        self.test_compactblock_construction(self.segwit_node)
+        self.test_compactblock_construction(self.legacy_peer)
+        self.test_compactblock_construction(self.segwit_peer_1)
 
         self.log.info("Testing compactblock requests (segwit node)... ")
-        self.test_compactblock_requests(self.segwit_node)
+        self.test_compactblock_requests(self.segwit_peer_1)
 
         self.log.info("Testing getblocktxn requests (segwit node)...")
-        self.test_getblocktxn_requests(self.segwit_node)
+        self.test_getblocktxn_requests(self.segwit_peer_1)
 
         self.log.info("Testing getblocktxn handler (segwit node should return witnesses)...")
-        self.test_getblocktxn_handler(self.segwit_node)
-        self.test_getblocktxn_handler(self.old_node)
+        self.test_getblocktxn_handler(self.segwit_peer_1)
+        self.test_getblocktxn_handler(self.legacy_peer)
 
         self.log.info("Testing compactblock requests/announcements not at chain tip...")
-        self.test_compactblocks_not_at_tip(self.segwit_node)
-        self.test_compactblocks_not_at_tip(self.old_node)
+        self.test_compactblocks_not_at_tip(self.segwit_peer_1)
+        self.test_compactblocks_not_at_tip(self.legacy_peer)
 
         self.log.info("Testing handling of incorrect blocktxn responses...")
-        self.test_incorrect_blocktxn_response(self.segwit_node)
+        self.test_incorrect_blocktxn_response(self.segwit_peer_1)
 
         self.log.info("Testing reconstructing compact blocks from all peers...")
-        self.test_compactblock_reconstruction_multiple_peers(self.segwit_node, self.additional_segwit_node)
+        self.test_compactblock_reconstruction_multiple_peers(self.segwit_peer_1, self.segwit_peer_2)
 
         # Test that if we submitblock to node1, we'll get a compact block
         # announcement to all peers.
         # (Post-segwit activation, blocks won't propagate from node0 to node1
         # automatically, so don't bother testing a block announced to node0.)
         self.log.info("Testing end-to-end block relay...")
-        self.request_cb_announcements(self.old_node)
-        self.request_cb_announcements(self.segwit_node)
-        self.test_end_to_end_block_relay([self.segwit_node, self.old_node])
+        self.request_cb_announcements(self.legacy_peer)
+        self.request_cb_announcements(self.segwit_peer_1)
+        self.test_end_to_end_block_relay([self.segwit_peer_1, self.legacy_peer])
 
         self.log.info("Testing handling of invalid compact blocks...")
-        self.test_invalid_tx_in_compactblock(self.segwit_node)
-        self.test_invalid_tx_in_compactblock(self.old_node)
+        self.test_invalid_tx_in_compactblock(self.segwit_peer_1)
+        self.test_invalid_tx_in_compactblock(self.legacy_peer)
 
         self.log.info("Testing invalid index in cmpctblock message...")
         self.test_invalid_cmpctblock_message()
@@ -242,7 +242,7 @@ class CompactBlocksTest(BitcoinTestFramework):
     # Create 10 more anyone-can-spend utxo's for testing.
     def make_utxos(self):
         block = self.build_block_on_tip(self.nodes[0])
-        self.segwit_node.send_and_ping(msg_block(block))
+        self.segwit_peer_1.send_and_ping(msg_block(block))
         assert int(self.nodes[0].getbestblockhash(), 16) == block.sha256
         self.nodes[0].generatetoaddress(100, self.nodes[0].getnewaddress(address_type="bech32"))
 
@@ -258,7 +258,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         block2.vtx.append(tx)
         block2.hashMerkleRoot = block2.calc_merkle_root()
         block2.solve()
-        self.segwit_node.send_and_ping(msg_block(block2))
+        self.segwit_peer_1.send_and_ping(msg_block(block2))
         assert_equal(int(self.nodes[0].getbestblockhash(), 16), block2.sha256)
         self.utxos.extend([[tx.sha256, i, out_value] for i in range(10)])
 
@@ -269,22 +269,22 @@ class CompactBlocksTest(BitcoinTestFramework):
     #   made with compact blocks.
     # - If sendcmpct is then sent with boolean 1, then new block announcements
     #   are made with compact blocks.
-    # If old_node is passed in, request compact blocks with version=preferred-1
+    # If legacy_peer is passed in, request compact blocks with version=preferred-1
     # and verify that it receives block announcements via compact block.
-    def test_sendcmpct(self, test_node, old_node=None):
-        preferred_version = test_node.cmpct_version
+    def test_sendcmpct(self, peer, legacy_peer=None):
+        preferred_version = peer.cmpct_version
         node = self.nodes[0]
 
         # Make sure we get a SENDCMPCT message from our peer
         def received_sendcmpct():
-            return (len(test_node.last_sendcmpct) > 0)
+            return (len(peer.last_sendcmpct) > 0)
         wait_until(received_sendcmpct, timeout=30, lock=mininode_lock)
         with mininode_lock:
             # Check that the first version received is the preferred one
-            assert_equal(test_node.last_sendcmpct[0].version, preferred_version)
+            assert_equal(peer.last_sendcmpct[0].version, preferred_version)
             # And that we receive versions down to 1.
-            assert_equal(test_node.last_sendcmpct[-1].version, 1)
-            test_node.last_sendcmpct = []
+            assert_equal(peer.last_sendcmpct[-1].version, 1)
+            peer.last_sendcmpct = []
 
         tip = int(node.getbestblockhash(), 16)
 
@@ -300,75 +300,75 @@ class CompactBlocksTest(BitcoinTestFramework):
                         block_hash, peer.last_message.get("cmpctblock", None), peer.last_message.get("inv", None)))
 
         # We shouldn't get any block announcements via cmpctblock yet.
-        check_announcement_of_new_block(node, test_node, lambda p: "cmpctblock" not in p.last_message)
+        check_announcement_of_new_block(node, peer, lambda p: "cmpctblock" not in p.last_message)
 
         # Try one more time, this time after requesting headers.
-        test_node.request_headers_and_sync(locator=[tip])
-        check_announcement_of_new_block(node, test_node, lambda p: "cmpctblock" not in p.last_message and "inv" in p.last_message)
+        peer.request_headers_and_sync(locator=[tip])
+        check_announcement_of_new_block(node, peer, lambda p: "cmpctblock" not in p.last_message and "inv" in p.last_message)
 
         # Test a few ways of using sendcmpct that should NOT
         # result in compact block announcements.
         # Before each test, sync the headers chain.
-        test_node.request_headers_and_sync(locator=[tip])
+        peer.request_headers_and_sync(locator=[tip])
 
         # Now try a SENDCMPCT message with too-high version
         sendcmpct = msg_sendcmpct()
         sendcmpct.version = preferred_version + 1
         sendcmpct.announce = True
-        test_node.send_and_ping(sendcmpct)
-        check_announcement_of_new_block(node, test_node, lambda p: "cmpctblock" not in p.last_message)
+        peer.send_and_ping(sendcmpct)
+        check_announcement_of_new_block(node, peer, lambda p: "cmpctblock" not in p.last_message)
 
         # Headers sync before next test.
-        test_node.request_headers_and_sync(locator=[tip])
+        peer.request_headers_and_sync(locator=[tip])
 
         # Now try a SENDCMPCT message with valid version, but announce=False
         sendcmpct.version = preferred_version
         sendcmpct.announce = False
-        test_node.send_and_ping(sendcmpct)
-        check_announcement_of_new_block(node, test_node, lambda p: "cmpctblock" not in p.last_message)
+        peer.send_and_ping(sendcmpct)
+        check_announcement_of_new_block(node, peer, lambda p: "cmpctblock" not in p.last_message)
 
         # Headers sync before next test.
-        test_node.request_headers_and_sync(locator=[tip])
+        peer.request_headers_and_sync(locator=[tip])
 
         # Finally, try a SENDCMPCT message with announce=True
         sendcmpct.version = preferred_version
         sendcmpct.announce = True
-        test_node.send_and_ping(sendcmpct)
-        check_announcement_of_new_block(node, test_node, lambda p: "cmpctblock" in p.last_message)
+        peer.send_and_ping(sendcmpct)
+        check_announcement_of_new_block(node, peer, lambda p: "cmpctblock" in p.last_message)
 
         # Try one more time (no headers sync should be needed!)
-        check_announcement_of_new_block(node, test_node, lambda p: "cmpctblock" in p.last_message)
+        check_announcement_of_new_block(node, peer, lambda p: "cmpctblock" in p.last_message)
 
         # Try one more time, after turning on sendheaders
-        test_node.send_and_ping(msg_sendheaders())
-        check_announcement_of_new_block(node, test_node, lambda p: "cmpctblock" in p.last_message)
+        peer.send_and_ping(msg_sendheaders())
+        check_announcement_of_new_block(node, peer, lambda p: "cmpctblock" in p.last_message)
 
         # Try one more time, after sending a version-1, announce=false message.
         sendcmpct.version = preferred_version - 1
         sendcmpct.announce = False
-        test_node.send_and_ping(sendcmpct)
-        check_announcement_of_new_block(node, test_node, lambda p: "cmpctblock" in p.last_message)
+        peer.send_and_ping(sendcmpct)
+        check_announcement_of_new_block(node, peer, lambda p: "cmpctblock" in p.last_message)
 
         # Now turn off announcements
         sendcmpct.version = preferred_version
         sendcmpct.announce = False
-        test_node.send_and_ping(sendcmpct)
-        check_announcement_of_new_block(node, test_node, lambda p: "cmpctblock" not in p.last_message and "headers" in p.last_message)
+        peer.send_and_ping(sendcmpct)
+        check_announcement_of_new_block(node, peer, lambda p: "cmpctblock" not in p.last_message and "headers" in p.last_message)
 
-        if old_node is not None:
+        if legacy_peer is not None:
             # Verify that a peer using an older protocol version can receive
             # announcements from this node.
             sendcmpct.version = preferred_version - 1
             sendcmpct.announce = True
-            old_node.send_and_ping(sendcmpct)
+            legacy_peer.send_and_ping(sendcmpct)
             # Header sync
-            old_node.request_headers_and_sync(locator=[tip])
-            check_announcement_of_new_block(node, old_node, lambda p: "cmpctblock" in p.last_message)
+            legacy_peer.request_headers_and_sync(locator=[tip])
+            check_announcement_of_new_block(node, legacy_peer, lambda p: "cmpctblock" in p.last_message)
 
     # Compare the generated shortids to what we expect based on BIP 152, given
     # bitcoind's choice of nonce.
-    def test_compactblock_construction(self, test_node, use_witness_address=True):
-        version = test_node.cmpct_version
+    def test_compactblock_construction(self, peer, use_witness_address=True):
+        version = peer.cmpct_version
         node = self.nodes[0]
         # Generate a bunch of transactions.
         node.generate(101)
@@ -388,13 +388,13 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         # Wait until we've seen the block announcement for the resulting tip
         tip = int(node.getbestblockhash(), 16)
-        test_node.wait_for_block_announcement(tip)
+        peer.wait_for_block_announcement(tip)
 
         # Make sure we will receive a fast-announce compact block
-        self.request_cb_announcements(test_node)
+        self.request_cb_announcements(peer)
 
         # Now mine a block, and look at the resulting compact block.
-        test_node.clear_block_announcement()
+        peer.clear_block_announcement()
         block_hash = int(node.generate(1)[0], 16)
 
         # Store the raw block in our internal format.
@@ -404,30 +404,30 @@ class CompactBlocksTest(BitcoinTestFramework):
         block.rehash()
 
         # Wait until the block was announced (via compact blocks)
-        wait_until(test_node.received_block_announcement, timeout=30, lock=mininode_lock)
+        wait_until(peer.received_block_announcement, timeout=30, lock=mininode_lock)
 
         # Now fetch and check the compact block
         header_and_shortids = None
         with mininode_lock:
-            assert "cmpctblock" in test_node.last_message
+            assert "cmpctblock" in peer.last_message
             # Convert the on-the-wire representation to absolute indexes
-            header_and_shortids = HeaderAndShortIDs(test_node.last_message["cmpctblock"].header_and_shortids)
+            header_and_shortids = HeaderAndShortIDs(peer.last_message["cmpctblock"].header_and_shortids)
         self.check_compactblock_construction_from_block(version, header_and_shortids, block_hash, block)
 
         # Now fetch the compact block using a normal non-announce getdata
         with mininode_lock:
-            test_node.clear_block_announcement()
+            peer.clear_block_announcement()
             inv = CInv(4, block_hash)  # 4 == "CompactBlock"
-            test_node.send_message(msg_getdata([inv]))
+            peer.send_message(msg_getdata([inv]))
 
-        wait_until(test_node.received_block_announcement, timeout=30, lock=mininode_lock)
+        wait_until(peer.received_block_announcement, timeout=30, lock=mininode_lock)
 
         # Now fetch and check the compact block
         header_and_shortids = None
         with mininode_lock:
-            assert "cmpctblock" in test_node.last_message
+            assert "cmpctblock" in peer.last_message
             # Convert the on-the-wire representation to absolute indexes
-            header_and_shortids = HeaderAndShortIDs(test_node.last_message["cmpctblock"].header_and_shortids)
+            header_and_shortids = HeaderAndShortIDs(peer.last_message["cmpctblock"].header_and_shortids)
         self.check_compactblock_construction_from_block(version, header_and_shortids, block_hash, block)
 
     # Test that bitcoind requests compact blocks when we announce new blocks
@@ -436,26 +436,26 @@ class CompactBlocksTest(BitcoinTestFramework):
     # Post-segwit: upgraded nodes would only make this request of cb-version-2,
     # NODE_WITNESS peers.  Unupgraded nodes would still make this request of
     # any cb-version-1-supporting peer.
-    def test_compactblock_requests(self, test_node, segwit=True):
-        version = test_node.cmpct_version
+    def test_compactblock_requests(self, peer, segwit=True):
+        version = peer.cmpct_version
         node = self.nodes[0]
         # Try announcing a block with an inv or header, expect a compactblock
         # request
         for announce in ["inv", "header"]:
             block = self.build_block_on_tip(node, segwit=segwit)
             with mininode_lock:
-                test_node.last_message.pop("getdata", None)
+                peer.last_message.pop("getdata", None)
 
             if announce == "inv":
-                test_node.send_message(msg_inv([CInv(2, block.sha256)]))
-                wait_until(lambda: "getheaders" in test_node.last_message, timeout=30, lock=mininode_lock)
-                test_node.send_header_for_blocks([block])
+                peer.send_message(msg_inv([CInv(2, block.sha256)]))
+                wait_until(lambda: "getheaders" in peer.last_message, timeout=30, lock=mininode_lock)
+                peer.send_header_for_blocks([block])
             else:
-                test_node.send_header_for_blocks([block])
-            wait_until(lambda: "getdata" in test_node.last_message, timeout=30, lock=mininode_lock)
-            assert_equal(len(test_node.last_message["getdata"].inv), 1)
-            assert_equal(test_node.last_message["getdata"].inv[0].type, 4)
-            assert_equal(test_node.last_message["getdata"].inv[0].hash, block.sha256)
+                peer.send_header_for_blocks([block])
+            wait_until(lambda: "getdata" in peer.last_message, timeout=30, lock=mininode_lock)
+            assert_equal(len(peer.last_message["getdata"].inv), 1)
+            assert_equal(peer.last_message["getdata"].inv[0].type, 4)
+            assert_equal(peer.last_message["getdata"].inv[0].hash, block.sha256)
 
             # Send back a compactblock message that omits the coinbase
             comp_block = HeaderAndShortIDs()
@@ -466,12 +466,12 @@ class CompactBlocksTest(BitcoinTestFramework):
             if version == 2:
                 coinbase_hash = block.vtx[0].calc_sha256(True)
             comp_block.shortids = [calculate_shortid(k0, k1, coinbase_hash)]
-            test_node.send_and_ping(msg_cmpctblock(comp_block.to_p2p()))
+            peer.send_and_ping(msg_cmpctblock(comp_block.to_p2p()))
             assert_equal(int(node.getbestblockhash(), 16), block.hashPrevBlock)
             # Expect a getblocktxn message.
             with mininode_lock:
-                assert "getblocktxn" in test_node.last_message
-                absolute_indexes = test_node.last_message["getblocktxn"].block_txn_request.to_absolute()
+                assert "getblocktxn" in peer.last_message
+                absolute_indexes = peer.last_message["getblocktxn"].block_txn_request.to_absolute()
             assert_equal(absolute_indexes, [0])  # should be a coinbase request
 
             # Send the coinbase, and verify that the tip advances.
@@ -481,14 +481,14 @@ class CompactBlocksTest(BitcoinTestFramework):
                 msg = msg_blocktxn()
             msg.block_transactions.blockhash = block.sha256
             msg.block_transactions.transactions = [block.vtx[0]]
-            test_node.send_and_ping(msg)
+            peer.send_and_ping(msg)
             assert_equal(int(node.getbestblockhash(), 16), block.sha256)
 
     # Test that we only receive getblocktxn requests for transactions that the
     # node needs, and that responding to them causes the block to be
     # reconstructed.
-    def test_getblocktxn_requests(self, test_node):
-        version = test_node.cmpct_version
+    def test_getblocktxn_requests(self, peer):
+        version = peer.cmpct_version
         node = self.nodes[0]
         with_witness = (version == 2)
 
@@ -513,13 +513,13 @@ class CompactBlocksTest(BitcoinTestFramework):
         comp_block = HeaderAndShortIDs()
         comp_block.initialize_from_block(block, use_witness=with_witness)
 
-        test_getblocktxn_response(comp_block, test_node, [1, 2, 3, 4, 5])
+        test_getblocktxn_response(comp_block, peer, [1, 2, 3, 4, 5])
 
         msg_bt = msg_blocktxn()
         if with_witness:
             msg_bt = msg_witness_blocktxn()  # serialize with witnesses
         msg_bt.block_transactions = BlockTransactions(block.sha256, block.vtx[1:])
-        test_tip_after_message(node, test_node, msg_bt, block.sha256)
+        test_tip_after_message(node, peer, msg_bt, block.sha256)
 
         utxo = self.utxos.pop(0)
         block = self.build_block_with_transactions(node, utxo, 5)
@@ -527,24 +527,24 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         # Now try interspersing the prefilled transactions
         comp_block.initialize_from_block(block, prefill_list=[0, 1, 5], use_witness=with_witness)
-        test_getblocktxn_response(comp_block, test_node, [2, 3, 4])
+        test_getblocktxn_response(comp_block, peer, [2, 3, 4])
         msg_bt.block_transactions = BlockTransactions(block.sha256, block.vtx[2:5])
-        test_tip_after_message(node, test_node, msg_bt, block.sha256)
+        test_tip_after_message(node, peer, msg_bt, block.sha256)
 
         # Now try giving one transaction ahead of time.
         utxo = self.utxos.pop(0)
         block = self.build_block_with_transactions(node, utxo, 5)
         self.utxos.append([block.vtx[-1].sha256, 0, block.vtx[-1].vout[0].nValue])
-        test_node.send_and_ping(msg_tx(block.vtx[1]))
+        peer.send_and_ping(msg_tx(block.vtx[1]))
         assert block.vtx[1].hash in node.getrawmempool()
 
         # Prefill 4 out of the 6 transactions, and verify that only the one
         # that was not in the mempool is requested.
         comp_block.initialize_from_block(block, prefill_list=[0, 2, 3, 4], use_witness=with_witness)
-        test_getblocktxn_response(comp_block, test_node, [5])
+        test_getblocktxn_response(comp_block, peer, [5])
 
         msg_bt.block_transactions = BlockTransactions(block.sha256, [block.vtx[5]])
-        test_tip_after_message(node, test_node, msg_bt, block.sha256)
+        test_tip_after_message(node, peer, msg_bt, block.sha256)
 
         # Now provide all transactions to the node before the block is
         # announced and verify reconstruction happens immediately.
@@ -552,8 +552,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         block = self.build_block_with_transactions(node, utxo, 10)
         self.utxos.append([block.vtx[-1].sha256, 0, block.vtx[-1].vout[0].nValue])
         for tx in block.vtx[1:]:
-            test_node.send_message(msg_tx(tx))
-        test_node.sync_with_ping()
+            peer.send_message(msg_tx(tx))
+        peer.sync_with_ping()
         # Make sure all transactions were accepted.
         mempool = node.getrawmempool()
         for tx in block.vtx[1:]:
@@ -561,17 +561,17 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         # Clear out last request.
         with mininode_lock:
-            test_node.last_message.pop("getblocktxn", None)
+            peer.last_message.pop("getblocktxn", None)
 
         # Send compact block
         comp_block.initialize_from_block(block, prefill_list=[0], use_witness=with_witness)
-        test_tip_after_message(node, test_node, msg_cmpctblock(comp_block.to_p2p()), block.sha256)
+        test_tip_after_message(node, peer, msg_cmpctblock(comp_block.to_p2p()), block.sha256)
         with mininode_lock:
             # Shouldn't have gotten a request for any transaction
-            assert "getblocktxn" not in test_node.last_message
+            assert "getblocktxn" not in peer.last_message
 
-    def test_getblocktxn_handler(self, test_node):
-        version = test_node.cmpct_version
+    def test_getblocktxn_handler(self, peer):
+        version = peer.cmpct_version
         node = self.nodes[0]
         # bitcoind will not send blocktxn responses for blocks whose height is
         # more than 10 blocks deep.
@@ -586,15 +586,15 @@ class CompactBlocksTest(BitcoinTestFramework):
             msg.block_txn_request = BlockTransactionsRequest(int(block_hash, 16), [])
             num_to_request = random.randint(1, len(block.vtx))
             msg.block_txn_request.from_absolute(sorted(random.sample(range(len(block.vtx)), num_to_request)))
-            test_node.send_message(msg)
-            wait_until(lambda: "blocktxn" in test_node.last_message, timeout=10, lock=mininode_lock)
+            peer.send_message(msg)
+            wait_until(lambda: "blocktxn" in peer.last_message, timeout=10, lock=mininode_lock)
 
             [tx.calc_sha256() for tx in block.vtx]
             with mininode_lock:
-                assert_equal(test_node.last_message["blocktxn"].block_transactions.blockhash, int(block_hash, 16))
+                assert_equal(peer.last_message["blocktxn"].block_transactions.blockhash, int(block_hash, 16))
                 all_indices = msg.block_txn_request.to_absolute()
                 for index in all_indices:
-                    tx = test_node.last_message["blocktxn"].block_transactions.transactions.pop(0)
+                    tx = peer.last_message["blocktxn"].block_transactions.transactions.pop(0)
                     tx.calc_sha256()
                     assert_equal(tx.sha256, block.vtx[index].sha256)
                     if version == 1:
@@ -603,7 +603,7 @@ class CompactBlocksTest(BitcoinTestFramework):
                     else:
                         # Check that the witness matches
                         assert_equal(tx.calc_sha256(True), block.vtx[index].calc_sha256(True))
-                test_node.last_message.pop("blocktxn", None)
+                peer.last_message.pop("blocktxn", None)
             current_height -= 1
 
         # Next request should send a full block response, as we're past the
@@ -611,39 +611,39 @@ class CompactBlocksTest(BitcoinTestFramework):
         block_hash = node.getblockhash(current_height)
         msg.block_txn_request = BlockTransactionsRequest(int(block_hash, 16), [0])
         with mininode_lock:
-            test_node.last_message.pop("block", None)
-            test_node.last_message.pop("blocktxn", None)
-        test_node.send_and_ping(msg)
+            peer.last_message.pop("block", None)
+            peer.last_message.pop("blocktxn", None)
+        peer.send_and_ping(msg)
         with mininode_lock:
-            test_node.last_message["block"].block.calc_sha256()
-            assert_equal(test_node.last_message["block"].block.sha256, int(block_hash, 16))
-            assert "blocktxn" not in test_node.last_message
+            peer.last_message["block"].block.calc_sha256()
+            assert_equal(peer.last_message["block"].block.sha256, int(block_hash, 16))
+            assert "blocktxn" not in peer.last_message
 
-    def test_compactblocks_not_at_tip(self, test_node):
+    def test_compactblocks_not_at_tip(self, peer):
         node = self.nodes[0]
         # Test that requesting old compactblocks doesn't work.
         MAX_CMPCTBLOCK_DEPTH = 5
         new_blocks = []
         for i in range(MAX_CMPCTBLOCK_DEPTH + 1):
-            test_node.clear_block_announcement()
+            peer.clear_block_announcement()
             new_blocks.append(node.generate(1)[0])
-            wait_until(test_node.received_block_announcement, timeout=30, lock=mininode_lock)
+            wait_until(peer.received_block_announcement, timeout=30, lock=mininode_lock)
 
-        test_node.clear_block_announcement()
-        test_node.send_message(msg_getdata([CInv(4, int(new_blocks[0], 16))]))
-        wait_until(lambda: "cmpctblock" in test_node.last_message, timeout=30, lock=mininode_lock)
+        peer.clear_block_announcement()
+        peer.send_message(msg_getdata([CInv(4, int(new_blocks[0], 16))]))
+        wait_until(lambda: "cmpctblock" in peer.last_message, timeout=30, lock=mininode_lock)
 
-        test_node.clear_block_announcement()
+        peer.clear_block_announcement()
         node.generate(1)
-        wait_until(test_node.received_block_announcement, timeout=30, lock=mininode_lock)
-        test_node.clear_block_announcement()
+        wait_until(peer.received_block_announcement, timeout=30, lock=mininode_lock)
+        peer.clear_block_announcement()
         with mininode_lock:
-            test_node.last_message.pop("block", None)
-        test_node.send_message(msg_getdata([CInv(4, int(new_blocks[0], 16))]))
-        wait_until(lambda: "block" in test_node.last_message, timeout=30, lock=mininode_lock)
+            peer.last_message.pop("block", None)
+        peer.send_message(msg_getdata([CInv(4, int(new_blocks[0], 16))]))
+        wait_until(lambda: "block" in peer.last_message, timeout=30, lock=mininode_lock)
         with mininode_lock:
-            test_node.last_message["block"].block.calc_sha256()
-            assert_equal(test_node.last_message["block"].block.sha256, int(new_blocks[0], 16))
+            peer.last_message["block"].block.calc_sha256()
+            assert_equal(peer.last_message["block"].block.sha256, int(new_blocks[0], 16))
 
         # Generate an old compactblock, and verify that it's not accepted.
         cur_height = node.getblockcount()
@@ -654,7 +654,7 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         comp_block = HeaderAndShortIDs()
         comp_block.initialize_from_block(block)
-        test_node.send_and_ping(msg_cmpctblock(comp_block.to_p2p()))
+        peer.send_and_ping(msg_cmpctblock(comp_block.to_p2p()))
 
         tips = node.getchaintips()
         found = False
@@ -670,15 +670,15 @@ class CompactBlocksTest(BitcoinTestFramework):
         msg = msg_getblocktxn()
         msg.block_txn_request = BlockTransactionsRequest(block.sha256, [0])
         with mininode_lock:
-            test_node.last_message.pop("blocktxn", None)
-        test_node.send_and_ping(msg)
+            peer.last_message.pop("blocktxn", None)
+        peer.send_and_ping(msg)
         with mininode_lock:
-            assert "blocktxn" not in test_node.last_message
+            assert "blocktxn" not in peer.last_message
 
     # Incorrectly responding to a getblocktxn shouldn't cause the block to be
     # permanently failed.
-    def test_incorrect_blocktxn_response(self, test_node):
-        version = test_node.cmpct_version
+    def test_incorrect_blocktxn_response(self, peer):
+        version = peer.cmpct_version
         node = self.nodes[0]
         utxo = self.utxos.pop(0)
 
@@ -686,8 +686,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.utxos.append([block.vtx[-1].sha256, 0, block.vtx[-1].vout[0].nValue])
         # Relay the first 5 transactions from the block in advance
         for tx in block.vtx[1:6]:
-            test_node.send_message(msg_tx(tx))
-        test_node.sync_with_ping()
+            peer.send_message(msg_tx(tx))
+        peer.sync_with_ping()
         # Make sure all transactions were accepted.
         mempool = node.getrawmempool()
         for tx in block.vtx[1:6]:
@@ -696,11 +696,11 @@ class CompactBlocksTest(BitcoinTestFramework):
         # Send compact block
         comp_block = HeaderAndShortIDs()
         comp_block.initialize_from_block(block, prefill_list=[0], use_witness=(version == 2))
-        test_node.send_and_ping(msg_cmpctblock(comp_block.to_p2p()))
+        peer.send_and_ping(msg_cmpctblock(comp_block.to_p2p()))
         absolute_indexes = []
         with mininode_lock:
-            assert "getblocktxn" in test_node.last_message
-            absolute_indexes = test_node.last_message["getblocktxn"].block_txn_request.to_absolute()
+            assert "getblocktxn" in peer.last_message
+            absolute_indexes = peer.last_message["getblocktxn"].block_txn_request.to_absolute()
         assert_equal(absolute_indexes, [6, 7, 8, 9, 10])
 
         # Now give an incorrect response.
@@ -715,22 +715,22 @@ class CompactBlocksTest(BitcoinTestFramework):
         if version == 2:
             msg = msg_witness_blocktxn()
         msg.block_transactions = BlockTransactions(block.sha256, [block.vtx[5]] + block.vtx[7:])
-        test_node.send_and_ping(msg)
+        peer.send_and_ping(msg)
 
         # Tip should not have updated
         assert_equal(int(node.getbestblockhash(), 16), block.hashPrevBlock)
 
         # We should receive a getdata request
-        wait_until(lambda: "getdata" in test_node.last_message, timeout=10, lock=mininode_lock)
-        assert_equal(len(test_node.last_message["getdata"].inv), 1)
-        assert test_node.last_message["getdata"].inv[0].type == 2 or test_node.last_message["getdata"].inv[0].type == 2 | MSG_WITNESS_FLAG
-        assert_equal(test_node.last_message["getdata"].inv[0].hash, block.sha256)
+        wait_until(lambda: "getdata" in peer.last_message, timeout=10, lock=mininode_lock)
+        assert_equal(len(peer.last_message["getdata"].inv), 1)
+        assert peer.last_message["getdata"].inv[0].type == 2 or peer.last_message["getdata"].inv[0].type == 2 | MSG_WITNESS_FLAG
+        assert_equal(peer.last_message["getdata"].inv[0].hash, block.sha256)
 
         # Deliver the block
         if version == 2:
-            test_node.send_and_ping(msg_witness_block(block))
+            peer.send_and_ping(msg_witness_block(block))
         else:
-            test_node.send_and_ping(msg_block(block))
+            peer.send_and_ping(msg_block(block))
         assert_equal(int(node.getbestblockhash(), 16), block.sha256)
 
     def test_compactblock_reconstruction_multiple_peers(self, stalling_peer, delivery_peer):
@@ -805,7 +805,7 @@ class CompactBlocksTest(BitcoinTestFramework):
 
     # Test that we don't get disconnected if we relay a compact block with valid header,
     # but invalid transactions.
-    def test_invalid_tx_in_compactblock(self, test_node, use_segwit=True):
+    def test_invalid_tx_in_compactblock(self, peer, use_segwit=True):
         node = self.nodes[0]
         assert len(self.utxos)
         utxo = self.utxos[0]
@@ -825,11 +825,11 @@ class CompactBlocksTest(BitcoinTestFramework):
         comp_block = HeaderAndShortIDs()
         comp_block.initialize_from_block(block, prefill_list=[0, 1, 2, 3, 4], use_witness=use_segwit)
         msg = msg_cmpctblock(comp_block.to_p2p())
-        test_node.send_and_ping(msg)
+        peer.send_and_ping(msg)
 
         # Check that the tip didn't advance
         assert int(node.getbestblockhash(), 16) is not block.sha256
-        test_node.sync_with_ping()
+        peer.sync_with_ping()
 
     # This test actually causes bitcoind to (reasonably!) disconnect us, so do this last.
     def test_invalid_cmpctblock_message(self):
@@ -842,7 +842,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         # This index will be too high
         prefilled_txn = PrefilledTransaction(1, block.vtx[0])
         cmpct_block.prefilled_txn = [prefilled_txn]
-        self.segwit_node.send_await_disconnect(msg_cmpctblock(cmpct_block))
+        self.segwit_peer_1.send_await_disconnect(msg_cmpctblock(cmpct_block))
         assert_equal(int(self.nodes[0].getbestblockhash(), 16), block.hashPrevBlock)
 
 
