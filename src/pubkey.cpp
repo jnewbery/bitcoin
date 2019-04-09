@@ -181,7 +181,7 @@ bool XOnlyPubKey::CheckPayToContract(const XOnlyPubKey& base, const uint256& has
     secp256k1_xonly_pubkey base_point, output_point;
     if (!secp256k1_xonly_pubkey_parse(secp256k1_context_verify, &base_point, base.data())) return false;
     if (!secp256k1_xonly_pubkey_parse(secp256k1_context_verify, &output_point, m_keydata.begin())) return false;
-    return secp256k1_xonly_pubkey_tweak_test(secp256k1_context_verify, &output_point, negated, &base_point, hash.begin());
+    return secp256k1_xonly_pubkey_tweak_test(secp256k1_context_verify, m_keydata.begin(), negated, &base_point, hash.begin());
 }
 
 bool CPubKey::Verify(const uint256 &hash, const std::vector<unsigned char>& vchSig) const {
