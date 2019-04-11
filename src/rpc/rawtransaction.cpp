@@ -836,14 +836,13 @@ static UniValue sendrawtransaction(const JSONRPCRequest& request)
         max_raw_tx_fee = fr.GetFee((weight+3)/4);
     }
 
-    uint256 txid;
     std::string err_string;
-    const TransactionError err = BroadcastTransaction(tx, txid, err_string, max_raw_tx_fee);
+    const TransactionError err = BroadcastTransaction(tx, err_string, max_raw_tx_fee, true, true);
     if (TransactionError::OK != err) {
         throw JSONRPCTransactionError(err, err_string);
     }
 
-    return txid.GetHex();
+    return tx->GetHash().GetHex();
 }
 
 static UniValue testmempoolaccept(const JSONRPCRequest& request)
