@@ -136,6 +136,10 @@ public:
         int64_t* time = nullptr,
         int64_t* max_time = nullptr) = 0;
 
+    //! Calculate the transaction fee by looking for all the transaction outputs
+    //! and calculating the difference between value in and value out.
+    virtual bool getTransactionFee(const CTransactionRef& tx, CAmount& fee) = 0;
+
     //! Look up unspent output information. Returns coins in the mempool and in
     //! the current chain UTXO set. Iterates through all the keys in the map and
     //! populates the values.

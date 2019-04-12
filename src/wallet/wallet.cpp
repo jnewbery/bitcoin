@@ -1733,6 +1733,13 @@ bool CWalletTx::SubmitMemoryPoolAndRelay(std::string& err_string, bool relay)
     // Don't try to submit conflicted or confirmed transactions.
     if (GetDepthInMainChain() != 0) return false;
 
+    // Check that we're not trying to send a transaction with a too-high fee
+    CAmount fee{0};
+    if (!pwallet->chain().getTransactionFee(tx, fee) ||
+        fee > pwallet->m_default_max_tx_fee) {
+        return false;
+    }
+
     // Submit transaction to mempool for relay
     pwallet->WalletLogPrintf("Submitting wtx %s to mempool for relay\n", GetHash().ToString());
     // We must set fInMempool here - while it will be re-set to true by the

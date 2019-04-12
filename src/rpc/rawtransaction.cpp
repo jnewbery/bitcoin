@@ -819,6 +819,18 @@ static UniValue sendrawtransaction(const JSONRPCRequest& request)
     int64_t virtual_size = GetVirtualTransactionSize(*tx);
     CAmount max_raw_tx_fee = max_raw_tx_fee_rate.GetFee(virtual_size);
 
+    // Check that we're not trying to send a transaction with a too-high fee
+    if (max_raw_tx_fee > 0) {
+        CAmount fee{0};
+        if (!GetTransactionFee(tx, fee)) {
+            throw JSONRPCError(RPC_TRANSACTION_REJECTED, strprintf("unable-to-calculate-fee"));
+        }
+
+        if (fee > max_raw_tx_fee) {
+            throw JSONRPCError(RPC_TRANSACTION_REJECTED, strprintf("fee-above-max-tx-fee: fee=%s , max_tx_fee=%s", FormatMoney(fee), FormatMoney(max_raw_tx_fee)));
+        }
+    }
+
     std::string err_string;
     AssertLockNotHeld(cs_main);
     const TransactionError err = BroadcastTransaction(*g_rpc_node, tx, err_string, max_raw_tx_fee, /*relay*/ true, /*wait_callback*/ true);
@@ -896,6 +908,23 @@ static UniValue testmempoolaccept(const JSONRPCRequest& request)
     UniValue result(UniValue::VARR);
     UniValue result_0(UniValue::VOBJ);
     result_0.pushKV("txid", tx_hash.GetHex());
+
+    // Check that we're not trying to send a transaction with a too-high fee
+    if (max_raw_tx_fee > 0) {
+        CAmount fee{0};
+        if (!GetTransactionFee(tx, fee)) {
+            result_0.pushKV("allowed", false);
+            result_0.pushKV("reject-reason", "unable-to-calculate-fee");
+            return result;
+        }
+
+        if (fee > max_raw_tx_fee) {
+            result_0.pushKV("allowed", false);
+            result_0.pushKV("reject-reason", "fee-above-max-tx-fee");
+            result.push_back(std::move(result_0));
+            return result;
+        }
+    }
 
     TxValidationState state;
     bool test_accept_res;

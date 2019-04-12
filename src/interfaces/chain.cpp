@@ -263,6 +263,7 @@ public:
         }
         return true;
     }
+    bool getTransactionFee(const CTransactionRef& tx, CAmount& fee) override { return GetTransactionFee(tx, fee); }
     void findCoins(std::map<COutPoint, Coin>& coins) override { return FindCoins(coins); }
     double guessVerificationProgress(const uint256& block_hash) override
     {
