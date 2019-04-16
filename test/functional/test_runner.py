@@ -152,6 +152,7 @@ BASE_SCRIPTS = [
     'p2p_filter.py',
     'rpc_setban.py',
     'p2p_blocksonly.py',
+    'feature_taproot.py',
     'mining_prioritisetransaction.py',
     'p2p_invalid_locator.py',
     'p2p_invalid_block.py',
