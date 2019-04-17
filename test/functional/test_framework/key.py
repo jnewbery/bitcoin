@@ -10,8 +10,12 @@ anything but tests.
 import random
 
 def extgcd(a, b):
-    """Extended GCD algorithm"""
+    """Extended GCD algorithm. See https://en.wikipedia.org/wiki/Extended_Euclidean_algorithm
+    
+    Takes two integers (a, b) and returns a triple (g, x, y) that satisfy Bezout's identity:
+    ax + by = g"""
     if a == 0:
+        # if a is 0, then the gcd of (a,b) is 0 (0 is divisable by any integer)
         return (b, 0, 1)
     else:
         g, y, x = extgcd(b % a, a)
@@ -21,8 +25,14 @@ def modinv(a, m):
     """Compute the modular inverse of a modulo m"""
     g, x, y = extgcd(a % m, m)
     if g != 1:
+        # if gcd(a, m) != 1, then a does not have an inverse mod m since a^n mod m has
+        # a residue which is a multiple of gcd(a, m)
         return None
     else:
+        # We use Bezout's identity:
+        # ax + my = 1
+        # ax = 1 mod m (since my = 0 mod m)
+        # => a and x are inverses mod m
         return x % m
 
 def jacobi_symbol(n, k):
