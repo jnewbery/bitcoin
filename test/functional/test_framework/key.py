@@ -1,17 +1,26 @@
 # Copyright (c) 2019 Pieter Wuille
-
+# Distributed under the MIT software license, see the accompanying
+# file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test-only secp256k1 elliptic curve implementation
 
 WARNING: This code is slow, uses bad randomness, does not properly protect
 keys, and is trivially vulnerable to side channel attacks. Do not use for
-anything but tests.
-"""
-
+anything but tests."""
 import random
 
 def extgcd(a, b):
-    """Extended GCD algorithm"""
+    """Extended GCD algorithm.
+
+    Takes two integers (a, b) and returns a triple (g, x, y) that satisfy Bezout's identity:
+    ax + by = g
+
+    See https://en.wikipedia.org/wiki/Extended_Euclidean_algorithm
+
+    This is only implemented for non-negative a and b, but would be trivially extendable to support negative values."""
+    if a < 0 or b < 0:
+        raise NotImplementedError("extgcd only implemented for non-negative a and b")
     if a == 0:
+        # if a is 0, then the gcd of (a,b) is b (0 is divisable by any integer)
         return (b, 0, 1)
     else:
         g, y, x = extgcd(b % a, a)
@@ -19,18 +28,25 @@ def extgcd(a, b):
 
 def modinv(a, m):
     """Compute the modular inverse of a modulo m"""
-    g, x, y = extgcd(a % m, m)
+    g, x, _ = extgcd(a % m, m)
     if g != 1:
+        # if gcd(a, m) != 1, then a does not have an inverse mod m since a^n mod m
+        # is a multiple of gcd(a, m) for all n
         return None
     else:
+        # We use Bezout's identity:
+        # ax + my = 1
+        # ax = 1 mod m (since my = 0 mod m)
+        # => a and x are inverses mod m
         return x % m
 
 def jacobi_symbol(n, k):
     """Compute the Jacobi symbol of n modulo k
 
     See http://en.wikipedia.org/wiki/Jacobi_symbol
-    """
-    assert k > 0 and k & 1
+
+    For our application k is always prime, so this is the same as the Legendre symbol."""
+    assert k > 0 and k & 1, "jacobi symbol is only defined for positive odd k"
     n %= k
     t = 0
     while n != 0:
@@ -46,9 +62,18 @@ def jacobi_symbol(n, k):
     return 0
 
 def modsqrt(a, p):
-    """Compute the square root of a modulo p"""
+    """Compute the square root of a modulo p when p % 4 = 3.
 
-    assert(p % 4 == 3) # Only p = 3 mod 4 is implemented
+    The Tonelli-Shanks algorithm can be used. See https://en.wikipedia.org/wiki/Tonelli-Shanks_algorithm
+
+    Limiting this function to only work for p % 4 = 3 means we don't need to
+    iterate through the loop. The highest n such that p - 1 = 2^n Q with Q odd
+    is n = 1. Therefore Q = (p-1)/2 and sqrt = a^((Q+1)/2) = a^((p+1)/4)
+
+    secp256k1's is defined over field of size 2**256 - 2**32 - 977, which is 3 mod 4.
+    """
+    if p % 4 != 3:
+        raise NotImplementedError("modsqrt only implemented for p % 4 = 3")
     sqrt = pow(a, (p + 1)//4, p)
     if pow(sqrt, 2, p) == a % p:
         return sqrt
@@ -62,7 +87,9 @@ class EllipticCurve:
         self.b = b % p
 
     def affine(self, p1):
-        """Convert a Jacobian point tuple p1 to affine form, or None if at infinity."""
+        """Convert a Jacobian point tuple p1 to affine form, or None if at infinity.
+
+        An affine point is represented as the Jacobian (x, y, 1)"""
         x1, y1, z1 = p1
         if z1 == 0:
             return None
@@ -98,7 +125,9 @@ class EllipticCurve:
         return (x, y, 1)
 
     def double(self, p1):
-        """Double a Jacobian tuple p1"""
+        """Double a Jacobian tuple p1
+
+        See https://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Jacobian_Coordinates - Point Doubling"""
         x1, y1, z1 = p1
         if z1 == 0:
             return (0, 1, 0)
@@ -116,10 +145,13 @@ class EllipticCurve:
         return (x3, y3, z3)
 
     def add_mixed(self, p1, p2):
-        """Add a Jacobian tuple p1 and an affine tuple p2"""
+        """Add a Jacobian tuple p1 and an affine tuple p2
+
+        See https://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Jacobian_Coordinates - Point Addition (with affine point)"""
         x1, y1, z1 = p1
         x2, y2, z2 = p2
         assert(z2 == 1)
+        # Adding to the point at infinity is a no-op
         if z1 == 0:
             return p2
         z1_2 = (z1**2) % self.p
@@ -128,7 +160,9 @@ class EllipticCurve:
         s2 = (y2 * z1_3) % self.p
         if x1 == u2:
             if (y1 != s2):
+                # p1 and p2 are inverses. Return the point at infinity.
                 return (0, 1, 0)
+            # p1 == p2. Doubling is more efficient than adding a point to itself.
             return self.double(p1)
         h = u2 - x1
         r = s2 - y1
@@ -141,13 +175,17 @@ class EllipticCurve:
         return (x3, y3, z3)
 
     def add(self, p1, p2):
-        """Add two Jacobian tuples p1 and p2"""
+        """Add two Jacobian tuples p1 and p2
+
+        See https://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Jacobian_Coordinates - Point Addition"""
         x1, y1, z1 = p1
         x2, y2, z2 = p2
+        # Adding the point at infinity is a no-op
         if z1 == 0:
             return p2
         if z2 == 0:
             return p1
+        # Adding an Affine to a Jacobian is more efficient since we save field multiplications and squarings when z = 1
         if z1 == 1:
             return self.add_mixed(p2, p1)
         if z2 == 1:
@@ -162,7 +200,9 @@ class EllipticCurve:
         s2 = (y2 * z1_3) % self.p
         if u1 == u2:
             if (s1 != s2):
+                # p1 and p2 are inverses. Return the point at infinity.
                 return (0, 1, 0)
+            # p1 == p2. Doubling is more efficient than adding a point to itself.
             return self.double(p1)
         h = u2 - u1
         r = s2 - s1
@@ -211,6 +251,8 @@ class ECPubKey():
             x = int.from_bytes(data[1:33], 'big')
             if SECP256K1.is_x_coord(x):
                 p = SECP256K1.lift_x(x)
+                # if the oddness of the y co-ord isn't correct, find the other
+                # valid y
                 if (p[1] & 1) != (data[0] & 1):
                     p = SECP256K1.negate(p)
                 self.p = p
@@ -240,8 +282,14 @@ class ECPubKey():
             return bytes([0x04]) + p[0].to_bytes(32, 'big') + p[1].to_bytes(32, 'big')
 
     def verify_ecdsa(self, sig, msg, low_s=True):
-        """Verify a strictly DER-encoded ECDSA signature against this pubkey."""
+        """Verify a strictly DER-encoded ECDSA signature against this pubkey.
+
+        See https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm for the
+        ECDSA verifier algorithm"""
         assert(self.valid)
+
+        # Extract r and s from the DER formatted signature. Return false for
+        # any DER encoding errors.
         if (sig[1] + 2 != len(sig)):
             return False
         if (len(sig) < 4):
@@ -272,11 +320,15 @@ class ECPubKey():
         if (slen > 1 and (sig[6+rlen] == 0) and not (sig[7+rlen] & 0x80)):
             return False
         s = int.from_bytes(sig[6+rlen:6+rlen+slen], 'big')
+
+        # Verify that r and s are within the group order
         if r < 1 or s < 1 or r >= SECP256K1_ORDER or s >= SECP256K1_ORDER:
             return False
         if low_s and s >= SECP256K1_ORDER_HALF:
             return False
         z = int.from_bytes(msg, 'big')
+
+        # Run verifier algorithm on r, s
         w = modinv(s, SECP256K1_ORDER)
         u1 = z*w % SECP256K1_ORDER
         u2 = r*w % SECP256K1_ORDER
@@ -328,7 +380,10 @@ class ECKey():
         return ret
 
     def sign_ecdsa(self, msg, low_s=True):
-        """Construct a DER-encoded ECDSA signature with this key."""
+        """Construct a DER-encoded ECDSA signature with this key.
+
+        See https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm for the
+        ECDSA signer algorithm."""
         assert(self.valid)
         z = int.from_bytes(msg, 'big')
         # Note: no RFC6979, but a simple random nonce (some tests rely on distinct transactions for the same operation)
@@ -338,6 +393,9 @@ class ECKey():
         s = (modinv(k, SECP256K1_ORDER) * (z + self.secret * r)) % SECP256K1_ORDER
         if low_s and s > SECP256K1_ORDER_HALF:
             s = SECP256K1_ORDER - s
+        # Represent in DER format. The byte representations of r and s have
+        # length rounded up (255 bits becomes 32 bytes and 256 bits becomes 33
+        # bytes).
         rb = r.to_bytes((r.bit_length() + 8) // 8, 'big')
         sb = s.to_bytes((s.bit_length() + 8) // 8, 'big')
         return b'\x30' + bytes([4 + len(rb) + len(sb), 2, len(rb)]) + rb + bytes([2, len(sb)]) + sb
