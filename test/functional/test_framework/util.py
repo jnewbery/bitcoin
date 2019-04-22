@@ -393,7 +393,7 @@ def sync_blocks(rpc_connections, *, wait=1, timeout=60):
 def sync_mempools(rpc_connections, *, wait=1, timeout=60, use_rpc_sync=False, flush_scheduler=True):
     """
     Wait until everybody has the same transactions in their memory
-    pools
+    pools. If use_rpc_sync is set, sync all transactions right away.
     """
 
     class TxInfo:
@@ -410,17 +410,19 @@ def sync_mempools(rpc_connections, *, wait=1, timeout=60, use_rpc_sync=False, fl
                     pool_add.add(i)
                     # Note that conflicted txs (due to RBF) are not removed
                     # from the pool
-                except JSONRPCException:
+                except JSONRPCException as e:
                     # This transaction violates policy (e.g. RBF policy). The
                     # mempools should still converge when the high-fee
                     # replacement is synced in a later call
-                    pass
+                    assert 'insufficient fee' in e.error['message']
 
     stop_time = time.time() + timeout
     while time.time() <= stop_time:
         pool = [set(r.getrawmempool()) for r in rpc_connections]
         sync_done = pool.count(pool[0]) == len(rpc_connections)
         if use_rpc_sync and not sync_done:
+            # Iterate over all nodes, get their raw mempool and send the
+            # missing txs to all other nodes
             for i_remote, rpc_remote in enumerate(rpc_connections):
                 pool_remote = {
                     txid: TxInfo(raw=rpc_remote.getrawtransaction(txid), ancestors=info['depends'])
@@ -433,8 +435,6 @@ def sync_mempools(rpc_connections, *, wait=1, timeout=60, use_rpc_sync=False, fl
                 # Push this pool to all targets
                 for i_target, rpc_target in enumerate(rpc_connections):
                     missing_txids = pool[i_remote].difference(pool[i_target])
-                    if not missing_txids:
-                        continue
                     # Send missing txs
                     topo_send(
                         txs={txid: pool_remote[txid]
