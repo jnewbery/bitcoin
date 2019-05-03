@@ -2,20 +2,18 @@
 # Copyright (c) 2019 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-# Test taproot softfork.
-
-from test_framework.blocktools import create_coinbase, create_block, create_transaction, add_witness_commitment
-from test_framework.messages import CTransaction, CTxIn, CTxOut, COutPoint, CTxInWitness
-from test_framework.script import CScript, TaprootSignatureHash, taproot_construct, GetP2SH, OP_0, OP_1, OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKSIGADD, OP_IF, OP_CODESEPARATOR, OP_ELSE, OP_ENDIF, OP_DROP, DEFAULT_TAPSCRIPT_VER, SIGHASH_SINGLE, is_op_success, CScriptOp, OP_RETURN, OP_VERIF, OP_RESERVED, OP_1NEGATE, OP_EQUAL, MAX_SCRIPT_ELEMENT_SIZE, LOCKTIME_THRESHOLD, ANNEX_TAG
-from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal, assert_raises_rpc_error, hex_str_to_bytes
-from test_framework.key import ECKey
-from test_framework.address import program_to_witness, script_to_p2sh
-from binascii import hexlify
-from hashlib import sha256
+"""Test taproot softfork."""
 from io import BytesIO
 import random
 import struct
+
+from test_framework.address import program_to_witness, script_to_p2sh
+from test_framework.blocktools import create_coinbase, create_block, add_witness_commitment
+from test_framework.key import ECKey
+from test_framework.messages import CTransaction, CTxIn, CTxOut, COutPoint, CTxInWitness
+from test_framework.script import CScript, TaprootSignatureHash, taproot_construct, GetP2SH, OP_0, OP_1, OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKSIGADD, OP_IF, OP_CODESEPARATOR, OP_ELSE, OP_ENDIF, OP_DROP, DEFAULT_TAPSCRIPT_VER, SIGHASH_SINGLE, is_op_success, CScriptOp, OP_RETURN, OP_VERIF, OP_1NEGATE, OP_EQUAL, MAX_SCRIPT_ELEMENT_SIZE, LOCKTIME_THRESHOLD, ANNEX_TAG
+from test_framework.test_framework import BitcoinTestFramework
+from test_framework.util import assert_raises_rpc_error, hex_str_to_bytes
 
 EMPTYWITNESS_ERROR = "non-mandatory-script-verify-flag (Witness program was passed an empty witness) (code 64)"
 INVALIDKEYPATHSIG_ERROR = "non-mandatory-script-verify-flag (Invalid signature for taproot key path spending) (code 64)"
@@ -215,7 +213,7 @@ def spender_alwaysvalid(spenders, info, p2sh, comment, **kwargs):
         return spend_alwaysvalid(t, i, damage=not v, info=info, p2sh=p2sh, **kwargs)
     spenders.append((spk, addr, comment, False, fn))
 
-class TAPROOTTest(BitcoinTestFramework):
+class TaprootTest(BitcoinTestFramework):
 
     def set_test_params(self):
         self.num_nodes = 1
@@ -440,4 +438,4 @@ class TAPROOTTest(BitcoinTestFramework):
 
 
 if __name__ == '__main__':
-    TAPROOTTest().main()
+    TaprootTest().main()
