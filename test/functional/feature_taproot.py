@@ -51,7 +51,7 @@ def random_unknown_tapscript_ver(no_annex_tag=True):
 def random_bytes(n):
     return bytes(random.getrandbits(8) for i in range(n))
 
-def random_script(size, no_success = True):
+def random_script(size, no_success=True):
     ret = bytes()
     while (len(ret) < size):
         remain = size - len(ret)
@@ -101,13 +101,13 @@ def random_checksig_style(pubkey):
         ret = CScript([pubkey, opcode, OP_1])
     elif (opcode == OP_CHECKSIGADD):
         num = random.choice([0, 0x7fffffff, -0x7fffffff])
-        ret = CScript([num, pubkey, opcode, num+1, OP_EQUAL])
+        ret = CScript([num, pubkey, opcode, num + 1, OP_EQUAL])
     else:
         ret = CScript([pubkey, opcode])
     return bytes(ret)
 
 def damage_bytes(b):
-    return (int.from_bytes(b, 'big') ^ (1 << random.randrange(len(b)*8))).to_bytes(len(b), 'big')
+    return (int.from_bytes(b, 'big') ^ (1 << random.randrange(len(b) * 8))).to_bytes(len(b), 'big')
 
 def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, hashtype=0, prefix=[], suffix=[], script=None, pos=-1, damage=False):
     ht = hashtype
@@ -134,9 +134,9 @@ def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, 
         ht ^= 2
     # Compute sighash
     if script:
-        sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath = True, tapscript = script, codeseparator_pos = pos, annex = annex)
+        sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath=True, tapscript=script, codeseparator_pos=pos, annex=annex)
     else:
-        sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath = False, annex = annex)
+        sighash = TaprootSignatureHash(tx, spent_utxos, ht, input_index, scriptpath=False, annex=annex)
     if damage_type == 0:
         sighash = damage_bytes(sighash)
     # Compute signature
@@ -187,7 +187,7 @@ def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None, damage=Fa
     # Randomly add input witness
     if random.choice([True, False]):
         for i in range(random.randint(1, 10)):
-            ret = [random_bytes(random.randint(0, MAX_SCRIPT_ELEMENT_SIZE*2))] + ret
+            ret = [random_bytes(random.randint(0, MAX_SCRIPT_ELEMENT_SIZE * 2))] + ret
     tx.wit.vtxinwit[input_index].scriptWitness.stack = ret
     # Construct P2SH redeemscript
     if p2sh:
@@ -199,8 +199,10 @@ def spender_sighash_mutation(spenders, info, p2sh, comment, standard=True, **kwa
     if p2sh:
         spk = GetP2SH(spk)
         addr = get_taproot_p2sh(info)
+
     def fn(t, i, u, v):
         return spend_single_sig(t, i, u, damage=not v, info=info, p2sh=p2sh, **kwargs)
+
     spenders.append((spk, addr, comment, standard, fn))
 
 def spender_alwaysvalid(spenders, info, p2sh, comment, **kwargs):
@@ -209,12 +211,13 @@ def spender_alwaysvalid(spenders, info, p2sh, comment, **kwargs):
     if p2sh:
         spk = GetP2SH(spk)
         addr = get_taproot_p2sh(info)
+
     def fn(t, i, u, v):
         return spend_alwaysvalid(t, i, damage=not v, info=info, p2sh=p2sh, **kwargs)
+
     spenders.append((spk, addr, comment, False, fn))
 
 class TaprootTest(BitcoinTestFramework):
-
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True
@@ -262,7 +265,7 @@ class TaprootTest(BitcoinTestFramework):
 
         # Construct a UTXO to spend for each of the spenders
         self.nodes[0].generate(110)
-        bal = self.nodes[0].getbalance() * 3 / (4*len(spenders))
+        bal = self.nodes[0].getbalance() * 3 / (4 * len(spenders))
         random.shuffle(spenders)
         num_spenders = len(spenders)
         utxos = []
@@ -314,12 +317,12 @@ class TaprootTest(BitcoinTestFramework):
         self.lastblocktime = block['time']
         while len(utxos):
             tx = CTransaction()
-            tx.nVersion = random.choice([1, 2, random.randint(-0x80000000,0x7fffffff)])
-            min_sequence = (tx.nVersion != 1 and tx.nVersion != 0) * 0x80000000 # The minimum sequence number to disable relative locktime
+            tx.nVersion = random.choice([1, 2, random.randint(-0x80000000, 0x7fffffff)])
+            min_sequence = (tx.nVersion != 1 and tx.nVersion != 0) * 0x80000000  # The minimum sequence number to disable relative locktime
             if random.choice([True, False]):
-                tx.nLockTime = random.randrange(LOCKTIME_THRESHOLD, self.lastblocktime - 7200) # all absolute locktimes in the past
+                tx.nLockTime = random.randrange(LOCKTIME_THRESHOLD, self.lastblocktime - 7200)  # all absolute locktimes in the past
             else:
-                tx.nLockTime = random.randrange(self.lastblockheight+1) # all block heights in the past
+                tx.nLockTime = random.randrange(self.lastblockheight + 1)  # all block heights in the past
 
             # Pick 1 to 4 UTXOs to construct transaction inputs
             acceptable_input_counts = [cnt for cnt in input_counts if cnt <= len(utxos)]
@@ -330,14 +333,14 @@ class TaprootTest(BitcoinTestFramework):
                     break
             input_utxos = utxos[-inputs:]
             utxos = utxos[:-inputs]
-            fee = random.randrange(MIN_FEE * 2, MIN_FEE * 4) # 10000-20000 sat fee
+            fee = random.randrange(MIN_FEE * 2, MIN_FEE * 4)  # 10000-20000 sat fee
             in_value = sum(utxo[1].nValue for utxo in input_utxos) - fee
-            tx.vin = [CTxIn(outpoint = input_utxos[i][0], nSequence = random.randint(min_sequence, 0xffffffff)) for i in range(inputs)]
+            tx.vin = [CTxIn(outpoint=input_utxos[i][0], nSequence=random.randint(min_sequence, 0xffffffff)) for i in range(inputs)]
             tx.wit.vtxinwit = [CTxInWitness() for i in range(inputs)]
             self.log.info("Test: %s" % (", ".join(utxo[2][2] for utxo in input_utxos)))
 
             # Add 1 to 4 outputs
-            outputs = random.choice([1,2,3,4])
+            outputs = random.choice([1, 2, 3, 4])
             assert in_value >= 0 and fee - outputs * DUST_LIMIT >= MIN_FEE
             for i in range(outputs):
                 tx.vout.append(CTxOut())
@@ -375,7 +378,7 @@ class TaprootTest(BitcoinTestFramework):
                 self.block_submit(self.nodes[0], [tx], msg, witness=True, accept=fail_input == inputs, cb_pubkey=random.choice(host_pubkeys), fees=fee)
 
     def run_test(self):
-        VALID_SIGHASHES = [0,1,2,3,0x81,0x82,0x83]
+        VALID_SIGHASHES = [0, 1, 2, 3, 0x81, 0x82, 0x83]
         spenders = []
 
         for p2sh in [False, True]:
@@ -399,9 +402,9 @@ class TaprootTest(BitcoinTestFramework):
                     spender_sighash_mutation(spenders, info, p2sh, "sighash/p2pk#s0", script=scripts[0], key=sec2, hashtype=hashtype, annex=annex, standard=standard)
                     # More complex script structure
                     scripts = [
-                        CScript(random_checksig_style(pub2.get_bytes()) + bytes([OP_CODESEPARATOR])), # codesep after checksig
-                        CScript(bytes([OP_CODESEPARATOR]) + random_checksig_style(pub2.get_bytes())), # codesep before checksig
-                        CScript([bytes([1,2,3]), OP_DROP, OP_IF, OP_CODESEPARATOR, pub1.get_bytes(), OP_ELSE, OP_CODESEPARATOR, pub2.get_bytes(), OP_ENDIF, OP_CHECKSIG]), # branch dependent codesep
+                        CScript(random_checksig_style(pub2.get_bytes()) + bytes([OP_CODESEPARATOR])),  # codesep after checksig
+                        CScript(bytes([OP_CODESEPARATOR]) + random_checksig_style(pub2.get_bytes())),  # codesep before checksig
+                        CScript([bytes([1, 2, 3]), OP_DROP, OP_IF, OP_CODESEPARATOR, pub1.get_bytes(), OP_ELSE, OP_CODESEPARATOR, pub2.get_bytes(), OP_ENDIF, OP_CHECKSIG]),  # branch dependent codesep
                     ]
                     info = taproot_construct(pub1, scripts)
                     spender_sighash_mutation(spenders, info, p2sh, "sighash/codesep#pk", key=sec1, hashtype=hashtype, annex=annex, standard=standard)
@@ -415,9 +418,9 @@ class TaprootTest(BitcoinTestFramework):
                     CScript([random_op_success()]),
                     CScript([OP_0, OP_IF, random_op_success(), OP_ENDIF, OP_RETURN]),
                     CScript([random_op_success(), OP_VERIF]),
-                    CScript(random_script(10000) + bytes([random_op_success()]) + random_invalid_push(random.randint(1,10))),
+                    CScript(random_script(10000) + bytes([random_op_success()]) + random_invalid_push(random.randint(1, 10))),
                     (random_unknown_tapscript_ver(), CScript([OP_RETURN])),
-                    (random_unknown_tapscript_ver(), CScript(random_script(10000) + random_invalid_push(random.randint(1,10)))),
+                    (random_unknown_tapscript_ver(), CScript(random_script(10000) + random_invalid_push(random.randint(1, 10)))),
                     (ANNEX_TAG & 0xfe, CScript()),
                 ]
                 info = taproot_construct(pub1, scripts)
@@ -434,7 +437,7 @@ class TaprootTest(BitcoinTestFramework):
 
         # Run all tests once with individual inputs, once with groups of inputs
         self.test_spenders(spenders, input_counts=[1])
-        self.test_spenders(spenders, input_counts=[2,3,4])
+        self.test_spenders(spenders, input_counts=[2, 3, 4])
 
 
 if __name__ == '__main__':
