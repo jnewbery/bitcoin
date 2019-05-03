@@ -325,6 +325,13 @@ class ECPubKey():
         return True
 
     def verify_schnorr(self, sig, msg):
+        """Verify a Schnorr signature
+        
+        Verify that sig is a valid signature for message msg for this public key, encoded
+        according to bip-schnorr.
+        """
+        # TODO: Update docstring to reference finalized BIP
+
         assert(len(msg) == 32)
         assert(len(sig) == 64)
         assert(self.valid)
@@ -342,6 +349,12 @@ class ECPubKey():
         return True
 
     def tweak_add(self, tweak):
+        """Tweak this public key
+
+        Adds a tweak t to this public key where the tweaked public key is P' = P + tG.
+        Anyone with knowledge of the private key k can sign for this tweaked public
+        key by using tweaked private key k' = k + t
+        """
         assert(self.valid)
         assert(len(tweak) == 32)
         t = int.from_bytes(tweak, 'big')
@@ -421,6 +434,7 @@ class ECKey():
 
     def sign_schnorr(self, msg):
         """Construct a bip-schnorr compatible signature with this key."""
+        # TODO: update docstring to reference finalized BIP
         assert(self.valid)
         assert(self.compressed)
         assert(len(msg) == 32)
@@ -432,7 +446,11 @@ class ECKey():
         return R[0].to_bytes(32, 'big') + ((k + e*self.secret) % SECP256K1_ORDER).to_bytes(32, 'big')
 
     def tweak_add(self, tweak):
-        """Return a tweaked version of this private key."""
+        """Return a tweaked version of this private key.
+        
+        The tweaked private key k' = k + t can sign for the tweaked public
+        key P' = P + tP
+        """
         assert(self.valid)
         assert(len(tweak) == 32)
         t = int.from_bytes(tweak, 'big')

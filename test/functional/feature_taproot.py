@@ -23,35 +23,49 @@ DUST_LIMIT = 600
 MIN_FEE = 5000
 
 def tx_from_hex(hexstring):
+    """Construct a CTransaction from the hex representation of the tx"""
     tx = CTransaction()
     f = BytesIO(hex_str_to_bytes(hexstring))
     tx.deserialize(f)
     return tx
 
 def get_taproot_bech32(info):
+    """Get the bech 32 address of a taproot output"""
     if isinstance(info, tuple):
         info = info[0]
     return program_to_witness(1, info[2:])
 
 def get_taproot_p2sh(info):
+    """Return the P2SH-wrapped version of a taproot script"""
     return script_to_p2sh(info[0])
 
 def random_op_success():
+    """Return a random OP_SUCCESS opcode as defined in bip-tapscript"""
+    # TODO: update docstring to reference finalized BIP
     ret = 0
     while (not is_op_success(ret)):
         ret = random.randint(0x50, 0xfe)
     return CScriptOp(ret)
 
 def random_unknown_tapscript_ver(no_annex_tag=True):
+    """Return a random unknown taproot version as defined in bip-taproot"""
+    # TODO: update docstring to reference finalized BIP
     ret = DEFAULT_TAPSCRIPT_VER
     while (ret == DEFAULT_TAPSCRIPT_VER or (no_annex_tag and ret == (ANNEX_TAG & 0xfe))):
         ret = random.randrange(128) * 2
     return ret
 
 def random_bytes(n):
+    """Return n random bytes"""
     return bytes(random.getrandbits(8) for i in range(n))
 
 def random_script(size, no_success=True):
+    """Constructs a script out of random opcodes and data pushes.
+
+    These are either suffixed by an OP_SUCCESS in tapscript or placed in an
+    unknown-version tapleaf script, making them always-valid no matter what
+    the script contents.
+    """
     ret = bytes()
     while (len(ret) < size):
         remain = size - len(ret)
@@ -75,6 +89,13 @@ def random_script(size, no_success=True):
     return ret
 
 def random_invalid_push(size):
+    """Return an invalid datapush
+
+    The amount of data is smaller than the pushdata specifies. The returned
+    bytes are placed at the end of scripts and would normally result in script
+    failure. However, included in either OP_SUCCESS'ed or unknown-taproot
+    version scripts, so the resulting output is always-valid.
+    """
     assert size > 0
     ret = bytes()
     opcode = 78
@@ -96,6 +117,12 @@ def random_invalid_push(size):
     return ret[:size]
 
 def random_checksig_style(pubkey):
+    """Return one of three styles of script for this pubkey
+
+    - OP_CHECKSIG (<pubkey>, OP_CHECKSIG, OP_1)
+    - OP_CHECKSIGADD (<n>, <pubkey>, OP_CHECKSIGADD, <n+1>, OP_EQUAL)
+    - OP_CHECKSIGVERIFY (<pubkey>, OP_CHECKSIGVERIFY)
+    """
     opcode = random.choice([OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKSIGADD])
     if (opcode == OP_CHECKSIGVERIFY):
         ret = CScript([pubkey, opcode, OP_1])
@@ -107,13 +134,13 @@ def random_checksig_style(pubkey):
     return bytes(ret)
 
 def damage_bytes(b):
+    """Flips a single bit in bytes b"""
     return (int.from_bytes(b, 'big') ^ (1 << random.randrange(len(b) * 8))).to_bytes(len(b), 'big')
 
 def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, hashtype=0, prefix=[], suffix=[], script=None, pos=-1, damage=False):
-    ht = hashtype
+    """Construct a txin to spend a single signature taproot output
 
-    damage_type = random.randrange(5) if damage else -1
-    '''
+    If damage is True, do some random damage to the spend:
     * 0. bit flip the sighash
     * 1. bit flip the signature
     * If the expected hashtype is 0:
@@ -123,7 +150,11 @@ def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, 
     -- 2. do not append hashtype to the signature
     -- 3. append a random incorrect value of 0-255 to the signature
     * 4. extra witness element
-    '''
+    """
+
+    ht = hashtype
+
+    damage_type = random.randrange(5) if damage else -1
 
     # Taproot key path spend: tweak key
     if script is None:
@@ -167,12 +198,17 @@ def spend_single_sig(tx, input_index, spent_utxos, info, p2sh, key, annex=None, 
         tx.vin[input_index].scriptSig = CScript([info[0]])
 
 def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None, damage=False):
+    """Construct a txin to spend an always-valid taproot output
+
+    If damage is True, do some damage on the spend:
+    - With 50% chance, we bit flip the script (unless the script is an empty vector)
+    - With 50% chance, we bit flip the control block
+    """
+
     if isinstance(script, tuple):
         version, script = script
     ret = [script, info[2][script]]
     if damage:
-        # With 50% chance, we bit flip the script (unless the script is an empty vector)
-        # With 50% chance, we bit flip the control block
         if random.choice([True, False]) or len(ret[0]) == 0:
             # Annex is always required for tapscript version 0x50
             # Unless the original version is 0x50, we couldn't convert it to 0x50 without using annex
@@ -194,6 +230,7 @@ def spend_alwaysvalid(tx, input_index, info, p2sh, script, annex=None, damage=Fa
         tx.vin[input_index].scriptSig = CScript([info[0]])
 
 def spender_sighash_mutation(spenders, info, p2sh, comment, standard=True, **kwargs):
+    """Build a spender for a single-signature taproot output"""
     spk = info[0]
     addr = get_taproot_bech32(info)
     if p2sh:
@@ -206,6 +243,7 @@ def spender_sighash_mutation(spenders, info, p2sh, comment, standard=True, **kwa
     spenders.append((spk, addr, comment, standard, fn))
 
 def spender_alwaysvalid(spenders, info, p2sh, comment, **kwargs):
+    """Build a spender for an always-valid taproot output"""
     spk = info[0]
     addr = get_taproot_bech32(info)
     if p2sh:
@@ -224,6 +262,11 @@ class TaprootTest(BitcoinTestFramework):
         self.extra_args = [["-whitelist=127.0.0.1", "-acceptnonstdtxn=0", "-par=1"]]
 
     def block_submit(self, node, txs, msg, cb_pubkey=None, fees=0, witness=False, accept=False):
+        """Submit a block to node
+
+        if accept is True, assert that the block is accepted
+        if accept is False, assert that the block is rejected
+        """
         block = create_block(self.tip, create_coinbase(self.lastblockheight + 1, pubkey=cb_pubkey, fees=fees), self.lastblocktime + 1)
         block.nVersion = 4
         for tx in txs:

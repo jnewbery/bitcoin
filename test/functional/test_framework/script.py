@@ -608,18 +608,24 @@ def FindAndDelete(script, sig):
     return CScript(r)
 
 def IsPayToScriptHash(script):
+    """Whether the script is a BIP16 Pay To Script Hash scriptPubKey"""
     return len(script) == 23 and script[0] == OP_HASH160 and script[1] == 20 and script[22] == OP_EQUAL
 
 def IsPayToTaproot(script):
+    """Whether the script is a Taproot output as defined in bip-taproot"""
+    # TODO: update docstring with reference to finalized BIP
     return len(script) == 35 and script[0] == OP_1 and script[1] == 33 and script[2] >= 0 and script[2] <= 1
 
 def TaggedHash(tag, data):
+    """Hash data with a 'tagged hash' as defined in bip-taproot"""
+    # TODO: update docstring with reference to finalized BIP
     ss = sha256(tag.encode('utf-8'))
     ss += ss
     ss += data
     return sha256(ss)
 
 def GetP2SH(script):
+    """Return a P2SH scriptPubKey commiting to redeem script `script`"""
     return CScript([OP_HASH160, hash160(script), OP_EQUAL])
 
 def SignatureHash(script, txTo, inIdx, hashtype):
@@ -718,6 +724,8 @@ def SegwitVersion1SignatureHash(script, txTo, inIdx, hashtype, amount):
     return hash256(ss)
 
 def TaprootSignatureHash(txTo, spent_utxos, hash_type, input_index = 0, scriptpath = False, tapscript = CScript(), codeseparator_pos = -1, annex = None, tapscript_ver = DEFAULT_TAPSCRIPT_VER):
+    """Return a Taproot signature hash as defined in bip-taproot#transaction-digest."""
+    # TODO: update docstring to reference finalized BIP
     assert (len(txTo.vin) == len(spent_utxos))
     assert((hash_type >= 0 and hash_type <= 3) or (hash_type >= 0x81 and hash_type <= 0x83))
     assert (input_index < len(txTo.vin))
@@ -764,6 +772,13 @@ def TaprootSignatureHash(txTo, spent_utxos, hash_type, input_index = 0, scriptpa
     return TaggedHash("TapSighash", ss)
 
 def GetVersionTaggedPubKey(pubkey, version):
+    """Returns the version-tagged pubkey as defined in bip-taproot#cite_note-4
+
+    - The low bit is used to denote the oddness of the Y coordinate of the P point.
+    - the two high bits are always set to true to disambigurate a taproot control block from a P2WPKH or P2WSH stack element.
+    - the remaining five bits can be used for script versioning.
+    """
+    # TODO: update docstring to reference finalized BIP
     assert pubkey.is_compressed
     assert pubkey.is_valid
     # When the version 0xfe is used, the control block may become indistinguishable from annex.
@@ -773,6 +788,15 @@ def GetVersionTaggedPubKey(pubkey, version):
     return bytes([data[0] & 1 | version]) + data[1:]
 
 def taproot_tree_helper(scripts):
+    """Constructs a Merkle tree of scripts
+
+    returns:
+    - a list of (version, script, control)s, one for each script:
+        - version is the script version
+        - script is the script
+        - control is the control block required to spend using that script
+    - the root of the Merkle tree.
+    """
     if len(scripts) == 1:
         script = scripts[0]
         if isinstance(script, list):
@@ -805,6 +829,8 @@ def taproot_construct(pubkey, scripts=[]):
     Returns: script (sPK or redeemScript), tweak, {script:control, ...}
     """
     if len(scripts) == 0:
+        # No scripts. Output can only be spent with key path spending. There's
+        # no Merkle tree to construct and the pubkey is not tweaked.
         return (CScript([OP_1, GetVersionTaggedPubKey(pubkey, TAPROOT_VER)]), bytes([0 for i in range(32)]), {})
 
     ret, h = taproot_tree_helper(scripts)
@@ -814,4 +840,6 @@ def taproot_construct(pubkey, scripts=[]):
     return (CScript([OP_1, GetVersionTaggedPubKey(tweaked, TAPROOT_VER)]), tweak, control_map)
 
 def is_op_success(o):
+    """Returns True if opcode o is OP_SUCCESS as defined in bip-tapscript"""
+    # TODO: update docstring to reference finalized BIP
     return o == 0x50 or o == 0x62 or o == 0x89 or o == 0x8a or o == 0x8d or o == 0x8e or (o >= 0x7e and o <= 0x81) or (o >= 0x83 and o <= 0x86) or (o >= 0x95 and o <= 0x99) or (o >= 0xbb and o <= 0xfe)
