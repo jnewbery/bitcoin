@@ -787,57 +787,92 @@ def GetVersionTaggedPubKey(pubkey, version):
     data = pubkey.get_bytes()
     return bytes([data[0] & 1 | version]) + data[1:]
 
-def taproot_tree_helper(scripts):
-    """Constructs a Merkle tree of scripts
-
-    returns:
-    - a list of (version, script, control)s, one for each script:
-        - version is the script version
-        - script is the script
-        - control is the control block required to spend using that script
-    - the root of the Merkle tree.
+class TapLeaf:
+    """The leaf of a TapTree.
+    
+    Initialized with a script and the taproot script version.
+    A control block for spending the script is added once the
+    leaf is placed in a TapTree.
     """
-    if len(scripts) == 1:
-        script = scripts[0]
-        if isinstance(script, list):
-            return taproot_tree_helper(script)
-        version = DEFAULT_TAPSCRIPT_VER
-        if isinstance(script, tuple):
-            version, script = script
-        assert isinstance(script, bytes)
-        h = TaggedHash("TapLeaf", bytes([version & 0xfe]) + ser_string(script))
-        return ([(version, script, bytes())], h)
-    split_pos = len(scripts) // 2
-    left, left_h = taproot_tree_helper(scripts[0:split_pos])
-    right, right_h = taproot_tree_helper(scripts[split_pos:])
-    left = [(version, script, control + right_h) for version, script, control in left]
-    right = [(version, script, control + left_h) for version, script, control in right]
-    if right_h < left_h:
-        right_h, left_h = left_h, right_h
-    h = TaggedHash("TapBranch", left_h + right_h)
-    return (left + right, h)
+    def __init__(self, script, version=DEFAULT_TAPSCRIPT_VER):
+        self.script = script
+        self.version = version
 
-def taproot_construct(pubkey, scripts=[]):
-    """Construct a tree of taproot spending conditions
+class TapTree:
+    """A tree of Taproot leaves.
 
-    pubkey: an ECPubKey object for the root pubkey
-    scripts: a list of items; each item is either:
-             - a CScript
-             - a (version, CScript) tuple
-             - another list of items (with the same structure)
-
-    Returns: script (sPK or redeemScript), tweak, {script:control, ...}
+    Initialized with a list of TapLeaves, which are placed
+    into a tree and Merkelized.
     """
-    if len(scripts) == 0:
-        # No scripts. Output can only be spent with key path spending. There's
-        # no Merkle tree to construct and the pubkey is not tweaked.
-        return (CScript([OP_1, GetVersionTaggedPubKey(pubkey, TAPROOT_VER)]), bytes([0 for i in range(32)]), {})
+    def __init__(self, leaves):
+        """Construct the Merkle tree of TapLeaves.
 
-    ret, h = taproot_tree_helper(scripts)
-    control_map = dict((script, GetVersionTaggedPubKey(pubkey, version) + control) for version, script, control in ret)
-    tweak = TaggedHash("TapTweak", pubkey.get_bytes() + h)
-    tweaked = pubkey.tweak_add(tweak)
-    return (CScript([OP_1, GetVersionTaggedPubKey(tweaked, TAPROOT_VER)]), tweak, control_map)
+        Each leaf can be:
+        - a tapleaf
+        - a list of tapleaves
+        """
+        self.leaves, self.root = self.tree_constructor(leaves)
+
+    def tree_constructor(self, leaves):
+        """Recursive TapTree constructor
+        
+        Takes a list of leafs and constructs the Merkle tree containing those
+        leaves. Returns the leaves (with control blocks filled in) and the root
+        of that Merkle tree.
+        """
+        if len(leaves) == 1:
+            # We've reached the bottom of the recursion. Hash the TapLeaf according
+            # to bip-taproot and return.
+            leaf = leaves[0]
+            if isinstance(leaf, list):
+                return tree_constructor(self, leaf)
+            assert isinstance(leaf, bytes)
+            node = TaggedHash("TapLeaf", bytes([leaf.version & 0xfe]) + ser_string(leaf.script))
+            return ([leaf], node)
+        # Else there is more than one leaf left in the list. Recurse down further.
+        split_pos = len(leaves) // 2
+        left, left_node = tree_constructor(self, leaves[0:split_pos])
+        right, right_node = tree_constructor(self, leaves[split_pos:])
+        # As we re-ascend the tree, fill in the TapLeaves' control blocks.
+        for leaf in left:
+            leaf.control += right_node
+        for leaf in right:
+            leaf.control += left_node
+        if right_node < left_node:
+            # The TapBranches are sorted by their hash
+            right_node, left_node = left_node, right_node
+        # Hash the TapBranch
+        node = TaggedHash("TapBranch", left_node + right_node)
+        return (left + right, node)
+
+class TapRootOutput:
+    """A taproot output.
+
+    Contains:
+    - the scriptPubKey for the taproot output
+    - the tweak that has been made to the internal pubkey to make Q, the key-path spending key
+    - a dictionary from scripts to control blocks for spending using that script-path
+    """
+    def __init__(self, pubkey, leaves=[]):
+        """Construct a taproot output from an internal pubkey and a list of leaves.
+
+        Each leaf can be:
+        - a tapleaf
+        - a list of tapleaves
+        """
+        if len(leaves) == 0:
+            # No leaves. Output can only be spent with key path spending. There's
+            # no Merkle tree to construct and the pubkey is not tweaked.
+            self.scriptPubKey = CScript([OP_1, GetVersionTaggedPubKey(pubkey, TAPROOT_VER)])
+            self.tweak = bytes([0 for i in range(32)])
+            self.controls = {}
+
+        tree = TapTree(leaves)
+        for leaf in tree:
+            self.control[leaf.script] = GetVersionTaggedPubKey(pubkey, leaf.version) + leaf.control
+        self.tweak = TaggedHash("TapTweak", pubkey.get_bytes() + h)
+        tweaked = pubkey.tweak_add(tweak)
+        self.scriptPubKey = CScript([OP_1, GetVersionTaggedPubKey(tweaked, TAPROOT_VER)])
 
 def is_op_success(o):
     """Returns True if opcode o is OP_SUCCESS as defined in bip-tapscript"""
