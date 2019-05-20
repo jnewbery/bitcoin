@@ -4626,6 +4626,22 @@ int VersionBitsTipStateSinceHeight(const Consensus::Params& params, Consensus::D
     return VersionBitsStateSinceHeight(::ChainActive().Tip(), params, pos, versionbitscache);
 }
 
+int64_t VersionBitsActivationHeight(const Consensus::Params& params, Consensus::DeploymentPos pos)
+{
+    LOCK(cs_main);
+    ThresholdState state = VersionBitsTipState(params, pos);
+    int64_t since_height = VersionBitsTipStateSinceHeight(params, pos);
+    switch (state) {
+        case ThresholdState::LOCKED_IN:
+            return since_height + params.nMinerConfirmationWindow;
+        case ThresholdState::ACTIVE:
+            return since_height;
+        default:
+            throw std::logic_error("VersionBitsActivationHeight called for non-ACTIVE non-LOCKED-IN deployment");
+    }
+}
+
+
 static const uint64_t MEMPOOL_DUMP_VERSION = 1;
 
 bool LoadMempool(CTxMemPool& pool)
