@@ -525,13 +525,13 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     if (fValue)
                         popstack(stack);
                     else
-                        return set_error(serror, SCRIPT_ERR_VERIFY);
+                        pc = pend;
                 }
                 break;
 
                 case OP_RETURN:
                 {
-                    return set_error(serror, SCRIPT_ERR_OP_RETURN);
+                    pc = pend;
                 }
                 break;
 
@@ -874,7 +874,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         if (fEqual)
                             popstack(stack);
                         else
-                            return set_error(serror, SCRIPT_ERR_EQUALVERIFY);
+                            pc = pend;
                     }
                 }
                 break;
@@ -996,7 +996,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         if (CastToBool(stacktop(-1)))
                             popstack(stack);
                         else
-                            return set_error(serror, SCRIPT_ERR_NUMEQUALVERIFY);
+                            pc = pend;
                     }
                 }
                 break;
@@ -1094,7 +1094,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         if (fSuccess)
                             popstack(stack);
                         else
-                            return set_error(serror, SCRIPT_ERR_CHECKSIGVERIFY);
+                            pc = pend;
                     }
                 }
                 break;
@@ -1204,7 +1204,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         if (fSuccess)
                             popstack(stack);
                         else
-                            return set_error(serror, SCRIPT_ERR_CHECKMULTISIGVERIFY);
+                            pc = pend;
                     }
                 }
                 break;
