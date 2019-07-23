@@ -21,15 +21,15 @@ TransactionError BroadcastTransaction(const CTransactionRef tx, std::string& err
 
     { // cs_main scope
     LOCK(cs_main);
+    // If the transaction is already confirmed in the chain, don't do anything
+    // and return early.
     CCoinsViewCache &view = *pcoinsTip;
-    bool fHaveChain = false;
-    for (size_t o = 0; !fHaveChain && o < tx->vout.size(); o++) {
+    for (size_t o = 0; o < tx->vout.size(); o++) {
         const Coin& existingCoin = view.AccessCoin(COutPoint(hashTx, o));
-        fHaveChain = !existingCoin.IsSpent();
+        if (!existingCoin.IsSpent()) return TransactionError::ALREADY_IN_CHAIN;
     }
-    bool fHaveMempool = mempool.exists(hashTx);
-    if (!fHaveMempool && !fHaveChain) {
-        // push to local node and sync with wallets
+    if (!mempool.exists(hashTx)) {
+        // Transaction is not already in the mempool. Submit it.
         CValidationState state;
         bool fMissingInputs;
         if (!AcceptToMemoryPool(mempool, state, std::move(tx), &fMissingInputs,
@@ -44,24 +44,31 @@ TransactionError BroadcastTransaction(const CTransactionRef tx, std::string& err
                 err_string = FormatStateMessage(state);
                 return TransactionError::MEMPOOL_ERROR;
             }
-        } else if (wait_callback) {
-            // If wallet is enabled, ensure that the wallet has been made aware
-            // of the new transaction prior to returning. This prevents a race
-            // where a user might call sendrawtransaction with a transaction
-            // to/from their wallet, immediately call some wallet RPC, and get
-            // a stale result because callbacks have not yet been processed.
+        }
+
+        // Transaction was accepted to the mempool.
+        
+        if (wait_callback) {
+            // For transactions broadcast from outside the wallet, make sure
+            // that the wallet has been notified of the transaction before
+            // continuing.
+            // 
+            // This prevents a race where a user might call sendrawtransaction
+            // with a transaction to/from their wallet, immediately call some
+            // wallet RPC, and get a stale result because callbacks have not
+            // yet been processed.
             CallFunctionInValidationInterfaceQueue([&promise] {
                 promise.set_value();
             });
             callback_set = true;
         }
-    } else if (fHaveChain) {
-        return TransactionError::ALREADY_IN_CHAIN;
     }
 
     } // cs_main
 
     if (callback_set) {
+        // Wait until Validation Interface clients have been notified of the
+        // transaction entering the mempool.
         promise.get_future().wait();
     }
 
