@@ -365,26 +365,6 @@ struct COutputEntry
     int vout;
 };
 
-/** Legacy class used for deserializing vtxPrev for backwards compatibility.
- * vtxPrev was removed in commit 93a18a3650292afbb441a47d1fa1b94aeb0164e3,
- * but old wallet.dat files may still contain vtxPrev vectors of CMerkleTxs.
- * These need to get deserialized for field alignment when deserializing
- * a CWalletTx, but the deserialized values are discarded.**/
-class CMerkleTx
-{
-public:
-    template<typename Stream>
-    void Unserialize(Stream& s)
-    {
-        CTransactionRef tx;
-        uint256 hashBlock;
-        std::vector<uint256> vMerkleBranch;
-        int nIndex;
-
-        s >> tx >> hashBlock >> vMerkleBranch >> nIndex;
-    }
-};
-
 //Get the marginal bytes of spending the specified output
 int CalculateMaximumSignedInputSize(const CTxOut& txout, const CWallet* pwallet, bool use_max_sig = false);
 
@@ -512,7 +492,7 @@ public:
         Init(nullptr);
 
         std::vector<uint256> dummy_vector1; //!< Used to be vMerkleBranch
-        std::vector<CMerkleTx> dummy_vector2; //!< Used to be vtxPrev
+        std::vector<std::pair<CTransactionRef, std::pair<uint256, std::pair<std::vector<uint256>, int>>>> dummy_vector2; //!< Used to be vtxPrev (a vector of CMerkleTxs)
         char dummy_char; //! Used to be fSpent
         s >> tx >> hashBlock >> dummy_vector1 >> nIndex >> dummy_vector2 >> mapValue >> vOrderForm >> fTimeReceivedIsTxTime >> nTimeReceived >> fFromMe >> dummy_char;
 
