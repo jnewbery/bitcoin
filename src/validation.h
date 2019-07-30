@@ -290,7 +290,7 @@ BIP9Stats VersionBitsTipStatistics(const Consensus::Params& params, Consensus::D
 int VersionBitsTipStateSinceHeight(const Consensus::Params& params, Consensus::DeploymentPos pos);
 
 /** Get the block height at which the BIP9 deployment activated or will activate (for LOCKED_IN or ACTIVATED deployments only). */
-int64_t VersionBitsActivationHeight(const Consensus::Params& params, Consensus::DeploymentPos pos);
+int64_t VersionBitsTipActivationHeight(const Consensus::Params& params, Consensus::DeploymentPos pos);
 
 /** Apply the effects of this transaction on the UTXO set represented by view */
 void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, int nHeight);

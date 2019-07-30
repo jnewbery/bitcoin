@@ -1241,7 +1241,10 @@ static void BIP9SoftForkDescPushBack(UniValue& softforks, const std::string &nam
     rv.pushKV("type", "bip9");
     rv.pushKV("bip9", bip9);
     if (thresholdState == ThresholdState::LOCKED_IN || thresholdState == ThresholdState::ACTIVE) {
-        rv.pushKV("height", VersionBitsActivationHeight(consensusParams, id));
+        int64_t height = VersionBitsTipActivationHeight(consensusParams, id);
+        if (height != -1) {
+            rv.pushKV("height", VersionBitsTipActivationHeight(consensusParams, id));
+        }
     }
     rv.pushKV("active", ThresholdState::ACTIVE == thresholdState);
 

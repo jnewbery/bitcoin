@@ -1633,7 +1633,7 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consens
     }
 
     // Start enforcing BIP147 NULLDUMMY (activated simultaneously with segwit)
-    if (pindex->nHeight >= consensusparams.SegwitHeight) {
+    if (IsWitnessEnabled(pindex->pprev, consensusparams)) {
         flags |= SCRIPT_VERIFY_NULLDUMMY;
     }
 
@@ -4621,19 +4621,10 @@ int VersionBitsTipStateSinceHeight(const Consensus::Params& params, Consensus::D
     return VersionBitsStateSinceHeight(::ChainActive().Tip(), params, pos, versionbitscache);
 }
 
-int64_t VersionBitsActivationHeight(const Consensus::Params& params, Consensus::DeploymentPos pos)
+int64_t VersionBitsTipActivationHeight(const Consensus::Params& params, Consensus::DeploymentPos pos)
 {
     LOCK(cs_main);
-    ThresholdState state = VersionBitsTipState(params, pos);
-    int64_t since_height = VersionBitsTipStateSinceHeight(params, pos);
-    switch (state) {
-        case ThresholdState::LOCKED_IN:
-            return since_height + params.nMinerConfirmationWindow;
-        case ThresholdState::ACTIVE:
-            return since_height;
-        default:
-            throw std::logic_error("VersionBitsActivationHeight called for non-ACTIVE non-LOCKED-IN deployment");
-    }
+    return VersionBitsActivationHeight(::ChainActive().Tip(), params, pos, versionbitscache);
 }
 
 
