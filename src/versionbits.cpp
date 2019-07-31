@@ -171,6 +171,7 @@ private:
 protected:
     int64_t BeginTime(const Consensus::Params& params) const override { return params.vDeployments[id].nStartTime; }
     int64_t EndTime(const Consensus::Params& params) const override { return params.vDeployments[id].nTimeout; }
+    int Period(const Consensus::Params& params) const override { return params.nMinerConfirmationWindow; }
     int Threshold(const Consensus::Params& params) const override { return params.nRuleChangeActivationThreshold; }
 
     bool Condition(const CBlockIndex* pindex, const Consensus::Params& params) const override
@@ -181,7 +182,6 @@ protected:
 public:
     explicit VersionBitsConditionChecker(Consensus::DeploymentPos id_) : id(id_) {}
     uint32_t Mask(const Consensus::Params& params) const { return ((uint32_t)1) << params.vDeployments[id].bit; }
-    int Period(const Consensus::Params& params) const override { return params.nMinerConfirmationWindow; }
 };
 
 } // namespace
@@ -199,20 +199,6 @@ BIP9Stats VersionBitsStatistics(const CBlockIndex* pindexPrev, const Consensus::
 int VersionBitsStateSinceHeight(const CBlockIndex* pindexPrev, const Consensus::Params& params, Consensus::DeploymentPos pos, VersionBitsCache& cache)
 {
     return VersionBitsConditionChecker(pos).GetStateSinceHeightFor(pindexPrev, params, cache.caches[pos]);
-}
-
-int64_t VersionBitsActivationHeight(const CBlockIndex* pindexPrev, const Consensus::Params& params, Consensus::DeploymentPos pos, VersionBitsCache& cache)
-{
-    ThresholdState state = VersionBitsState(pindexPrev, params, pos, cache);
-    int64_t since_height = VersionBitsStateSinceHeight(pindexPrev, params, pos, cache);
-    switch (state) {
-        case ThresholdState::LOCKED_IN:
-            return since_height + VersionBitsConditionChecker(pos).Period(params);
-        case ThresholdState::ACTIVE:
-            return since_height;
-        default:
-            return -1;
-    }
 }
 
 uint32_t VersionBitsMask(const Consensus::Params& params, Consensus::DeploymentPos pos)

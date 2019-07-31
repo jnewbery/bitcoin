@@ -1240,11 +1240,8 @@ static void BIP9SoftForkDescPushBack(UniValue& softforks, const std::string &nam
     UniValue rv(UniValue::VOBJ);
     rv.pushKV("type", "bip9");
     rv.pushKV("bip9", bip9);
-    if (thresholdState == ThresholdState::LOCKED_IN || thresholdState == ThresholdState::ACTIVE) {
-        int64_t height = VersionBitsTipActivationHeight(consensusParams, id);
-        if (height != -1) {
-            rv.pushKV("height", VersionBitsTipActivationHeight(consensusParams, id));
-        }
+    if (ThresholdState::ACTIVE == thresholdState) {
+        rv.pushKV("height", since_height);
     }
     rv.pushKV("active", ThresholdState::ACTIVE == thresholdState);
 
@@ -1289,7 +1286,7 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
             "              \"possible\": xx    (boolean) returns false if there are not enough blocks left in this period to pass activation threshold \n"
             "           }\n"
             "        },\n"
-            "        \"height\": \"xxxxxx\",     (numeric) height of the first block which the rules are or will be enforced (only for \"buried\" type, or \"bip9\" type with \"locked_in\" or \"active\" status)\n"
+            "        \"height\": \"xxxxxx\",     (numeric) height of the first block which the rules are or will be enforced (only for \"buried\" type, or \"bip9\" type with \"active\" status)\n"
             "        \"active\": xx,           (boolean) true if the rules are enforced for the mempool and the next block\n"
             "     }\n"
             "  }\n"

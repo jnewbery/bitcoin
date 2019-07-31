@@ -4621,12 +4621,6 @@ int VersionBitsTipStateSinceHeight(const Consensus::Params& params, Consensus::D
     return VersionBitsStateSinceHeight(::ChainActive().Tip(), params, pos, versionbitscache);
 }
 
-int64_t VersionBitsTipActivationHeight(const Consensus::Params& params, Consensus::DeploymentPos pos)
-{
-    LOCK(cs_main);
-    return VersionBitsActivationHeight(::ChainActive().Tip(), params, pos, versionbitscache);
-}
-
 
 static const uint64_t MEMPOOL_DUMP_VERSION = 1;
 
