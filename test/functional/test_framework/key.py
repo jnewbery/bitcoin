@@ -489,6 +489,23 @@ class ECKey():
         e = int.from_bytes(hashlib.sha256(R[0].to_bytes(32, 'big') + self.get_pubkey().get_bytes() + msg).digest(), 'big') % SECP256K1_ORDER
         return R[0].to_bytes(32, 'big') + ((k + e*self.secret) % SECP256K1_ORDER).to_bytes(32, 'big')
 
+    def sign_musig(self, k_key, R_negated, R_musig, P_musig, msg):
+        """Construct a musig signature."""
+        # R_negated boolean indicates whether nonce k needs negation.
+        assert(self.valid)
+        assert(self.compressed)
+        assert(len(msg) == 32)
+        assert(k_key != None and k_key.secret != 0)
+        Rm = SECP256K1.affine(R_musig.p)
+        assert(jacobi_symbol(Rm[1], SECP256K1_FIELD_SIZE) == 1)
+        if R_negated:
+            k = SECP256K1_ORDER - k_key.secret
+        else:
+            k = k_key.secret
+        R = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, k)]))
+        e = int.from_bytes(hashlib.sha256(Rm[0].to_bytes(32, 'big') + P_musig.get_bytes() + msg).digest(), 'big') % SECP256K1_ORDER
+        return R[0].to_bytes(32, 'big') + ((k + e*self.secret) % SECP256K1_ORDER).to_bytes(32, 'big')
+
     def tweak_add(self, tweak):
         """Return a tweaked version of this private key."""
         assert(self.valid)
@@ -512,3 +529,58 @@ def generate_schnorr_nonce():
     k_key = ECKey()
     k_key.set(k.to_bytes(32, 'big'), True)
     return k_key
+
+def aggregate_schnorr_nonces(Rv):
+    """Construct aggregated musig nonce from individually generated nonces."""
+    for idx, R in enumerate(Rv):
+        R_agg = R.p if idx == 0 else SECP256K1.add(R_agg, R.p)
+    R_agg_affine = SECP256K1.affine(R_agg)
+    if jacobi_symbol(R_agg_affine[1], SECP256K1_FIELD_SIZE) != 1:
+        R_agg = SECP256K1.mul([(R_agg, SECP256K1_ORDER - 1)])
+        negated = True
+    else:
+        negated = False
+    ret = ECPubKey()
+    ret.p = R_agg
+    ret.valid = True
+    ret.compressed = True
+    return ret, negated
+
+def generate_musig_key(PubkeyList):
+    """Aggregate individually generated public keys."""
+    pkv = [int.from_bytes(key.get_bytes()[1:], 'big') for key in PubkeyList]
+    pkv.sort()
+    L = b''
+    for px in pkv:
+        L += px.to_bytes(32, 'big')
+    Lh = hashlib.sha256(L).digest()
+    musig_c = {}
+    musig_pk = ECPubKey()
+    for key in PubkeyList:
+        musig_c[key] = hashlib.sha256(Lh + key.get_bytes()[1:]).digest()
+        c = int.from_bytes(musig_c[key],'big')
+        pc = SECP256K1.mul([(key.p, c)])
+        if key.get_bytes() == PubkeyList[0].get_bytes():
+            musig_pk.p = pc
+            musig_pk.valid = True
+            musig_pk.compressed = True
+        else:
+            musig_pk.p = SECP256K1.add(musig_pk.p, pc)
+    return musig_c, musig_pk
+
+def aggregate_musig_signatures(sigs):
+    """Construct valid Schnorr signature from individually generated musig signatures."""
+    assert(sigs)
+    for idx, sig in enumerate(sigs):
+        s = sig[32:]
+        r_x_data = sig[:32]
+        assert(len(s)==32 and len(r_x_data)==32)
+        s_agg = int.from_bytes(s, 'big') if idx == 0 else (s_agg + int.from_bytes(s, 'big')) % SECP256K1_ORDER
+        R = SECP256K1.lift_x(int.from_bytes(r_x_data, 'big'))
+        if jacobi_symbol(R[1], SECP256K1_FIELD_SIZE) != 1:
+            R = SECP256K1.negate(R)
+        if idx == 0:
+            R_agg = R
+        else:
+            R_agg = SECP256K1.add_mixed(R_agg, R)
+    return SECP256K1.affine(R_agg)[0].to_bytes(32,'big') + s_agg.to_bytes(32,'big')
