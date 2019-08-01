@@ -471,6 +471,24 @@ class ECKey():
         e = int.from_bytes(hashlib.sha256(R[0].to_bytes(32, 'big') + self.get_pubkey().get_bytes() + msg).digest(), 'big') % SECP256K1_ORDER
         return R[0].to_bytes(32, 'big') + ((k + e*self.secret) % SECP256K1_ORDER).to_bytes(32, 'big')
 
+    def sign_schnorr_with_nonce(self, msg, k_key):
+        """Construct a bip-schnorr with this key and a predetermined nonce."""
+        assert(self.valid)
+        assert(self.compressed)
+        assert(len(msg) == 32)
+        if k_key == None:
+            kp = int.from_bytes(hashlib.sha256(self.get_bytes() + msg).digest(), 'big') % SECP256K1_ORDER
+        else:
+            kp = int.from_bytes(k_key.get_bytes(), 'big') % SECP256K1_ORDER
+        assert(kp != 0)
+        R = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, kp)]))
+        if jacobi_symbol(R[1], SECP256K1_FIELD_SIZE) == 1:
+            k = kp
+        else:
+            k = SECP256K1_ORDER - kp
+        e = int.from_bytes(hashlib.sha256(R[0].to_bytes(32, 'big') + self.get_pubkey().get_bytes() + msg).digest(), 'big') % SECP256K1_ORDER
+        return R[0].to_bytes(32, 'big') + ((k + e*self.secret) % SECP256K1_ORDER).to_bytes(32, 'big')
+
     def tweak_add(self, tweak):
         """Return a tweaked version of this private key."""
         assert(self.valid)
@@ -484,3 +502,13 @@ class ECKey():
         ret = ECKey()
         ret.set(tweaked.to_bytes(32, 'big'), self.compressed)
         return ret
+
+def generate_schnorr_nonce():
+    """Generate a random valid Schnorr nonce."""
+    kp = random.randrange(1, SECP256K1_ORDER)
+    assert(kp != 0)
+    R = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, kp)]))
+    k = kp if jacobi_symbol(R[1], SECP256K1_FIELD_SIZE) == 1 else SECP256K1_ORDER - kp
+    k_key = ECKey()
+    k_key.set(k.to_bytes(32, 'big'), True)
+    return k_key
