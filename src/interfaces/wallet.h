@@ -41,7 +41,6 @@ struct WalletTxOut;
 struct WalletTxStatus;
 
 using WalletOrderForm = std::vector<std::pair<std::string, std::string>>;
-using WalletValueMap = std::map<std::string, std::string>;
 
 //! Interface for accessing a wallet.
 class Wallet
@@ -142,7 +141,6 @@ public:
 
     //! Commit transaction.
     virtual bool commitTransaction(CTransactionRef tx,
-        WalletValueMap value_map,
         WalletOrderForm order_form,
         std::string& reject_reason) = 0;
 

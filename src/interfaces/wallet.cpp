@@ -219,14 +219,13 @@ public:
         return tx;
     }
     bool commitTransaction(CTransactionRef tx,
-        WalletValueMap value_map,
         WalletOrderForm order_form,
         std::string& reject_reason) override
     {
         auto locked_chain = m_wallet->chain().lock();
         LOCK(m_wallet->cs_wallet);
         CValidationState state;
-        if (!m_wallet->CommitTransaction(std::move(tx), std::move(value_map), std::move(order_form), state)) {
+        if (!m_wallet->CommitTransaction(std::move(tx), {} /* mapValue */, std::move(order_form), state)) {
             reject_reason = state.GetRejectReason();
             return false;
         }
