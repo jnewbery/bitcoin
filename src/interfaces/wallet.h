@@ -337,7 +337,10 @@ struct WalletTx
     CAmount debit;
     CAmount change;
     int64_t time;
-    std::map<std::string, std::string> value_map;
+    std::string to_address; // obsolete - to address provided when sending to IP
+    std::string from_address; // obsolete - from address when receiving to IP
+    std::string message; // obsolete - message that could be set when sending to IP
+    std::string comment; // comment string provided when using sendtoaddress or sendmany
     bool is_coinbase;
 };
 
