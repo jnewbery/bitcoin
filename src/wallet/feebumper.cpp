@@ -295,13 +295,13 @@ Result CreateRateBumpTransaction(CWallet* wallet, const uint256& txid, const CCo
     return Result::OK;
 }
 
-bool SignTransaction(CWallet* wallet, CMutableTransaction& mtx) {
+bool SignBumpTransaction(CWallet* wallet, CMutableTransaction& mtx) {
     auto locked_chain = wallet->chain().lock();
     LOCK(wallet->cs_wallet);
     return wallet->SignTransaction(mtx);
 }
 
-Result CommitTransaction(CWallet* wallet, const uint256& txid, CMutableTransaction&& mtx, std::vector<std::string>& errors, uint256& bumped_txid)
+Result CommitBumpTransaction(CWallet* wallet, const uint256& txid, CMutableTransaction&& mtx, std::vector<std::string>& errors, uint256& bumped_txid)
 {
     auto locked_chain = wallet->chain().lock();
     LOCK(wallet->cs_wallet);

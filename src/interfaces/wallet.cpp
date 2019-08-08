@@ -261,13 +261,13 @@ public:
                 feebumper::Result::OK;
         }
     }
-    bool signBumpTransaction(CMutableTransaction& mtx) override { return feebumper::SignTransaction(m_wallet.get(), mtx); }
+    bool signBumpTransaction(CMutableTransaction& mtx) override { return feebumper::SignBumpTransaction(m_wallet.get(), mtx); }
     bool commitBumpTransaction(const uint256& txid,
         CMutableTransaction&& mtx,
         std::vector<std::string>& errors,
         uint256& bumped_txid) override
     {
-        return feebumper::CommitTransaction(m_wallet.get(), txid, std::move(mtx), errors, bumped_txid) ==
+        return feebumper::CommitBumpTransaction(m_wallet.get(), txid, std::move(mtx), errors, bumped_txid) ==
                feebumper::Result::OK;
     }
     CTransactionRef getTx(const uint256& txid) override

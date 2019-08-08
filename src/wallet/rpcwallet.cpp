@@ -3403,12 +3403,12 @@ static UniValue bumpfee(const JSONRPCRequest& request)
     }
 
     // sign bumped transaction
-    if (!feebumper::SignTransaction(pwallet, mtx)) {
+    if (!feebumper::SignBumpTransaction(pwallet, mtx)) {
         throw JSONRPCError(RPC_WALLET_ERROR, "Can't sign transaction.");
     }
     // commit the bumped transaction
     uint256 txid;
-    if (feebumper::CommitTransaction(pwallet, hash, std::move(mtx), errors, txid) != feebumper::Result::OK) {
+    if (feebumper::CommitBumpTransaction(pwallet, hash, std::move(mtx), errors, txid) != feebumper::Result::OK) {
         throw JSONRPCError(RPC_WALLET_ERROR, errors[0]);
     }
     UniValue result(UniValue::VOBJ);
