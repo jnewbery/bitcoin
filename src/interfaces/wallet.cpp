@@ -56,10 +56,10 @@ WalletTx MakeWalletTx(interfaces::Chain::Lock& locked_chain, CWallet& wallet, co
     result.debit = wtx.GetDebit(ISMINE_ALL);
     result.change = wtx.GetChange();
     result.time = wtx.GetTxTime();
-    result.to_address = wtx.mapValue.count("to") ? wtx.mapValue.at("to") : "";
-    result.from_address = wtx.mapValue.count("from") ? wtx.mapValue.at("from") : "";
-    result.message = wtx.mapValue.count("message") ? wtx.mapValue.at("message") : "";
-    result.comment = wtx.mapValue.count("comment") ? wtx.mapValue.at("comment") : "";
+    result.to_address = wtx.m_metadta.m_to_address;
+    result.from_address = wtx.m_metadta.m_from_address;
+    result.message = wtx.m_metadata.m_message;
+    result.comment = wtx.m_metadata.m_comment;
     result.is_coinbase = wtx.IsCoinBase();
     return result;
 }

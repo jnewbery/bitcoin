@@ -388,6 +388,31 @@ public:
 int CalculateMaximumSignedInputSize(const CTxOut& txout, const CWallet* pwallet, bool use_max_sig = false);
 
 /**
+ * Transaction metadata provided by the user.
+ */
+struct WalletTxMetadata {
+    /**
+     * The 'to' key is overloaded:
+     * - originally (obsolete) this was used as the 'to' address when sending
+     *   a transaction to IP address.
+     * - it is used in sendtoaddress and sendmany to add a label to the receiver.
+     */
+    std::string m_to_address;
+    /**
+     * Obsolete field used for the from address when sending to IP address.
+     */
+    std::string m_from_address;
+    /**
+     * Comment added by user in sendtoaddress and sendmany RPCs.
+     */
+    std::string m_comment;
+    /**
+     * Obsolete message field that could be set in the UI prior to 2011.
+     */
+    std::string m_comment;
+}
+
+/**
  * A transaction with a bunch of additional info that only the owner cares about.
  * It includes any unrecorded transactions needed to link it back to the block chain.
  */
@@ -447,6 +472,7 @@ public:
     char fFromMe;
     int64_t nOrderPos; //!< position in ordered transaction list
     std::multimap<int64_t, CWalletTx*>::const_iterator m_it_wtxOrdered;
+    WalletTxMetadata m_metadata;
 
     // memory only
     enum AmountType { DEBIT, CREDIT, IMMATURE_CREDIT, AVAILABLE_CREDIT, AMOUNTTYPE_ENUM_ELEMENTS };
@@ -498,6 +524,10 @@ public:
         if (nTimeSmart) {
             mapValueCopy["timesmart"] = strprintf("%u", nTimeSmart);
         }
+        if (!m_metadata.m_to_address.empty()) mapValueCopy["to"] = m_to_address;
+        if (!m_metadata.m_from_address.empty()) mapValueCopy["from"] = m_from_address;
+        if (!m_metadata.m_comment.empty()) mapValueCopy["comment"] = m_comment;
+        if (!m_metadata.m_message.empty()) mapValueCopy["message"] = m_message;
 
         std::vector<char> dummy_vector1; //!< Used to be vMerkleBranch
         std::vector<char> dummy_vector2; //!< Used to be vtxPrev
@@ -517,7 +547,15 @@ public:
 
         ReadOrderPos(nOrderPos, mapValue);
         nTimeSmart = mapValue.count("timesmart") ? (unsigned int)atoi64(mapValue["timesmart"]) : 0;
+        if (mapValue.count("to")) m_metadata.m_to_address = mapValue.at("to");
+        if (mapValue.count("from")) m_metadata.m_to_address = mapValue.at("from");
+        if (mapValue.count("comment")) m_metadata.m_comment = mapValue.at("comment");
+        if (mapValue.count("message")) m_metadata.m_message = mapValue.at("message");
 
+        mapValue.erase("to");
+        mapValue.erase("from");
+        mapValue.erase("comment");
+        mapValue.erase("message");
         mapValue.erase("fromaccount");
         mapValue.erase("spent");
         mapValue.erase("n");
@@ -1095,7 +1133,7 @@ public:
      */
     bool CreateTransaction(interfaces::Chain::Lock& locked_chain, const std::vector<CRecipient>& vecSend, CTransactionRef& tx, CAmount& nFeeRet, int& nChangePosInOut,
                            std::string& strFailReason, const CCoinControl& coin_control, bool sign = true);
-    bool CommitTransaction(CTransactionRef tx, mapValue_t mapValue, std::vector<std::pair<std::string, std::string>> orderForm, CValidationState& state);
+    bool CommitTransaction(CTransactionRef tx, CWalletMetadata metadata, std::vector<std::pair<std::string, std::string>> orderForm, CValidationState& state);
 
     bool DummySignTx(CMutableTransaction &txNew, const std::set<CTxOut> &txouts, bool use_max_sig = false) const
     {

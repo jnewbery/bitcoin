@@ -146,6 +146,11 @@ static void WalletTxToJSON(interfaces::Chain& chain, interfaces::Chain::Lock& lo
     }
     entry.pushKV("bip125-replaceable", rbfStatus);
 
+    if (!wtx.m_metadata.m_to_address.empty()) entry.pushKV("to", wtx.m_metadata.m_to_address);
+    if (!wtx.m_metadata.m_from_address.empty()) entry.pushKV("from", wtx.m_metadata.m_from_address);
+    if (!wtx.m_metadata.m_message.empty()) entry.pushKV("message", wtx.m_metadata.m_message);
+    if (!wtx.m_metadata.m_comment.empty()) entry.pushKV("comment", wtx.m_metadata.m_comment);
+
     for (const std::pair<const std::string, std::string>& item : wtx.mapValue)
         entry.pushKV(item.first, item.second);
 }
@@ -298,7 +303,7 @@ static UniValue setlabel(const JSONRPCRequest& request)
 }
 
 
-static CTransactionRef SendMoney(interfaces::Chain::Lock& locked_chain, CWallet * const pwallet, const CTxDestination &address, CAmount nValue, bool fSubtractFeeFromAmount, const CCoinControl& coin_control, mapValue_t mapValue)
+static CTransactionRef SendMoney(interfaces::Chain::Lock& locked_chain, CWallet * const pwallet, const CTxDestination &address, CAmount nValue, bool fSubtractFeeFromAmount, const CCoinControl& coin_control, WalletTxMetadata metadata)
 {
     CAmount curBalance = pwallet->GetBalance(0, coin_control.m_avoid_address_reuse).m_mine_trusted;
 
@@ -330,7 +335,7 @@ static CTransactionRef SendMoney(interfaces::Chain::Lock& locked_chain, CWallet 
         throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
     CValidationState state;
-    if (!pwallet->CommitTransaction(tx, std::move(mapValue), {} /* orderForm */, state)) {
+    if (!pwallet->CommitTransaction(tx, std::move(metadata), {} /* orderForm */, state)) {
         strError = strprintf("Error: The transaction was rejected! Reason given: %s", FormatStateMessage(state));
         throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
@@ -397,11 +402,11 @@ static UniValue sendtoaddress(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_TYPE_ERROR, "Invalid amount for send");
 
     // Wallet comments
-    mapValue_t mapValue;
+    WalletTxMetadata metadata;
     if (!request.params[2].isNull() && !request.params[2].get_str().empty())
-        mapValue["comment"] = request.params[2].get_str();
+        metadata.m_comment = request.params[2].get_str();
     if (!request.params[3].isNull() && !request.params[3].get_str().empty())
-        mapValue["to"] = request.params[3].get_str();
+        metadata.m_to_address = request.params[3].get_str();
 
     bool fSubtractFeeFromAmount = false;
     if (!request.params[4].isNull()) {
@@ -429,7 +434,7 @@ static UniValue sendtoaddress(const JSONRPCRequest& request)
 
     EnsureWalletIsUnlocked(pwallet);
 
-    CTransactionRef tx = SendMoney(*locked_chain, pwallet, dest, nAmount, fSubtractFeeFromAmount, coin_control, std::move(mapValue));
+    CTransactionRef tx = SendMoney(*locked_chain, pwallet, dest, nAmount, fSubtractFeeFromAmount, coin_control, std::move(metadata));
     return tx->GetHash().GetHex();
 }
 
@@ -854,9 +859,9 @@ static UniValue sendmany(const JSONRPCRequest& request)
     }
     UniValue sendTo = request.params[1].get_obj();
 
-    mapValue_t mapValue;
+    WalletTxMetadata
     if (!request.params[3].isNull() && !request.params[3].get_str().empty())
-        mapValue["comment"] = request.params[3].get_str();
+        metadata.m_comment = request.params[3].get_str();
 
     UniValue subtractFeeFromAmount(UniValue::VARR);
     if (!request.params[4].isNull())
@@ -922,7 +927,7 @@ static UniValue sendmany(const JSONRPCRequest& request)
     if (!fCreated)
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, strFailReason);
     CValidationState state;
-    if (!pwallet->CommitTransaction(tx, std::move(mapValue), {} /* orderForm */, state)) {
+    if (!pwallet->CommitTransaction(tx, std::move(metadata), {} /* orderForm */, state)) {
         strFailReason = strprintf("Transaction commit failed:: %s", FormatStateMessage(state));
         throw JSONRPCError(RPC_WALLET_ERROR, strFailReason);
     }

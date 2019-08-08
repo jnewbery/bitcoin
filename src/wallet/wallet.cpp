@@ -795,6 +795,7 @@ void CWallet::SyncMetaData(std::pair<TxSpends::iterator, TxSpends::iterator> ran
         assert(copyFrom && "Oldest wallet transaction in range assumed to have been found.");
         if (!copyFrom->IsEquivalentTo(*copyTo)) continue;
         copyTo->mapValue = copyFrom->mapValue;
+        copyTo->metadata = copyFrom->metadata;
         copyTo->vOrderForm = copyFrom->vOrderForm;
         // fTimeReceivedIsTxTime not copied on purpose
         // nTimeReceived not copied on purpose
@@ -3288,14 +3289,14 @@ bool CWallet::CreateTransaction(interfaces::Chain::Lock& locked_chain, const std
 /**
  * Call after CreateTransaction unless you want to abort
  */
-bool CWallet::CommitTransaction(CTransactionRef tx, mapValue_t mapValue, std::vector<std::pair<std::string, std::string>> orderForm, CValidationState& state)
+bool CWallet::CommitTransaction(CTransactionRef tx, WalletTxMetadata metdata, std::vector<std::pair<std::string, std::string>> orderForm, CValidationState& state)
 {
     {
         auto locked_chain = chain().lock();
         LOCK(cs_wallet);
 
         CWalletTx wtxNew(this, std::move(tx));
-        wtxNew.mapValue = std::move(mapValue);
+        wtxNew.metadata = std::move(metadata);
         wtxNew.vOrderForm = std::move(orderForm);
         wtxNew.fTimeReceivedIsTxTime = true;
         wtxNew.fFromMe = true;
@@ -4563,6 +4564,7 @@ std::shared_ptr<CWallet> CWallet::CreateWalletFromFile(interfaces::Chain& chain,
                     const CWalletTx* copyFrom = &wtxOld;
                     CWalletTx* copyTo = &mi->second;
                     copyTo->mapValue = copyFrom->mapValue;
+                    copyTo->metadata = copyFrom->metadata;
                     copyTo->vOrderForm = copyFrom->vOrderForm;
                     copyTo->nTimeReceived = copyFrom->nTimeReceived;
                     copyTo->nTimeSmart = copyFrom->nTimeSmart;

@@ -325,6 +325,7 @@ Result CommitBumpTransaction(CWallet* wallet, const uint256& txid, CMutableTrans
     CTransactionRef tx = MakeTransactionRef(std::move(mtx));
     mapValue_t mapValue = oldWtx.mapValue;
     mapValue["replaces_txid"] = oldWtx.GetHash().ToString();
+    WalletTxMetadata metadata = oldWtx.mapValue;
 
     CValidationState state;
     if (!wallet->CommitTransaction(tx, std::move(mapValue), oldWtx.vOrderForm, state)) {
