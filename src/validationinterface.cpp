@@ -74,7 +74,7 @@ size_t CMainSignals::CallbacksPending() {
 void CMainSignals::RegisterWithMempoolSignals(CTxMemPool& pool) {
     g_connNotifyEntryRemoved.emplace(std::piecewise_construct,
         std::forward_as_tuple(&pool),
-        std::forward_as_tuple(pool.NotifyEntryRemoved.connect(std::bind(&CMainSignals::MempoolEntryRemoved, this, std::placeholders::_1, std::placeholders::_2)))
+        std::forward_as_tuple(pool.NotifyEntryRemoved.connect(std::bind(&CMainSignals::TransactionRemovedFromMempool, this, std::placeholders::_1, std::placeholders::_2)))
     );
 }
 
@@ -126,14 +126,6 @@ void SyncWithValidationInterfaceQueue() {
     promise.get_future().wait();
 }
 
-void CMainSignals::MempoolEntryRemoved(CTransactionRef ptx, MemPoolRemovalReason reason) {
-    if (reason != MemPoolRemovalReason::BLOCK && reason != MemPoolRemovalReason::CONFLICT) {
-        m_internals->m_schedulerClient.AddToProcessQueue([ptx, this] {
-            m_internals->TransactionRemovedFromMempool(ptx);
-        });
-    }
-}
-
 void CMainSignals::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload) {
     // Dependencies exist that require UpdatedBlockTip events to be delivered in the order in which
     // the chain actually updates. One way to ensure this is for the caller to invoke this signal
@@ -148,6 +140,14 @@ void CMainSignals::TransactionAddedToMempool(const CTransactionRef &ptx) {
     m_internals->m_schedulerClient.AddToProcessQueue([ptx, this] {
         m_internals->TransactionAddedToMempool(ptx);
     });
+}
+
+void CMainSignals::TransactionRemovedFromMempool(CTransactionRef ptx, MemPoolRemovalReason reason) {
+    if (reason != MemPoolRemovalReason::BLOCK && reason != MemPoolRemovalReason::CONFLICT) {
+        m_internals->m_schedulerClient.AddToProcessQueue([ptx, this] {
+            m_internals->TransactionRemovedFromMempool(ptx);
+        });
+    }
 }
 
 void CMainSignals::BlockConnected(const std::shared_ptr<const CBlock> &pblock, const CBlockIndex *pindex, const std::shared_ptr<const std::vector<CTransactionRef>>& pvtxConflicted) {
