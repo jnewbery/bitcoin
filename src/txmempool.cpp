@@ -5,6 +5,8 @@
 
 #include <txmempool.h>
 
+#include <cassert>
+
 #include <consensus/consensus.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
@@ -1100,3 +1102,22 @@ void CTxMemPool::SetIsLoaded(bool loaded)
 }
 
 SaltedTxidHasher::SaltedTxidHasher() : k0(GetRand(std::numeric_limits<uint64_t>::max())), k1(GetRand(std::numeric_limits<uint64_t>::max())) {}
+
+std::string MemPoolRemovalReasonString(const MemPoolRemovalReason reason)
+{
+    switch (reason) {
+    case MemPoolRemovalReason::EXPIRY:
+        return "EXPIRY";
+    case MemPoolRemovalReason::SIZELIMIT:
+        return "SIZELIMIT";
+    case MemPoolRemovalReason::REORG:
+        return "REORG";
+    case MemPoolRemovalReason::BLOCK:
+        return "BLOCK";
+    case MemPoolRemovalReason::CONFLICT:
+        return "CONFLICT";
+    case MemPoolRemovalReason::REPLACED:
+        return "REPLACED";
+    }
+    assert(false);
+}
