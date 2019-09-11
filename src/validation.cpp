@@ -3091,11 +3091,13 @@ bool CChainState::InvalidateBlock(BlockValidationState& state, const CChainParam
             return false;
         }
 
-        // Mark pindex (or the last disconnected block) as invalid, even when it never was in the main chain
-        to_mark_failed->nStatus |= BLOCK_FAILED_VALID;
-        setDirtyBlockIndex.insert(to_mark_failed);
-        setBlockIndexCandidates.erase(to_mark_failed);
-        m_blockman.m_failed_blocks.insert(to_mark_failed);
+        // Mark pindex as invalid if it never was in the main chain
+        if (!pindex_was_in_chain && !(pindex->nStatus & BLOCK_FAILED_MASK)) {
+            pindex->nStatus |= BLOCK_FAILED_VALID;
+            setDirtyBlockIndex.insert(pindex);
+            setBlockIndexCandidates.erase(pindex);
+            m_blockman.m_failed_blocks.insert(pindex);
+        }
 
         // If any new blocks somehow arrived while we were disconnecting
         // (above), then the pre-calculation of what should go into
