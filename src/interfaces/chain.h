@@ -24,6 +24,7 @@ class uint256;
 enum class RBFTransactionState;
 struct CBlockLocator;
 struct FeeCalculation;
+struct PackageLimits;
 
 namespace interfaces {
 
@@ -162,6 +163,9 @@ public:
 
     //! Calculate mempool ancestor and descendant counts for the given transaction.
     virtual void getTransactionAncestry(const uint256& txid, size_t& ancestors, size_t& descendants) = 0;
+
+    //! Get the node's mempool transaction package limits.
+    virtual PackageLimits getPackageLimits() = 0;
 
     //! Check if transaction will pass the mempool's chain limits.
     virtual bool checkChainLimits(const CTransactionRef& tx) = 0;

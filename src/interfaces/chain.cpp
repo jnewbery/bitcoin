@@ -298,15 +298,19 @@ public:
     {
         ::mempool.GetTransactionAncestry(txid, ancestors, descendants);
     }
+    PackageLimits getPackageLimits() override
+    {
+        return g_package_limits;
+    }
     bool checkChainLimits(const CTransactionRef& tx) override
     {
         LockPoints lp;
         CTxMemPoolEntry entry(tx, 0, 0, 0, false, 0, lp);
         CTxMemPool::setEntries ancestors;
-        auto limit_ancestor_count = gArgs.GetArg("-limitancestorcount", DEFAULT_ANCESTOR_LIMIT);
-        auto limit_ancestor_size = gArgs.GetArg("-limitancestorsize", DEFAULT_ANCESTOR_SIZE_LIMIT) * 1000;
-        auto limit_descendant_count = gArgs.GetArg("-limitdescendantcount", DEFAULT_DESCENDANT_LIMIT);
-        auto limit_descendant_size = gArgs.GetArg("-limitdescendantsize", DEFAULT_DESCENDANT_SIZE_LIMIT) * 1000;
+        auto limit_ancestor_count = g_package_limits.m_ancestor_limit;
+        auto limit_ancestor_size = g_package_limits.m_ancestor_size_limit;
+        auto limit_descendant_count = g_package_limits.m_descendant_limit;
+        auto limit_descendant_size = g_package_limits.m_descendant_size_limit;
         std::string unused_error_string;
         LOCK(::mempool.cs);
         return ::mempool.CalculateMemPoolAncestors(entry, ancestors, limit_ancestor_count, limit_ancestor_size,

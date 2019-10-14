@@ -8,6 +8,15 @@
 
 #include <policy/policy.h>
 
+/** Default for -limitancestorcount, max number of in-mempool ancestors */
+static const unsigned int DEFAULT_ANCESTOR_LIMIT = 25;
+/** Default for -limitancestorsize, maximum kilobytes of tx + all in-mempool ancestors */
+static const unsigned int DEFAULT_ANCESTOR_SIZE_LIMIT = 101;
+/** Default for -limitdescendantcount, max number of in-mempool descendants */
+static const unsigned int DEFAULT_DESCENDANT_LIMIT = 25;
+/** Default for -limitdescendantsize, maximum kilobytes of in-mempool descendants */
+static const unsigned int DEFAULT_DESCENDANT_SIZE_LIMIT = 101;
+
 class CFeeRate;
 class CTransaction;
 
@@ -16,6 +25,15 @@ extern CFeeRate incrementalRelayFee;
 extern CFeeRate dustRelayFee;
 extern unsigned int nBytesPerSigOp;
 extern bool fIsBareMultisigStd;
+
+struct PackageLimits {
+    unsigned int m_ancestor_limit;
+    unsigned int m_ancestor_size_limit;
+    unsigned int m_descendant_limit;
+    unsigned int m_descendant_size_limit;
+};
+
+extern PackageLimits g_package_limits;
 
 static inline bool IsStandardTx(const CTransaction& tx, std::string& reason)
 {

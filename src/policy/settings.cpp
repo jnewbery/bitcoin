@@ -12,3 +12,10 @@ bool fIsBareMultisigStd = DEFAULT_PERMIT_BAREMULTISIG;
 CFeeRate incrementalRelayFee = CFeeRate(DEFAULT_INCREMENTAL_RELAY_FEE);
 CFeeRate dustRelayFee = CFeeRate(DUST_RELAY_TX_FEE);
 unsigned int nBytesPerSigOp = DEFAULT_BYTES_PER_SIGOP;
+
+PackageLimits g_package_limits {
+    DEFAULT_ANCESTOR_LIMIT,
+    DEFAULT_ANCESTOR_SIZE_LIMIT,
+    DEFAULT_DESCENDANT_LIMIT,
+    DEFAULT_DESCENDANT_SIZE_LIMIT
+};
