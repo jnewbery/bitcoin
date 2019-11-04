@@ -281,7 +281,7 @@ int FindAndDelete(CScript& script, const CScript& b)
 namespace {
 /** A data type to abstract out the condition stack during script execution.
  *
- * This is implemented as a vector of booleans, one for each level of nested
+ * Conceptually it acts like a vector of booleans, one for each level of nested
  * IF/THEN/ELSE, indicating whether we're in the active or inactive branch of
  * each.
  *
@@ -289,26 +289,58 @@ namespace {
  * expose whether the stack is empty and whether or not any false values are
  * present at all. To implement OP_ELSE, a toggle_top modifier is added, which
  * flips the last value without returning it.
+ *
+ * Since the caller only cares whether all the elements of the stack are true,
+ * and only ever pushes to, pops from, or toggles the top element of the
+ * stack, we use an optimized implementation that does not materialize the
+ * actual stack. Instead, it just stores the size of the would-be stack,
+ * and the position of the first false value in it.
  */
 class ConditionStack {
 private:
-    std::vector<bool> m_flags;
+    //! A constant for m_first_false_pos to indicate there are no falses.
+    static constexpr uint32_t NO_FALSE = std::numeric_limits<uint32_t>::max();
+
+    //! The size of the implied stack.
+    uint32_t m_stack_size = 0;
+    //! The position of the first false value on the implied stack, or NO_FALSE if all true.
+    uint32_t m_first_false_pos = NO_FALSE;
+
 public:
-    bool empty() { return m_flags.empty(); }
-    bool all_true() { return !std::count(m_flags.begin(), m_flags.end(), false); }
+    bool empty() { return m_stack_size == 0; }
+    bool all_true() { return m_first_false_pos == NO_FALSE; }
     void push_back(bool f)
     {
-        m_flags.push_back(f);
+        assert(m_stack_size != NO_FALSE - 1);
+        if (m_first_false_pos == NO_FALSE && !f) {
+            // The stack consists of all true values, and a false is added.
+            // The first false value will appear at the current size.
+            m_first_false_pos = m_stack_size;
+        }
+        ++m_stack_size;
     }
     void pop_back()
     {
         assert(!empty());
-        m_flags.pop_back();
+        --m_stack_size;
+        if (m_first_false_pos == m_stack_size) {
+            // When popping off the first false value, everything becomes true.
+            m_first_false_pos = NO_FALSE;
+        }
     }
     void toggle_top()
     {
         assert(!empty());
-        m_flags.back() = !m_flags.back();
+        if (m_first_false_pos == NO_FALSE) {
+            // The current stack is all true values; the first false will be the top.
+            m_first_false_pos = m_stack_size - 1;
+        } else if (m_first_false_pos == m_stack_size - 1) {
+            // The top is the first false value; toggling it will make everything true.
+            m_first_false_pos = NO_FALSE;
+        } else {
+            // There is a false value, but not on top. No action is needed as toggling
+            // anything but the first false value is unobservable.
+        }
     }
 };
 }
