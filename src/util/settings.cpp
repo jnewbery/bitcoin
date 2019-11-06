@@ -9,36 +9,41 @@
 namespace util {
 namespace {
 
-struct Source {
-    SettingsSpan span;
-    bool forced = false;
-    bool config_file = false;
-    bool config_file_default_section = false;
+enum class Source {
+   FORCED,
+   COMMAND_LINE,
+   CONFIG_FILE_NETWORK_SECTION,
+   CONFIG_FILE_DEFAULT_SECTION
+}; 
 
-    explicit Source(SettingsSpan span) : span(span) {}
-    Source& SetForced() noexcept { forced = true; return *this; }
-    Source& SetConfigFile(bool default_section) noexcept { config_file = true; config_file_default_section = default_section; return *this; }
-};
-
+//! Merge settings from multiple sources in precedence order:
+//! Forced config > command line > config file network-specific section > config file default section
+//!
+//! This function is provided with a callback function fn that contains
+//! specific logic for how to merge the sources.
 template <typename Fn>
 static void MergeSettings(const Settings& settings, const std::string& section, const std::string& name, Fn&& fn)
 {
+    // Merge in the forced settings
     if (auto* value = FindKey(settings.forced_settings, name)) {
-        fn(Source(SettingsSpan(*value)).SetForced());
+        fn(SettingsSpan(*value), Source::FORCED);
     }
+    // Merge in the command-line options
     if (auto* values = FindKey(settings.command_line_options, name)) {
-        fn(Source(SettingsSpan(*values)));
+        fn(SettingsSpan(*values), Source::COMMAND_LINE);
     }
+    // Merge in the network-specific section of the config file
     if (!section.empty()) {
         if (auto* map = FindKey(settings.ro_config, section)) {
             if (auto* values = FindKey(*map, name)) {
-                fn(Source(SettingsSpan(*values)).SetConfigFile(/* default_section= */ false));
+                fn(SettingsSpan(*values), Source::CONFIG_FILE_NETWORK_SECTION);
             }
         }
     }
+    // Merge in the default section of the config file
     if (auto* map = FindKey(settings.ro_config, "")) {
         if (auto* values = FindKey(*map, name)) {
-            fn(Source(SettingsSpan(*values)).SetConfigFile(/* default_section= */ true));
+            fn(SettingsSpan(*values), Source::CONFIG_FILE_DEFAULT_SECTION);
         }
     }
 }
@@ -51,18 +56,18 @@ SettingsValue GetSetting(const Settings& settings,
     bool get_chain_name)
 {
     SettingsValue result;
-    MergeSettings(settings, section, name, [&](Source source) {
+    MergeSettings(settings, section, name, [&](SettingsSpan span, Source source) {
         // Weird behavior preserved for backwards compatibility: Apply negated
         // setting in otherwise ignored sections. A negated value in the
         // default section is applied to network specific options, even though
         // non-negated values there would be ignored.
-        const bool never_ignore_negated_setting = source.span.last_negated();
+        const bool never_ignore_negated_setting = span.last_negated();
 
         // Weird behavior preserved for backwards compatibility: Take first
         // assigned value instead of last. In general, later settings take
         // precedence over early settings, but for backwards compatibility in
         // the config file the precedence is reversed for most settings.
-        const bool reverse_precedence = source.config_file && !get_chain_name;
+        const bool reverse_precedence = (source == Source::CONFIG_FILE_NETWORK_SECTION || source == Source::CONFIG_FILE_DEFAULT_SECTION) && !get_chain_name;
 
         // Weird behavior preserved for backwards compatibility: Negated
         // -regtest and -testnet arguments which you would expect to override
@@ -72,17 +77,17 @@ SettingsValue GetSetting(const Settings& settings,
         const bool skip_negated_command_line = get_chain_name;
 
         // Ignore settings in default config section if requested.
-        if (ignore_default_section_config && source.config_file_default_section && !never_ignore_negated_setting) return;
+        if (ignore_default_section_config && source == Source::CONFIG_FILE_DEFAULT_SECTION && !never_ignore_negated_setting) return;
 
         // Skip negated command line settings.
-        if (skip_negated_command_line && source.span.last_negated()) return;
+        if (skip_negated_command_line && span.last_negated()) return;
 
         // Stick with highest priority value, keeping result if already set.
         if (!result.isNull()) return;
 
-        if (!source.span.empty()) {
-            result = reverse_precedence ? source.span.begin()[0] : source.span.end()[-1];
-        } else if (source.span.last_negated()) {
+        if (!span.empty()) {
+            result = reverse_precedence ? span.begin()[0] : span.end()[-1];
+        } else if (span.last_negated()) {
             result = false;
         }
     });
@@ -97,7 +102,7 @@ std::vector<SettingsValue> GetSettingsList(const Settings& settings,
     std::vector<SettingsValue> result;
     bool result_complete = false;
     bool prev_negated_empty = false;
-    MergeSettings(settings, section, name, [&](Source source) {
+    MergeSettings(settings, section, name, [&](SettingsSpan span, Source source) {
         // Weird behavior preserved for backwards compatibility: Apply config
         // file settings even if negated on command line. Negating a setting on
         // command line will discard earlier settings on the command line and
@@ -105,15 +110,15 @@ std::vector<SettingsValue> GetSettingsList(const Settings& settings,
         // followed by non-negated value, in which case config file settings
         // will be brought back from the dead (but earlier command line settings
         // will still be discarded).
-        const bool add_zombie_config_values = source.config_file && !prev_negated_empty;
+        const bool add_zombie_config_values = (source == Source::CONFIG_FILE_NETWORK_SECTION || source == Source::CONFIG_FILE_DEFAULT_SECTION) && !prev_negated_empty;
 
         // Ignore settings in default config section if requested.
-        if (ignore_default_section_config && source.config_file_default_section) return;
+        if (ignore_default_section_config && source == Source::CONFIG_FILE_DEFAULT_SECTION) return;
 
         // Add new settings to the result if isn't already complete, or if the
         // values are zombies.
         if (!result_complete || add_zombie_config_values) {
-            for (const auto& value : source.span) {
+            for (const auto& value : span) {
                 if (value.isArray()) {
                     result.insert(result.end(), value.getValues().begin(), value.getValues().end());
                 } else {
@@ -124,10 +129,10 @@ std::vector<SettingsValue> GetSettingsList(const Settings& settings,
 
         // If a setting was negated, or if a setting was forced, set
         // result_complete to true to ignore any later lower priority settings.
-        result_complete |= source.span.negated() > 0 || source.forced;
+        result_complete |= span.negated() > 0 || source == Source::FORCED;
 
         // Update the negated and empty state used for the zombie values check.
-        prev_negated_empty |= source.span.last_negated() && result.empty();
+        prev_negated_empty |= span.last_negated() && result.empty();
     });
     return result;
 }
@@ -136,9 +141,9 @@ bool OnlyHasDefaultSectionSetting(const Settings& settings, const std::string& s
 {
     bool has_default_section_setting = false;
     bool has_other_setting = false;
-    MergeSettings(settings, section, name, [&](Source source) {
-        if (source.span.empty()) return;
-        else if (source.config_file_default_section) has_default_section_setting = true;
+    MergeSettings(settings, section, name, [&](SettingsSpan span, Source source) {
+        if (span.empty()) return;
+        else if (source == Source::CONFIG_FILE_DEFAULT_SECTION) has_default_section_setting = true;
         else has_other_setting = true;
     });
     // If a value is set in the default section and not explicitly overwritten by the
