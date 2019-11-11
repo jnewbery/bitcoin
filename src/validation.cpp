@@ -2468,7 +2468,7 @@ static int64_t nTimePostConnect = 0;
 struct PerBlockConnectTrace {
     CBlockIndex* pindex = nullptr;
     std::shared_ptr<const CBlock> pblock;
-    PerBlockConnectTrace() {}
+    PerBlockConnectTrace(CBlockIndex* pindexIn, std::shared_ptr<const CBlock> pblockIn) : pindex(pindexIn), pblock(pblockIn) {}
 };
 /**
  * Used to track blocks whose transactions were applied to the UTXO state as a
@@ -2482,25 +2482,15 @@ private:
     std::vector<PerBlockConnectTrace> blocksConnected;
 
 public:
-    explicit ConnectTrace() : blocksConnected(1) {}
+    explicit ConnectTrace() {}
 
     void BlockConnected(CBlockIndex* pindex, std::shared_ptr<const CBlock> pblock) {
-        assert(!blocksConnected.back().pindex);
         assert(pindex);
         assert(pblock);
-        blocksConnected.back().pindex = pindex;
-        blocksConnected.back().pblock = std::move(pblock);
-        blocksConnected.emplace_back();
+        blocksConnected.emplace_back(pindex, std::move(pblock));
     }
 
     std::vector<PerBlockConnectTrace>& GetBlocksConnected() {
-        // We always keep one extra block at the end of our list because
-        // blocks are added after all the conflicted transactions have
-        // been filled in. Thus, the last entry should always be an empty
-        // one waiting for the transactions from the next block. We pop
-        // the last entry here to make sure the list we return is sane.
-        assert(!blocksConnected.back().pindex);
-        blocksConnected.pop_back();
         return blocksConnected;
     }
 };
