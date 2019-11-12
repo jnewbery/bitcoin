@@ -38,6 +38,7 @@ class CBlockIndex;
 class CBlockTreeDB;
 class CBlockUndo;
 class CChainParams;
+class CBaseChainParams;
 class CInv;
 class CConnman;
 class CScriptCheck;
@@ -291,6 +292,9 @@ int VersionBitsTipStateSinceHeight(const Consensus::Params& params, Consensus::D
 
 /** Apply the effects of this transaction on the UTXO set represented by view */
 void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, int nHeight);
+
+/** Add command-line/config options for validation */
+void AddValidationOptions();
 
 /** Parse and validate parameters only used in validation.cpp */
 void ValidationParameterInteraction(const CChainParams& chainparams);
