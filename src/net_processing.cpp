@@ -1153,8 +1153,24 @@ PeerLogicValidation::PeerLogicValidation(CConnman* connmanIn, BanMan* banman, CS
  * block. Also save the time of the last tip update.
  */
 void PeerLogicValidation::BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindex, const std::vector<CTransactionRef>& vtxConflicted) {
-    LOCK(g_cs_orphans);
+    {
+        LOCK(cs_main);
 
+        const uint256 hash(pblock->GetHash());
+        std::map<uint256, std::pair<NodeId, bool>>::iterator it = mapBlockSource.find(hash);
+
+        if (it != mapBlockSource.end()) {
+            // If we're not in IBD, mark the peer that sent us this block a compact block source
+            if (!::ChainstateActive().IsInitialBlockDownload()) {
+                MaybeSetPeerAsAnnouncingHeaderAndIDs(it->second.first, connman);
+            }
+
+            // We no longer need to track the originator of this block
+            mapBlockSource.erase(it);
+        }
+    }
+
+    LOCK(g_cs_orphans);
     std::vector<uint256> vOrphanErase;
 
     for (const CTransactionRef& ptx : pblock->vtx) {
@@ -1273,8 +1289,8 @@ void PeerLogicValidation::UpdatedBlockTip(const CBlockIndex *pindexNew, const CB
 }
 
 /**
- * Handle invalid block rejection and consequent peer banning, maintain which
- * peers announce compact blocks.
+ * Handle invalid block rejection and consequent peer banning.
+ *
  * Called both in case of cursory DoS checks failing (implying the peer is likely
  * sending us bogus data) and after full validation of the block fails (which may
  * be OK if it was sent over compact blocks).
@@ -1285,28 +1301,14 @@ static void BlockChecked(const CBlock& block, const BlockValidationState& state,
     const uint256 hash(block.GetHash());
     std::map<uint256, std::pair<NodeId, bool>>::iterator it = mapBlockSource.find(hash);
 
-    // If the block failed validation, we know where it came from and we're still connected
-    // to that peer, maybe punish.
-    if (state.IsInvalid() &&
-        it != mapBlockSource.end() &&
-        State(it->second.first)) {
+    // If we know where the block came from and we're still connected to that
+    // peer, maybe punish.
+    if (it != mapBlockSource.end()) {
+        if (State(it->second.first)) {
             MaybePunishNodeForBlock(/*nodeid=*/ it->second.first, state, /*via_compact_block=*/ !it->second.second);
-    }
-    // Check that:
-    // 1. The block is valid
-    // 2. We're not in initial block download
-    // 3. This is currently the best block we're aware of. We haven't updated
-    //    the tip yet so we have no way to check this directly here. Instead we
-    //    just check that there are currently no other blocks in flight.
-    else if (state.IsValid() &&
-             !::ChainstateActive().IsInitialBlockDownload() &&
-             mapBlocksInFlight.count(hash) == mapBlocksInFlight.size()) {
-        if (it != mapBlockSource.end()) {
-            MaybeSetPeerAsAnnouncingHeaderAndIDs(it->second.first, connman);
         }
-    }
-    if (it != mapBlockSource.end())
         mapBlockSource.erase(it);
+    }
 }
 
 void PeerLogicValidation::BlockChecked(const CBlock& block, const BlockValidationState& state) {
