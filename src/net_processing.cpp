@@ -1311,7 +1311,7 @@ static void BlockChecked(const CBlock& block, const BlockValidationState& state,
     }
 }
 
-void PeerLogicValidation::BlockChecked(const CBlock& block, const BlockValidationState& state) {
+void PeerLogicValidation::BlockFailedConnection(const CBlock& block, const BlockValidationState& state) {
     ::BlockChecked(block, state, connman);
 }
 

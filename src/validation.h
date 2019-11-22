@@ -203,9 +203,9 @@ static const uint64_t MIN_DISK_SPACE_FOR_BLOCK_FILES = 550 * 1024 * 1024;
  * connecting any block(s). If you want to *possibly* get feedback on whether
  * pblock is valid beyond just cursory mutation/DoS checks, you must install
  * a CValidationInterface (see validationinterface.h) - this will have its
- * BlockChecked method called whenever *any* block completes validation (note
+ * BlockFailedConnection method called whenever *any* block completes validation (note
  * that any invalidity returned via state will *not* also be provided via
- * BlockChecked). There is, of course, no guarantee that any given block which
+ * BlockFailedConnection). There is, of course, no guarantee that any given block which
  * is not a part of the eventual best chain will ever be checked.
  *
  * If the block pblock is built on is in our header tree, and pblock is a
@@ -221,7 +221,7 @@ static const uint64_t MIN_DISK_SPACE_FOR_BLOCK_FILES = 550 * 1024 * 1024;
  *
  * @param[in]   pblock            The block we want to process.
  * @param[out]  state             Only used for failures in CheckBlock/AcceptBlock. For failure in block connection,
- *                                a CValidationInterface BlockChecked callback is used to notify clients of validity.
+ *                                a CValidationInterface BlockFailedConnection callback is used to notify clients of validity.
  * @param[in]   fForceProcessing  Process this block even if unrequested; used for non-network block sources and whitelisted peers.
  * @param[out]  fNewBlock         A boolean which is set to indicate if the block was first received via this call
  * @returns     bool              If the block was processed, independently of block validity

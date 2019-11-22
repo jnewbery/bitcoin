@@ -718,7 +718,7 @@ public:
     explicit submitblock_StateCatcher(const uint256 &hashIn) : hash(hashIn), found(false), state() {}
 
 protected:
-    void BlockChecked(const CBlock& block, const BlockValidationState& stateIn) override {
+    void BlockFailedConnection(const CBlock& block, const BlockValidationState& stateIn) override {
         if (block.GetHash() != hash)
             return;
         found = true;

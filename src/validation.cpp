@@ -2560,7 +2560,7 @@ bool CChainState::ConnectTip(BlockValidationState& state, const CChainParams& ch
         bool rv = ConnectBlock(blockConnecting, state, pindexNew, view, chainparams);
         if (!rv) {
             if (state.IsInvalid()) {
-                GetMainSignals().BlockChecked(blockConnecting, state);
+                GetMainSignals().BlockFailedConnection(blockConnecting, state);
                 InvalidBlockFound(pindexNew, state);
             }
             return error("%s: ConnectBlock %s failed, %s", __func__, pindexNew->GetBlockHash().ToString(), FormatStateMessage(state));

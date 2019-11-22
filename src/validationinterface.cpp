@@ -21,7 +21,7 @@ struct ValidationInterfaceConnections {
     boost::signals2::scoped_connection BlockDisconnected;
     boost::signals2::scoped_connection TransactionRemovedFromMempool;
     boost::signals2::scoped_connection ChainStateFlushed;
-    boost::signals2::scoped_connection BlockChecked;
+    boost::signals2::scoped_connection BlockFailedConnection;
     boost::signals2::scoped_connection NewPoWValidBlock;
 };
 
@@ -32,7 +32,7 @@ struct MainSignalsInstance {
     boost::signals2::signal<void (const std::shared_ptr<const CBlock>&, const CBlockIndex* pindex)> BlockDisconnected;
     boost::signals2::signal<void (const CTransactionRef &)> TransactionRemovedFromMempool;
     boost::signals2::signal<void (const CBlockLocator &)> ChainStateFlushed;
-    boost::signals2::signal<void (const CBlock&, const BlockValidationState&)> BlockChecked;
+    boost::signals2::signal<void (const CBlock&, const BlockValidationState&)> BlockFailedConnection;
     boost::signals2::signal<void (const CBlockIndex *, const std::shared_ptr<const CBlock>&)> NewPoWValidBlock;
 
     // We are not allowed to assume the scheduler only runs in one thread,
@@ -95,7 +95,7 @@ void RegisterValidationInterface(CValidationInterface* pwalletIn) {
     conns.BlockDisconnected = g_signals.m_internals->BlockDisconnected.connect(std::bind(&CValidationInterface::BlockDisconnected, pwalletIn, std::placeholders::_1, std::placeholders::_2));
     conns.TransactionRemovedFromMempool = g_signals.m_internals->TransactionRemovedFromMempool.connect(std::bind(&CValidationInterface::TransactionRemovedFromMempool, pwalletIn, std::placeholders::_1));
     conns.ChainStateFlushed = g_signals.m_internals->ChainStateFlushed.connect(std::bind(&CValidationInterface::ChainStateFlushed, pwalletIn, std::placeholders::_1));
-    conns.BlockChecked = g_signals.m_internals->BlockChecked.connect(std::bind(&CValidationInterface::BlockChecked, pwalletIn, std::placeholders::_1, std::placeholders::_2));
+    conns.BlockFailedConnection = g_signals.m_internals->BlockFailedConnection.connect(std::bind(&CValidationInterface::BlockFailedConnection, pwalletIn, std::placeholders::_1, std::placeholders::_2));
     conns.NewPoWValidBlock = g_signals.m_internals->NewPoWValidBlock.connect(std::bind(&CValidationInterface::NewPoWValidBlock, pwalletIn, std::placeholders::_1, std::placeholders::_2));
 }
 
@@ -169,8 +169,8 @@ void CMainSignals::ChainStateFlushed(const CBlockLocator &locator) {
     });
 }
 
-void CMainSignals::BlockChecked(const CBlock& block, const BlockValidationState& state) {
-    m_internals->BlockChecked(block, state);
+void CMainSignals::BlockFailedConnection(const CBlock& block, const BlockValidationState& state) {
+    m_internals->BlockFailedConnection(block, state);
 }
 
 void CMainSignals::NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock> &block) {

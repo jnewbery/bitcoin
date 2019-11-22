@@ -99,6 +99,9 @@ protected:
      * replacement. This does not include any transactions which are included
      * in BlockConnectedDisconnected either in block->vtx or in txnConflicted.
      *
+     * The provided block is guaranteed to be the current best block at the
+     * time the callback was generated (not necessarily now).
+     *
      * Called on a background thread.
      */
     virtual void TransactionRemovedFromMempool(const CTransactionRef &ptx) {}
@@ -133,12 +136,9 @@ protected:
      */
     virtual void ChainStateFlushed(const CBlockLocator &locator) {}
     /**
-     * Notifies listeners of a block validation result.
-     * If the provided BlockValidationState IsValid, the provided block
-     * is guaranteed to be the current best block at the time the
-     * callback was generated (not necessarily now)
+     * Validation attempted to connect the block to the best chain, but block connection failed.
      */
-    virtual void BlockChecked(const CBlock&, const BlockValidationState&) {}
+    virtual void BlockFailedConnection(const CBlock&, const BlockValidationState&) {}
     /**
      * Notifies listeners that a block which builds directly on our current tip
      * has been received and connected to the headers tree, though not validated yet */
@@ -180,7 +180,7 @@ public:
     void BlockConnected(const std::shared_ptr<const CBlock> &, const CBlockIndex *pindex, const std::shared_ptr<const std::vector<CTransactionRef>> &);
     void BlockDisconnected(const std::shared_ptr<const CBlock> &, const CBlockIndex* pindex);
     void ChainStateFlushed(const CBlockLocator &);
-    void BlockChecked(const CBlock&, const BlockValidationState&);
+    void BlockFailedConnection(const CBlock&, const BlockValidationState&);
     void NewPoWValidBlock(const CBlockIndex *, const std::shared_ptr<const CBlock>&);
 };
 
