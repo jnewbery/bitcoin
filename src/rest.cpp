@@ -8,6 +8,7 @@
 #include <core_io.h>
 #include <httpserver.h>
 #include <index/txindex.h>
+#include <node/context.h>
 #include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <rpc/blockchain.h>
@@ -16,6 +17,7 @@
 #include <streams.h>
 #include <sync.h>
 #include <txmempool.h>
+#include <util/check.h>
 #include <util/strencodings.h>
 #include <validation.h>
 #include <version.h>
@@ -67,6 +69,15 @@ static bool RESTERR(HTTPRequest* req, enum HTTPStatusCode status, std::string me
     req->WriteHeader("Content-Type", "text/plain");
     req->WriteReply(status, message + "\r\n");
     return false;
+}
+
+static CTxMemPool* EnsureMemPool(HTTPRequest* req)
+{
+    CHECK_NONFATAL(g_rpc_node);
+    if (!g_rpc_node->mempool) {
+        RESTERR(req, HTTP_NOT_FOUND, "Mempool disabled or instance not found");
+    }
+    return g_rpc_node->mempool;
 }
 
 static RetFormat ParseDataFormat(std::string& param, const std::string& strReq)
@@ -295,12 +306,15 @@ static bool rest_mempool_info(HTTPRequest* req, const std::string& strURIPart)
 {
     if (!CheckWarmup(req))
         return false;
+    const CTxMemPool* mempool_ = EnsureMemPool(req);
+    if (!mempool_) return false;
+    const CTxMemPool& mempool = *mempool_;
     std::string param;
     const RetFormat rf = ParseDataFormat(param, strURIPart);
 
     switch (rf) {
     case RetFormat::JSON: {
-        UniValue mempoolInfoObject = MempoolInfoToJSON(::mempool);
+        UniValue mempoolInfoObject = MempoolInfoToJSON(mempool);
 
         std::string strJSON = mempoolInfoObject.write() + "\n";
         req->WriteHeader("Content-Type", "application/json");
@@ -317,12 +331,15 @@ static bool rest_mempool_contents(HTTPRequest* req, const std::string& strURIPar
 {
     if (!CheckWarmup(req))
         return false;
+    const CTxMemPool* mempool_ = EnsureMemPool(req);
+    if (!mempool_) return false;
+    const CTxMemPool& mempool = *mempool_;
     std::string param;
     const RetFormat rf = ParseDataFormat(param, strURIPart);
 
     switch (rf) {
     case RetFormat::JSON: {
-        UniValue mempoolObject = MempoolToJSON(::mempool, true);
+        UniValue mempoolObject = MempoolToJSON(mempool, true);
 
         std::string strJSON = mempoolObject.write() + "\n";
         req->WriteHeader("Content-Type", "application/json");
@@ -500,6 +517,9 @@ static bool rest_getutxos(HTTPRequest* req, const std::string& strURIPart)
         };
 
         if (fCheckMemPool) {
+            const CTxMemPool* mempool_ = EnsureMemPool(req);
+            if (!mempool_) return false;
+            const CTxMemPool& mempool = *mempool_;
             // use db+mempool as cache backend in case user likes to query mempool
             LOCK2(cs_main, mempool.cs);
             CCoinsViewCache& viewChain = ::ChainstateActive().CoinsTip();
