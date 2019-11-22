@@ -137,6 +137,8 @@ protected:
     virtual void ChainStateFlushed(const CBlockLocator &locator) {}
     /**
      * Validation attempted to connect the block to the best chain, but block connection failed.
+     *
+     * Called on a background thread.
      */
     virtual void BlockFailedConnection(const CBlock&, const BlockValidationState&) {}
     /**

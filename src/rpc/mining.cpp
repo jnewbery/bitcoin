@@ -724,6 +724,11 @@ protected:
         found = true;
         state = stateIn;
     }
+
+    void BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindex, const std::vector<CTransactionRef>& vtxConflicted) override {
+        if (pblock->GetHash() != hash) return;
+        found = true;
+    }
 };
 
 static UniValue submitblock(const JSONRPCRequest& request)
@@ -780,6 +785,9 @@ static UniValue submitblock(const JSONRPCRequest& request)
     RegisterValidationInterface(&sc);
     BlockValidationState dos_state;
     bool accepted = ProcessNewBlock(Params(), blockptr, dos_state, /* fForceProcessing */ true, /* fNewBlock */ &new_block);
+
+    // Make sure the validation interface queue has drained (so we get any relevant BlockConnected/BlockFailedConnection callbacks)
+    SyncWithValidationInterfaceQueue();
     UnregisterValidationInterface(&sc);
     if (!new_block && accepted) {
         return "duplicate";

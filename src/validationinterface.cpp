@@ -8,6 +8,7 @@
 #include <primitives/block.h>
 #include <scheduler.h>
 #include <txmempool.h>
+#include <consensus/validation.h>
 
 #include <future>
 #include <utility>
@@ -170,7 +171,9 @@ void CMainSignals::ChainStateFlushed(const CBlockLocator &locator) {
 }
 
 void CMainSignals::BlockFailedConnection(const CBlock& block, const BlockValidationState& state) {
-    m_internals->BlockFailedConnection(block, state);
+    m_internals->m_schedulerClient.AddToProcessQueue([block, state, this] {
+        m_internals->BlockFailedConnection(block, state);
+    });
 }
 
 void CMainSignals::NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock> &block) {
