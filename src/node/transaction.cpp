@@ -6,6 +6,7 @@
 #include <consensus/validation.h>
 #include <net.h>
 #include <net_processing.h>
+#include <node/coin.h>
 #include <node/context.h>
 #include <util/validation.h>
 #include <validation.h>
@@ -82,4 +83,38 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
     }
 
     return TransactionError::OK;
+}
+
+bool GetTransactionFee(const CTransactionRef& tx, CAmount& fee)
+{
+    // Check that we're not trying to send a transaction with a too-high fee
+    // Fetch previous transactions (inputs):
+    std::map<COutPoint, Coin> coins_map;
+    for (const CTxIn& txin : tx->vin) {
+        coins_map[txin.prevout]; // Create empty map entry keyed by prevout.
+    }
+    FindCoins(coins_map);
+
+    std::vector<Coin> coins;
+    for (auto coinmap: coins_map) {
+        coins.push_back(coinmap.second);
+    }
+
+    if (coins.size() != tx->vin.size()) {
+        // We didn't find a coin for each outpoint
+        return false;
+    }
+
+    fee = 0;
+    // Add all in values
+    for (const auto coin : coins) {
+        fee += coin.out.nValue;
+    }
+
+     // Subtract all out values
+    for (const auto& tx_out : tx->vout) {
+        fee -= tx_out.nValue;
+    }
+
+    return true;
 }

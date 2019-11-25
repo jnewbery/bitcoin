@@ -30,4 +30,13 @@ struct NodeContext;
  */
 NODISCARD TransactionError BroadcastTransaction(NodeContext& node, CTransactionRef tx, std::string& err_string, const CAmount& max_tx_fee, bool relay, bool wait_callback);
 
+/**
+ * Get the fee for a transaction
+ *
+ * @param[in]  tx    the transaction
+ * @param[out] fee   the transaction fee
+ * return      bool  returns false if the transaction inputs could not be found
+ */
+NODISCARD bool GetTransactionFee(const CTransactionRef& tx, CAmount& fee);
+
 #endif // BITCOIN_NODE_TRANSACTION_H
