@@ -2,47 +2,42 @@
 # Copyright (c) 2014 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
+"""Test that a node can resync to the main chain after running invalidateblock
 
-#
-# Test invalidateblock
-#
-
+Blocks are generated on node0, and then invalidated on both nodes. Syncing the
+alternate chain validates that nodes can resync after running invalidateblock."""
 from test_framework.test_framework import BitcoinTestFramework
+
+GENERATION_ADDR1 = 'mjTkW3DjgyZck4KbiRusZsqTgaYTxdSz6z'
+GENERATION_ADDR2 = 'msX6jQXvxiNhx3Q62PKeLPrhrqZQdSimTg'
 
 class InvalidateBlockTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 2
-        self.setup_clean_chain = True
-        self.extra_args = [[],[]]
 
     def run_test(self):
-        self.nodes[0].generate(1) # Leave IBD
+        node = self.nodes[0]
+
+        block_count = node.getblockcount()
+
+        self.log.info("Generate blocks")
+        block_hashes = node.generatetoaddress(18, GENERATION_ADDR1)
+        assert node.getblockcount() == block_count + 18
         self.sync_all()
 
-        cnt = self.nodes[0].getblockcount()
+        self.log.info("Invalidate block")
+        node.invalidateblock(block_hashes[0])
+        self.nodes[1].invalidateblock(block_hashes[0])
+        assert node.getblockcount() == block_count
 
-        node1blocks = self.nodes[1].generate(18)
-
+        self.log.info("Generate alternate chain")
+        # Generate to a different address to ensure that the coinbase
+        # transaction (and therefore also the block hash) is different.
+        node.generatetoaddress(17, GENERATION_ADDR2)
         self.sync_all()
-        if (self.nodes[0].getblockcount() != cnt + 18):
-            raise AssertionError("Failed to sync initial blocks")
 
-        self.nodes[0].invalidateblock(node1blocks[0])
-        self.nodes[1].invalidateblock(node1blocks[0])
-
-        if (self.nodes[0].getblockcount() != cnt):
-            raise AssertionError("Failed to invalidate initial blocks")
-
-        # The test framework uses a static per-node address which will generate
-        # a deterministic block if we have no wallet.
-        # Instead, mine on nodes[0], which will use a different hardcoded address
-        # than the one we previously used, making this block unique.
-        self.nodes[0].generate(17)
-
-        print("All blocks generated, trying to sync")
-        self.sync_all()
-        if (self.nodes[0].getblockcount() != cnt + 17):
-            raise AssertionError("Failed to sync shorter but valid chain")
+        self.log.info("Verify that node syncs to tip")
+        assert node.getblockcount() == block_count + 17
 
 if __name__ == '__main__':
     InvalidateBlockTest().main()
