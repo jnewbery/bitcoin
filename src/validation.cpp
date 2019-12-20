@@ -2995,7 +2995,7 @@ bool PreciousBlock(BlockValidationState& state, const CChainParams& params, CBlo
 
 bool CChainState::InvalidateBlock(BlockValidationState& state, const CChainParams& chainparams, CBlockIndex *pindex)
 {
-    CBlockIndex* to_mark_failed = pindex;
+    CBlockIndex* block_to_invalidate = pindex;
     bool pindex_was_in_chain = false;
     int disconnected = 0;
 
@@ -3042,7 +3042,7 @@ bool CChainState::InvalidateBlock(BlockValidationState& state, const CChainParam
         LOCK(m_mempool.cs); // Lock for as long as disconnectpool is in scope to make sure UpdateMempoolForReorg is called after DisconnectTip without unlocking in between
         if (!m_chain.Contains(pindex)) break;
         pindex_was_in_chain = true;
-        CBlockIndex *invalid_walk_tip = m_chain.Tip();
+        block_to_invalidate = m_chain.Tip();
 
         // ActivateBestChain considers blocks already in m_chain
         // unconditionally valid already, so force disconnect away from it.
@@ -3055,39 +3055,36 @@ bool CChainState::InvalidateBlock(BlockValidationState& state, const CChainParam
         // keeping the mempool up to date is probably futile anyway).
         UpdateMempoolForReorg(m_mempool, disconnectpool, /* fAddToMempool = */ (++disconnected <= 10) && ret);
         if (!ret) return false;
-        assert(invalid_walk_tip->pprev == m_chain.Tip());
+        assert(block_to_invalidate->pprev == m_chain.Tip());
 
         // We immediately mark the disconnected blocks as invalid.
         // This prevents a case where pruned nodes may fail to invalidateblock
         // and be left unable to start as they have no tip candidates (as there
         // are no blocks that meet the "have data and are not invalid per
         // nStatus" criteria for inclusion in setBlockIndexCandidates).
-        invalid_walk_tip->nStatus |= BLOCK_FAILED_VALID;
-        setDirtyBlockIndex.insert(invalid_walk_tip);
-        setBlockIndexCandidates.erase(invalid_walk_tip);
-        setBlockIndexCandidates.insert(invalid_walk_tip->pprev);
+        block_to_invalidate->nStatus |= BLOCK_FAILED_VALID;
+        setDirtyBlockIndex.insert(block_to_invalidate);
+        setBlockIndexCandidates.erase(block_to_invalidate);
+        setBlockIndexCandidates.insert(block_to_invalidate->pprev);
 
         // Add any equal or more work headers to setBlockIndexCandidates
-        auto candidate_it = candidate_blocks_by_work.lower_bound(invalid_walk_tip->pprev->nChainWork);
+        auto candidate_it = candidate_blocks_by_work.lower_bound(block_to_invalidate->pprev->nChainWork);
         while (candidate_it != candidate_blocks_by_work.end()) {
-            if (!CBlockIndexWorkComparator()(candidate_it->second, invalid_walk_tip->pprev)) {
+            if (!CBlockIndexWorkComparator()(candidate_it->second, block_to_invalidate->pprev)) {
                 setBlockIndexCandidates.insert(candidate_it->second);
                 candidate_it = candidate_blocks_by_work.erase(candidate_it);
             } else {
                 ++candidate_it;
             }
         }
-
-        // Track the last disconnected block.
-        to_mark_failed = invalid_walk_tip;
     }
 
     CheckBlockIndex(chainparams.GetConsensus());
 
     {
         LOCK(cs_main);
-        if (m_chain.Contains(to_mark_failed)) {
-            // If the to-be-marked invalid block is in the active chain, something is interfering and we can't proceed.
+        if (m_chain.Contains(block_to_invalidate)) {
+            // If the most recently invalidated block is in the active chain, something is interfering and we can't proceed.
             return false;
         }
 
@@ -3114,12 +3111,13 @@ bool CChainState::InvalidateBlock(BlockValidationState& state, const CChainParam
             it++;
         }
 
-        InvalidChainFound(to_mark_failed);
+        // Log and track best invalid block
+        InvalidChainFound(block_to_invalidate);
     }
 
     // Only notify about a new block tip if the active chain was modified.
     if (pindex_was_in_chain) {
-        uiInterface.NotifyBlockTip(GetSynchronizationState(IsInitialBlockDownload()), to_mark_failed->pprev);
+        uiInterface.NotifyBlockTip(GetSynchronizationState(IsInitialBlockDownload()), block_to_invalidate->pprev);
     }
     return true;
 }
