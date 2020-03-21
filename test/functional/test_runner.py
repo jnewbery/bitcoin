@@ -147,6 +147,7 @@ BASE_SCRIPTS = [
     'p2p_addr_relay.py',
     'rpc_net.py',
     'wallet_keypool.py',
+    'framework_test_key.py',
     'p2p_mempool.py',
     'p2p_filter.py',
     'rpc_setban.py',
