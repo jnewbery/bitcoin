@@ -13,10 +13,12 @@
 #include <amount.h>
 #include <coins.h>
 #include <crypto/common.h> // for ReadLE64
+#include <crypto/siphash.h>
 #include <fs.h>
 #include <optional.h>
 #include <policy/feerate.h>
 #include <protocol.h> // For CMessageHeader::MessageStartChars
+#include <random.h>
 #include <script/script_error.h>
 #include <sync.h>
 #include <txdb.h>
@@ -962,5 +964,18 @@ inline bool IsBlockPruned(const CBlockIndex* pblockindex)
 {
     return (fHavePruned && !(pblockindex->nStatus & BLOCK_HAVE_DATA) && pblockindex->nTx > 0);
 }
+
+class SaltedTxidHasher
+{
+private:
+    /** Salt */
+    const uint64_t k0, k1;
+public:
+    SaltedTxidHasher() : k0(GetRand(std::numeric_limits<uint64_t>::max())), k1(GetRand(std::numeric_limits<uint64_t>::max())) {}
+
+    size_t operator()(const uint256& txid) const {
+        return SipHashUint256(k0, k1, txid);
+    }
+};
 
 #endif // BITCOIN_VALIDATION_H
