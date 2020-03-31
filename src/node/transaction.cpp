@@ -4,6 +4,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <consensus/validation.h>
+#include <txmempool.h>
 #include <net.h>
 #include <net_processing.h>
 #include <node/context.h>
