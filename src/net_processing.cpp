@@ -3234,8 +3234,8 @@ bool ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStream& vR
                         // message.
                         continue;
                     }
-                    state->m_tx_download.m_tx_in_flight.erase(in_flight_it);
-                    state->m_tx_download.m_tx_announced.erase(inv.hash);
+                    /* state->m_tx_download.m_tx_in_flight.erase(in_flight_it); */
+                    /* state->m_tx_download.m_tx_announced.erase(inv.hash); */
                 }
             }
         }
