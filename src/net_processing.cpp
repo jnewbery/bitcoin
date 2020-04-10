@@ -76,6 +76,8 @@ static constexpr std::chrono::microseconds GETDATA_TX_INTERVAL{std::chrono::seco
 static constexpr std::chrono::microseconds MAX_GETDATA_RANDOM_DELAY{std::chrono::seconds{2}};
 /** How long to wait (in microseconds) before expiring an in-flight getdata request to a peer */
 static constexpr std::chrono::microseconds TX_EXPIRY_INTERVAL{GETDATA_TX_INTERVAL * 10};
+/** How long to wait before expiring an inflight GETDATA request after receiving a NOTFOUND */
+static constexpr std::chrono::microseconds NOTFOUND_EXPIRY_DELAY{std::chrono::seconds{4}};
 static_assert(INBOUND_PEER_TX_DELAY >= MAX_GETDATA_RANDOM_DELAY,
 "To preserve security, MAX_GETDATA_RANDOM_DELAY should not exceed INBOUND_PEER_DELAY");
 /** Limit to avoid sending big packets. Not used in processing incoming GETDATA for compatibility */
@@ -3221,6 +3223,7 @@ bool ProcessMessage(CNode* pfrom, const std::string& msg_type, CDataStream& vRec
         std::vector<CInv> vInv;
         vRecv >> vInv;
         if (vInv.size() <= MAX_PEER_TX_IN_FLIGHT + MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
+            auto current_time = GetTime<std::chrono::microseconds>();
             for (CInv &inv : vInv) {
                 if (inv.type == MSG_TX || inv.type == MSG_WITNESS_TX) {
                     // If we receive a NOTFOUND message for a txid we requested, erase
@@ -3231,8 +3234,13 @@ bool ProcessMessage(CNode* pfrom, const std::string& msg_type, CDataStream& vRec
                         // message.
                         continue;
                     }
+                    // Expire the inflight transaction in NOTFOUND_EXPIRY_DELAY seconds.
+                    // We don't expire the request immmediately to prevent a malicious
+                    // peer from cycling through its inflight rate-limit by rapidly
+                    // sending us INV/NOTFOUNDs.
+                    std::chrono::microseconds previous_expiry = in_flight_it->second;
                     state->m_tx_download.m_tx_in_flight.erase(in_flight_it);
-                    state->m_tx_download.m_tx_announced.erase(inv.hash);
+                    state->m_tx_download.m_tx_in_flight.emplace(inv.hash, min(previous_expiry, current_time + NOTFOUND_EXPIRY_DELAY));
                 }
             }
         }
