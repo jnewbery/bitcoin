@@ -346,7 +346,7 @@ struct CNodeState {
         //! Store all the transactions a peer has recently announced
         std::set<uint256> m_tx_announced;
 
-        //! Store transactions which were requested by us, with timestamp
+        //! Store transactions which were requested by us, with expiry timestamp
         std::map<uint256, std::chrono::microseconds> m_tx_in_flight;
     };
 
@@ -4020,7 +4020,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         while (state.m_tx_download.m_tx_in_flight.size() > 0) {
             auto it = state.m_tx_download.m_tx_in_flight.begin();
             // m_requested_txs are ordered by time
-            if (it->second > current_time - TX_EXPIRY_INTERVAL) break;
+            if (it->second > current_time) break;
             LogPrint(BCLog::NET, "timeout of inflight tx %s from peer=%d\n", it->first.ToString(), pto->GetId());
             state.m_tx_download.m_tx_announced.erase(it->first);
             state.m_tx_download.m_tx_in_flight.erase(it);
@@ -4045,7 +4045,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
                         vGetData.clear();
                     }
                     UpdateTxRequestTime(inv.hash, current_time);
-                    state.m_tx_download.m_tx_in_flight.emplace(inv.hash, current_time);
+                    state.m_tx_download.m_tx_in_flight.emplace(inv.hash, current_time + TX_EXPIRY_INTERVAL);
                 } else {
                     // This transaction is in flight from someone else; queue
                     // up processing to happen after the download times out
