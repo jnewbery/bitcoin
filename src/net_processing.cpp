@@ -348,9 +348,6 @@ struct CNodeState {
 
         //! Store transactions which were requested by us, with timestamp
         std::map<uint256, std::chrono::microseconds> m_tx_in_flight;
-
-        //! Periodically check for stuck getdata requests
-        std::chrono::microseconds m_check_expiry_timer{0};
     };
 
     TxDownloadState m_tx_download;
@@ -4015,24 +4012,18 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         // Message: getdata (non-blocks)
         //
 
-        // For robustness, expire old requests after a long timeout, so that
+        // Expire old requests after a long timeout, so that
         // we can resume downloading transactions from a peer even if they
         // were unresponsive in the past.
         // Eventually we should consider disconnecting peers, but this is
         // conservative.
-        if (state.m_tx_download.m_check_expiry_timer <= current_time) {
-            for (auto it=state.m_tx_download.m_tx_in_flight.begin(); it != state.m_tx_download.m_tx_in_flight.end();) {
-                if (it->second <= current_time - TX_EXPIRY_INTERVAL) {
-                    LogPrint(BCLog::NET, "timeout of inflight tx %s from peer=%d\n", it->first.ToString(), pto->GetId());
-                    state.m_tx_download.m_tx_announced.erase(it->first);
-                    state.m_tx_download.m_tx_in_flight.erase(it++);
-                } else {
-                    ++it;
-                }
-            }
-            // On average, we do this check every TX_EXPIRY_INTERVAL. Randomize
-            // so that we're not doing this for all peers at the same time.
-            state.m_tx_download.m_check_expiry_timer = current_time + TX_EXPIRY_INTERVAL / 2 + GetRandMicros(TX_EXPIRY_INTERVAL);
+        while (state.m_tx_download.m_tx_in_flight.size() > 0) {
+            auto it = state.m_tx_download.m_tx_in_flight.begin();
+            // m_requested_txs are ordered by time
+            if (it->second > current_time - TX_EXPIRY_INTERVAL) break;
+            LogPrint(BCLog::NET, "timeout of inflight tx %s from peer=%d\n", it->first.ToString(), pto->GetId());
+            state.m_tx_download.m_tx_announced.erase(it->first);
+            state.m_tx_download.m_tx_in_flight.erase(it);
         }
 
         auto& tx_process_time = state.m_tx_download.m_tx_process_time;
