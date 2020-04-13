@@ -24,31 +24,40 @@ limitedmap<uint256, std::chrono::microseconds> g_already_asked_for GUARDED_BY(cs
 
 void TxDownloadState::AddAnnouncedTx(uint256 hash, std::chrono::microseconds request_time)
 {
-    if (m_tx_announced.size() >= MAX_PEER_TX_ANNOUNCEMENTS ||
-            m_tx_process_time.size() >= MAX_PEER_TX_ANNOUNCEMENTS ||
-            m_tx_announced.count(hash)) {
-        // Too many queued announcements from this peer, or we already have
-        // this announcement
-        return;
-    }
-    m_tx_announced.insert(hash);
-    m_tx_process_time.emplace(request_time, hash);
+    // Check if we have too many queued announcements from this peer,
+    // or if we already have this announcement.
+    if (m_txs.size() >= MAX_PEER_TX_ANNOUNCEMENTS || m_txs.count(hash)) return;
+
+    std::shared_ptr<AnnouncedTx> announced_tx = std::make_shared<AnnouncedTx>(hash, request_time);
+    m_txs.emplace(hash, announced_tx);
+    m_announced_txs.emplace(announced_tx);
 };
 
 void TxDownloadState::RequeueTx(uint256 hash, std::chrono::microseconds request_time)
 {
-    m_tx_process_time.emplace(request_time, hash);
+    auto it = m_txs.find(hash);
+    if (it == m_txs.end()) return;
+    m_announced_txs.erase(it->second);
+    it->second->m_timestamp = request_time;
+    m_announced_txs.insert(it->second);
 };
 
 void TxDownloadState::RequestSent(uint256 hash, std::chrono::microseconds request_time)
 {
-    m_tx_in_flight.emplace(hash, request_time);
+    auto it = m_txs.find(hash);
+    if (it == m_txs.end()) return;
+    m_announced_txs.erase(it->second);
+    it->second->m_timestamp = request_time;
+    m_requested_txs.insert(it->second);
 }
 
 void TxDownloadState::RemoveTx(uint256 hash)
 {
-    m_tx_announced.erase(hash);
-    m_tx_in_flight.erase(hash);
+    auto it = m_txs.find(hash);
+    if (it == m_txs.end()) return;
+    m_announced_txs.erase(it->second);
+    m_requested_txs.erase(it->second);
+    m_txs.erase(hash);
 }
 
 void TxDownloadState::ExpireOldAnnouncedTxs(std::chrono::microseconds current_time, std::vector<uint256>& expired_requests)
@@ -58,28 +67,27 @@ void TxDownloadState::ExpireOldAnnouncedTxs(std::chrono::microseconds current_ti
     // so that we're not doing this for all peers at the same time.
     m_check_expiry_timer = current_time + TX_EXPIRY_INTERVAL / 2 + GetRandMicros(TX_EXPIRY_INTERVAL);
 
-    for (auto it=m_tx_in_flight.begin(); it != m_tx_in_flight.end();) {
-        if (it->second <= current_time - TX_EXPIRY_INTERVAL) {
-            expired_requests.push_back(it->first);
-            m_tx_announced.erase(it->first);
-            m_tx_in_flight.erase(it++);
-        } else {
-            ++it;
-        }
+    while (m_requested_txs.size() != 0) {
+        auto it = m_requested_txs.begin();
+        // m_requested_txs are ordered by time. If we encounter a
+        // transaction after the expiry time, we're done.
+        if ((*it)->m_timestamp > current_time - TX_EXPIRY_INTERVAL) return;
+        expired_requests.push_back((*it)->m_hash);
+        RemoveTx((*it)->m_hash);
     }
 }
 
 bool TxDownloadState::GetAnnouncedTxToRequest(std::chrono::microseconds current_time, uint256& txid)
 {
-    if (m_tx_in_flight.size() >= MAX_PEER_TX_IN_FLIGHT) return false;
-    if (m_tx_process_time.size() == 0) return false;
-    auto it = m_tx_process_time.begin();
-    // m_tx_process_time are ordered by time. If the first m_tx_process_time
+    if (m_requested_txs.size() >= MAX_PEER_TX_IN_FLIGHT) return false;
+    if (m_announced_txs.size() == 0) return false;
+    auto it = m_announced_txs.begin();
+    // m_tx_process_time are ordered by time. If the first m_announced_txs
     // is after current time, there are no transactions to request.
-    if (it->first > current_time) return false;
+    if ((*it)->m_timestamp > current_time) return false;
 
-    txid = it->second;
-    m_tx_process_time.erase(it);
+    txid = (*it)->m_hash;
+    m_announced_txs.erase(it);
     return true;
 }
 

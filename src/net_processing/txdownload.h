@@ -7,10 +7,13 @@
 
 #include <sync.h>
 #include <uint256.h>
+#include <util/transaction.h>
 
 #include <chrono>
 #include <map>
+#include <memory>
 #include <set>
+#include <unordered_map>
 
 extern RecursiveMutex cs_main;
 
@@ -18,6 +21,35 @@ extern RecursiveMutex cs_main;
 static constexpr std::chrono::microseconds GETDATA_TX_INTERVAL{std::chrono::seconds{60}};
 /** Maximum number of in-flight transactions from a peer */
 static constexpr int32_t MAX_PEER_TX_IN_FLIGHT = 100;
+
+/** A transaction that has been announced to us by a single peer. We store
+ *  the txid and the request time.  */
+struct AnnouncedTx {
+    /** The txid of the announced transaction. */
+    uint256 m_hash;
+
+    /** The timestamp for requesting the transaction from this peer:
+     *  - for transactions which are announced but not yet requested,
+     *    this is the next time that we'll consider downloading the
+     *    transaction from this peer.
+     *  - for AnnouncedTx which we've requested, this is the time that we
+     *    requested the transaction from this peer. */
+    std::chrono::microseconds m_timestamp;
+
+    AnnouncedTx(uint256 hash, std::chrono::microseconds timestamp) :
+        m_hash(hash), m_timestamp(timestamp)  {}
+};
+
+/** Compare function for AnnouncedTxs. Sorts first on the request time, and then
+    on txid as a tiebreaker. */
+struct AnnouncedTxTimeCompare
+{
+    bool operator()(const std::shared_ptr<AnnouncedTx> lhs, const std::shared_ptr<AnnouncedTx> rhs) const
+    {
+        return lhs->m_timestamp < rhs->m_timestamp ||
+            (lhs->m_timestamp == rhs->m_timestamp && lhs->m_hash < rhs->m_hash);
+    }
+};
 
 /*
 * State associated with transaction download.
@@ -64,21 +96,23 @@ static constexpr int32_t MAX_PEER_TX_IN_FLIGHT = 100;
  *   the reject filter, then we will eventually redownload from other
  *   peers.
  */
-struct TxDownloadState {
-    /* Track when to attempt download of announced transactions (process
-     * time in micros -> txid)
-     */
-    std::multimap<std::chrono::microseconds, uint256> m_tx_process_time;
+class TxDownloadState {
+private:
+    /** All transactions that have been announced by this peer, ordered by hash */
+    std::unordered_map<uint256, std::shared_ptr<AnnouncedTx>, SaltedTxidHasher> m_txs;
 
-    //! Store all the transactions a peer has recently announced
-    std::set<uint256> m_tx_announced;
+    /** Transactions that have been announced that we haven't requested from this
+     *  peer, ordered by request time */
+    std::set<std::shared_ptr<AnnouncedTx>, AnnouncedTxTimeCompare> m_announced_txs;
 
-    //! Store transactions which were requested by us, with timestamp
-    std::map<uint256, std::chrono::microseconds> m_tx_in_flight;
+    /** Transactions that we have requested from this peer, ordered by
+     *  request time */
+    std::set<std::shared_ptr<AnnouncedTx>, AnnouncedTxTimeCompare> m_requested_txs;
 
-    //! Periodically check for stuck getdata requests
+    /** Periodically check for stuck getdata requests */
     std::chrono::microseconds m_check_expiry_timer{0};
 
+public:
     /** The peer has sent us an INV. Keep track of the hash and when to request
      *  the transaction from this peer. */
     void AddAnnouncedTx(uint256 hash, std::chrono::microseconds request_time);
