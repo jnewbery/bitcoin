@@ -1856,7 +1856,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
     int64_t nStart = GetTime();
 
     // Minimum time before next feeler connection (in microseconds).
-    int64_t nNextFeeler = PoissonNextSend(nStart*1000*1000, FEELER_INTERVAL);
+    int64_t nNextFeeler = GetPoissonRand(nStart*1000*1000, FEELER_INTERVAL);
     while (!interruptNet)
     {
         ProcessAddrFetch();
@@ -1937,7 +1937,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
         } else if (GetTryNewOutboundPeer()) {
             // OUTBOUND_FULL_RELAY
         } else if (nTime > nNextFeeler) {
-            nNextFeeler = PoissonNextSend(nTime, FEELER_INTERVAL);
+            nNextFeeler = GetPoissonRand(nTime, FEELER_INTERVAL);
             conn_type = ConnectionType::FEELER;
             fFeeler = true;
         } else {
@@ -2946,7 +2946,7 @@ int64_t CConnman::PoissonNextSendInbound(int64_t now, int average_interval_secon
         // If this function were called from multiple threads simultaneously
         // it would possible that both update the next send variable, and return a different result to their caller.
         // This is not possible in practice as only the net processing thread invokes this function.
-        m_next_send_inv_to_incoming = PoissonNextSend(now, average_interval_seconds);
+        m_next_send_inv_to_incoming = GetPoissonRand(now, average_interval_seconds);
     }
     return m_next_send_inv_to_incoming;
 }
