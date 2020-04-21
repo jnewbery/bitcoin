@@ -129,6 +129,11 @@ static constexpr unsigned int INVENTORY_MAX_BLOCKS = 500;
 static constexpr unsigned int AVG_FEEFILTER_BROADCAST_INTERVAL = 10 * 60;
 /** Maximum feefilter broadcast delay after significant change. */
 static constexpr unsigned int MAX_FEEFILTER_CHANGE_DELAY = 5 * 60;
+/** Maximum number of entries we'll process in a single INV message.
+  * Sending more than this is not a P2P protocol violation, but we'll ignore all items above this. */
+static constexpr unsigned int MAX_INV_ENTRIES = 1000;
+static_assert(MAX_INV_ENTRIES >= INVENTORY_BROADCAST_MAX);
+static_assert(MAX_INV_ENTRIES >= INVENTORY_MAX_BLOCKS);
 
 struct COrphanTx {
     // When modifying, adapt the copy of this definition in tests/DoS_tests.
@@ -2291,10 +2296,17 @@ bool ProcessMessage(CNode* pfrom, const std::string& msg_type, CDataStream& vRec
         uint32_t nFetchFlags = GetFetchFlags(pfrom);
         const auto current_time = GetTime<std::chrono::microseconds>();
 
+        unsigned int entries_processed{0};
+
         for (CInv &inv : vInv)
         {
             if (interruptMsgProc)
                 return true;
+
+            // Don't try to process more than MAX_INV_ENTRIES blocks in
+            // one INV message. We'll never send more than this ourselves.
+            if (entries_processed >= MAX_INV_ENTRIES) continue;
+            ++entries_processed;
 
             if (inv.type == MSG_BLOCK) {
                 bool fAlreadyHave = AlreadyHave(inv, mempool);
