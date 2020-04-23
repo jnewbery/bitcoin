@@ -5,11 +5,17 @@
 #ifndef BITCOIN_TXDOWNLOAD_H
 #define BITCOIN_TXDOWNLOAD_H
 
+#include <sync.h>
 #include <uint256.h>
 
 #include <chrono>
 #include <map>
 #include <set>
+
+extern RecursiveMutex cs_main;
+
+/** How long to wait (in microseconds) before downloading a transaction from an additional peer */
+static constexpr std::chrono::microseconds GETDATA_TX_INTERVAL{std::chrono::seconds{60}};
 
 /*
 * State associated with transaction download.
@@ -71,5 +77,13 @@ struct TxDownloadState {
     //! Periodically check for stuck getdata requests
     std::chrono::microseconds m_check_expiry_timer{0};
 };
+
+void EraseTxRequest(const uint256& txid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+std::chrono::microseconds GetTxRequestTime(const uint256& txid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+void UpdateTxRequestTime(const uint256& txid, std::chrono::microseconds request_time) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+std::chrono::microseconds CalculateTxGetDataTime(const uint256& txid, std::chrono::microseconds current_time, bool use_inbound_delay) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
 #endif // BITCOIN_TXDOWNLOAD_H

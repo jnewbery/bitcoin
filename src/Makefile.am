@@ -292,6 +292,7 @@ libbitcoin_server_a_SOURCES = \
   miner.cpp \
   net.cpp \
   net_processing.cpp \
+  net_processing/txdownload.cpp \
   node/coin.cpp \
   node/coinstats.cpp \
   node/context.cpp \
