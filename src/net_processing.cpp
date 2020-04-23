@@ -73,8 +73,6 @@ static const unsigned int MAX_LOCATOR_SZ = 101;
 static const unsigned int MAX_INV_SZ = 50000;
 /** Maximum number of in-flight transactions from a peer */
 static constexpr int32_t MAX_PEER_TX_IN_FLIGHT = 100;
-/** How long to wait (in microseconds) before expiring an in-flight getdata request to a peer */
-static constexpr std::chrono::microseconds TX_EXPIRY_INTERVAL{GETDATA_TX_INTERVAL * 10};
 /** Limit to avoid sending big packets. Not used in processing incoming GETDATA for compatibility */
 static const unsigned int MAX_GETDATA_SZ = 1000;
 /** Number of blocks that can be requested at any given time from a single peer. */
@@ -3907,24 +3905,12 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         // Message: getdata (non-blocks)
         //
 
-        // For robustness, expire old requests after a long timeout, so that
-        // we can resume downloading transactions from a peer even if they
-        // were unresponsive in the past.
-        // Eventually we should consider disconnecting peers, but this is
-        // conservative.
-        if (state.m_tx_download.m_check_expiry_timer <= current_time) {
-            for (auto it=state.m_tx_download.m_tx_in_flight.begin(); it != state.m_tx_download.m_tx_in_flight.end();) {
-                if (it->second <= current_time - TX_EXPIRY_INTERVAL) {
-                    LogPrint(BCLog::NET, "timeout of inflight tx %s from peer=%d\n", it->first.ToString(), pto->GetId());
-                    state.m_tx_download.m_tx_announced.erase(it->first);
-                    state.m_tx_download.m_tx_in_flight.erase(it++);
-                } else {
-                    ++it;
-                }
-            }
-            // On average, we do this check every TX_EXPIRY_INTERVAL. Randomize
-            // so that we're not doing this for all peers at the same time.
-            state.m_tx_download.m_check_expiry_timer = current_time + TX_EXPIRY_INTERVAL / 2 + GetRandMicros(TX_EXPIRY_INTERVAL);
+        // Expire old requests. Eventually we should consider disconnecting
+        // peers, but this is conservative.
+        std::vector<uint256> expired_requests;
+        state.m_tx_download.ExpireOldAnnouncedTxs(current_time, expired_requests);
+        for (auto it=expired_requests.begin(); it != expired_requests.end();) {
+            LogPrint(BCLog::NET, "timeout of inflight tx %s from peer=%d\n", it->ToString(), pto->GetId());
         }
 
         auto& tx_process_time = state.m_tx_download.m_tx_process_time;

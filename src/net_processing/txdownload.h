@@ -93,6 +93,11 @@ struct TxDownloadState {
     /** Transaction has either been received or expired. No longer request
      * it from this peer. */
     void RemoveTx(uint256 hash);
+
+    /** Expire old requests after a long timeout, so that we can resume
+     * downloading transactions from a peer even if they were unresponsive in
+     * the past. */
+    void ExpireOldAnnouncedTxs(std::chrono::microseconds current_time, std::vector<uint256>& expired_requests);
 };
 
 void EraseTxRequest(const uint256& txid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);

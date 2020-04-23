@@ -16,6 +16,8 @@ static_assert(INBOUND_PEER_TX_DELAY >= MAX_GETDATA_RANDOM_DELAY,
 "To preserve security, MAX_GETDATA_RANDOM_DELAY should not exceed INBOUND_PEER_DELAY");
 /** Maximum number of announced transactions from a peer */
 static constexpr int32_t MAX_PEER_TX_ANNOUNCEMENTS{10000};
+/** How long to wait (in microseconds) before expiring an in-flight getdata request to a peer */
+static constexpr std::chrono::microseconds TX_EXPIRY_INTERVAL{GETDATA_TX_INTERVAL * 10};
 
 // Keeps track of the time (in microseconds) when transactions were requested last time
 limitedmap<uint256, std::chrono::microseconds> g_already_asked_for GUARDED_BY(cs_main)(MAX_GLOBAL_TX_ANNOUNCED);
@@ -47,6 +49,24 @@ void TxDownloadState::RemoveTx(uint256 hash)
 {
     m_tx_announced.erase(hash);
     m_tx_in_flight.erase(hash);
+}
+
+void TxDownloadState::ExpireOldAnnouncedTxs(std::chrono::microseconds current_time, std::vector<uint256>& expired_requests)
+{
+    if (m_check_expiry_timer > current_time) return;
+    // On average, we do this check every TX_EXPIRY_INTERVAL. Randomize
+    // so that we're not doing this for all peers at the same time.
+    m_check_expiry_timer = current_time + TX_EXPIRY_INTERVAL / 2 + GetRandMicros(TX_EXPIRY_INTERVAL);
+
+    for (auto it=m_tx_in_flight.begin(); it != m_tx_in_flight.end();) {
+        if (it->second <= current_time - TX_EXPIRY_INTERVAL) {
+            expired_requests.push_back(it->first);
+            m_tx_announced.erase(it->first);
+            m_tx_in_flight.erase(it++);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void EraseTxRequest(const uint256& txid) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
