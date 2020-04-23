@@ -3954,7 +3954,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
                         vGetData.clear();
                     }
                     UpdateTxRequestTime(inv.hash, current_time);
-                    state.m_tx_download.m_tx_in_flight.emplace(inv.hash, current_time);
+                    state.m_tx_download.RequestSent(txid, current_time);
                 } else {
                     // This transaction is in flight from another peer.
                     // Requeue the request time for this peer.
