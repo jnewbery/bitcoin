@@ -73,8 +73,6 @@ static const unsigned int MAX_LOCATOR_SZ = 101;
 static const unsigned int MAX_INV_SZ = 50000;
 /** Maximum number of in-flight transactions from a peer */
 static constexpr int32_t MAX_PEER_TX_IN_FLIGHT = 100;
-/** Maximum number of announced transactions from a peer */
-static constexpr int32_t MAX_PEER_TX_ANNOUNCEMENTS = 2 * MAX_INV_SZ;
 /** How long to wait (in microseconds) before expiring an in-flight getdata request to a peer */
 static constexpr std::chrono::microseconds TX_EXPIRY_INTERVAL{GETDATA_TX_INTERVAL * 10};
 /** Limit to avoid sending big packets. Not used in processing incoming GETDATA for compatibility */
@@ -645,25 +643,6 @@ static void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vec
             }
         }
     }
-}
-
-void RequestTx(CNodeState* state, const uint256& txid, std::chrono::microseconds current_time) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
-{
-    TxDownloadState& peer_download_state = state->m_tx_download;
-    if (peer_download_state.m_tx_announced.size() >= MAX_PEER_TX_ANNOUNCEMENTS ||
-            peer_download_state.m_tx_process_time.size() >= MAX_PEER_TX_ANNOUNCEMENTS ||
-            peer_download_state.m_tx_announced.count(txid)) {
-        // Too many queued announcements from this peer, or we already have
-        // this announcement
-        return;
-    }
-    peer_download_state.m_tx_announced.insert(txid);
-
-    // Calculate the time to try requesting this transaction. Use
-    // fPreferredDownload as a proxy for outbound peers.
-    const auto process_time = CalculateTxGetDataTime(txid, current_time, !state->fPreferredDownload);
-
-    peer_download_state.m_tx_process_time.emplace(process_time, txid);
 }
 
 } // namespace
@@ -2207,7 +2186,8 @@ bool ProcessMessage(CNode* pfrom, const std::string& msg_type, CDataStream& vRec
                     pfrom->fDisconnect = true;
                     return true;
                 } else if (!fAlreadyHave && !fImporting && !fReindex && !::ChainstateActive().IsInitialBlockDownload()) {
-                    RequestTx(State(pfrom->GetId()), inv.hash, current_time);
+                    CNodeState* state = State(pfrom->GetId());
+                    state->m_tx_download.AddAnnouncedTx(inv.hash, CalculateTxGetDataTime(inv.hash, current_time, !state->fPreferredDownload));
                 }
             }
         }
@@ -2487,7 +2467,10 @@ bool ProcessMessage(CNode* pfrom, const std::string& msg_type, CDataStream& vRec
                 for (const CTxIn& txin : tx.vin) {
                     CInv _inv(MSG_TX | nFetchFlags, txin.prevout.hash);
                     pfrom->AddInventoryKnown(_inv);
-                    if (!AlreadyHave(_inv, mempool)) RequestTx(State(pfrom->GetId()), _inv.hash, current_time);
+                    if (!AlreadyHave(_inv, mempool)) {
+                        CNodeState* state = State(pfrom->GetId());
+                        state->m_tx_download.AddAnnouncedTx(inv.hash, CalculateTxGetDataTime(inv.hash, current_time, !state->fPreferredDownload));
+                    }
                 }
                 AddOrphanTx(ptx, pfrom->GetId());
 

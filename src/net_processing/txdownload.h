@@ -76,6 +76,10 @@ struct TxDownloadState {
 
     //! Periodically check for stuck getdata requests
     std::chrono::microseconds m_check_expiry_timer{0};
+
+    /** The peer has sent us an INV. Keep track of the hash and when to request
+     *  the transaction from this peer. */
+    void AddAnnouncedTx(uint256 hash, std::chrono::microseconds request_time);
 };
 
 void EraseTxRequest(const uint256& txid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);

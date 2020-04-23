@@ -14,9 +14,24 @@ static constexpr std::chrono::microseconds INBOUND_PEER_TX_DELAY{std::chrono::se
 static constexpr std::chrono::microseconds MAX_GETDATA_RANDOM_DELAY{std::chrono::seconds{2}};
 static_assert(INBOUND_PEER_TX_DELAY >= MAX_GETDATA_RANDOM_DELAY,
 "To preserve security, MAX_GETDATA_RANDOM_DELAY should not exceed INBOUND_PEER_DELAY");
+/** Maximum number of announced transactions from a peer */
+static constexpr int32_t MAX_PEER_TX_ANNOUNCEMENTS{10000};
 
 // Keeps track of the time (in microseconds) when transactions were requested last time
 limitedmap<uint256, std::chrono::microseconds> g_already_asked_for GUARDED_BY(cs_main)(MAX_GLOBAL_TX_ANNOUNCED);
+
+void TxDownloadState::AddAnnouncedTx(uint256 hash, std::chrono::microseconds request_time)
+{
+    if (m_tx_announced.size() >= MAX_PEER_TX_ANNOUNCEMENTS ||
+            m_tx_process_time.size() >= MAX_PEER_TX_ANNOUNCEMENTS ||
+            m_tx_announced.count(hash)) {
+        // Too many queued announcements from this peer, or we already have
+        // this announcement
+        return;
+    }
+    m_tx_announced.insert(hash);
+    m_tx_process_time.emplace(request_time, hash);
+};
 
 void EraseTxRequest(const uint256& txid) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
