@@ -71,8 +71,6 @@ static const int PING_INTERVAL = 2 * 60;
 static const unsigned int MAX_LOCATOR_SZ = 101;
 /** The maximum number of entries in an 'inv' protocol message */
 static const unsigned int MAX_INV_SZ = 50000;
-/** Maximum number of in-flight transactions from a peer */
-static constexpr int32_t MAX_PEER_TX_IN_FLIGHT = 100;
 /** Limit to avoid sending big packets. Not used in processing incoming GETDATA for compatibility */
 static const unsigned int MAX_GETDATA_SZ = 1000;
 /** Number of blocks that can be requested at any given time from a single peer. */
@@ -3913,12 +3911,8 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
             LogPrint(BCLog::NET, "timeout of inflight tx %s from peer=%d\n", it->ToString(), pto->GetId());
         }
 
-        auto& tx_process_time = state.m_tx_download.m_tx_process_time;
-        while (!tx_process_time.empty() && tx_process_time.begin()->first <= current_time && state.m_tx_download.m_tx_in_flight.size() < MAX_PEER_TX_IN_FLIGHT) {
-            const uint256 txid = tx_process_time.begin()->second;
-            // Erase this entry from tx_process_time (it may be added back for
-            // processing at a later time, see below)
-            tx_process_time.erase(tx_process_time.begin());
+        uint256 txid;
+        while (state.m_tx_download.GetAnnouncedTxToRequest(current_time, txid)) {
             CInv inv(MSG_TX | GetFetchFlags(pto), txid);
             if (!AlreadyHave(inv, m_mempool)) {
                 // If this transaction was last requested more than 1 minute ago,

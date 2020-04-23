@@ -16,6 +16,8 @@ extern RecursiveMutex cs_main;
 
 /** How long to wait (in microseconds) before downloading a transaction from an additional peer */
 static constexpr std::chrono::microseconds GETDATA_TX_INTERVAL{std::chrono::seconds{60}};
+/** Maximum number of in-flight transactions from a peer */
+static constexpr int32_t MAX_PEER_TX_IN_FLIGHT = 100;
 
 /*
 * State associated with transaction download.
@@ -98,6 +100,10 @@ struct TxDownloadState {
      * downloading transactions from a peer even if they were unresponsive in
      * the past. */
     void ExpireOldAnnouncedTxs(std::chrono::microseconds current_time, std::vector<uint256>& expired_requests);
+
+    /** Get the next transaction to request and remove it from the list of txids to be requested.
+     *  Returns false if there are currently no more transactions to request.   */
+    bool GetAnnouncedTxToRequest(std::chrono::microseconds current_time, uint256& txid);
 };
 
 void EraseTxRequest(const uint256& txid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);

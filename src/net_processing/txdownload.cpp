@@ -69,6 +69,20 @@ void TxDownloadState::ExpireOldAnnouncedTxs(std::chrono::microseconds current_ti
     }
 }
 
+bool TxDownloadState::GetAnnouncedTxToRequest(std::chrono::microseconds current_time, uint256& txid)
+{
+    if (m_tx_in_flight.size() >= MAX_PEER_TX_IN_FLIGHT) return false;
+    if (m_tx_process_time.size() == 0) return false;
+    auto it = m_tx_process_time.begin();
+    // m_tx_process_time are ordered by time. If the first m_tx_process_time
+    // is after current time, there are no transactions to request.
+    if (it->first > current_time) return false;
+
+    txid = it->second;
+    m_tx_process_time.erase(it);
+    return true;
+}
+
 void EraseTxRequest(const uint256& txid) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     g_already_asked_for.erase(txid);
