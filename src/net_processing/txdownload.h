@@ -89,6 +89,10 @@ struct TxDownloadState {
     /** We sent this peer a GETDATA for this transaction. Save the request
      *  time so we can expire it if the peer doesn't respond. */
     void RequestSent(uint256 hash, std::chrono::microseconds request_time);
+
+    /** Transaction has either been received or expired. No longer request
+     * it from this peer. */
+    void RemoveTx(uint256 hash);
 };
 
 void EraseTxRequest(const uint256& txid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
