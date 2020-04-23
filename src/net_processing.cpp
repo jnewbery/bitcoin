@@ -3956,12 +3956,9 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
                     UpdateTxRequestTime(inv.hash, current_time);
                     state.m_tx_download.m_tx_in_flight.emplace(inv.hash, current_time);
                 } else {
-                    // This transaction is in flight from someone else; queue
-                    // up processing to happen after the download times out
-                    // (with a slight delay for inbound peers, to prefer
-                    // requests to outbound peers).
-                    const auto next_process_time = CalculateTxGetDataTime(txid, current_time, !state.fPreferredDownload);
-                    tx_process_time.emplace(next_process_time, txid);
+                    // This transaction is in flight from another peer.
+                    // Requeue the request time for this peer.
+                    state.m_tx_download.RequeueTx(txid, CalculateTxGetDataTime(txid, current_time, !state.fPreferredDownload));
                 }
             } else {
                 // We have already seen this transaction, no need to download.

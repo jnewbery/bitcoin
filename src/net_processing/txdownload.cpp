@@ -33,6 +33,11 @@ void TxDownloadState::AddAnnouncedTx(uint256 hash, std::chrono::microseconds req
     m_tx_process_time.emplace(request_time, hash);
 };
 
+void TxDownloadState::RequeueTx(uint256 hash, std::chrono::microseconds request_time)
+{
+    m_tx_process_time.emplace(request_time, hash);
+};
+
 void EraseTxRequest(const uint256& txid) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     g_already_asked_for.erase(txid);

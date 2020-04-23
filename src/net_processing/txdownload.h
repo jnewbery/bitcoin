@@ -80,6 +80,11 @@ struct TxDownloadState {
     /** The peer has sent us an INV. Keep track of the hash and when to request
      *  the transaction from this peer. */
     void AddAnnouncedTx(uint256 hash, std::chrono::microseconds request_time);
+
+    /** We have requested this transaction from another peer. Reset this
+     *  peer's request time for this transaction to after the outstanding
+     *  request times out. */
+    void RequeueTx(uint256 hash, std::chrono::microseconds request_time);
 };
 
 void EraseTxRequest(const uint256& txid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
