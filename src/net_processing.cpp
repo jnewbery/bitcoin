@@ -120,9 +120,11 @@ static constexpr std::chrono::seconds AVG_ADDRESS_BROADCAST_INTERVAL{30};
 /** Average delay between trickled inventory transmissions in seconds.
  *  Blocks and whitelisted receivers bypass this, outbound peers get half this delay. */
 static const unsigned int INVENTORY_BROADCAST_INTERVAL = 5;
-/** Maximum number of inventory items to send per transmission.
+/** Maximum number of MSG_TX inventory items to send per transmission.
  *  Limits the impact of low-fee transaction floods. */
 static constexpr unsigned int INVENTORY_BROADCAST_MAX = 7 * INVENTORY_BROADCAST_INTERVAL;
+/** Maximum number of MSG_BLOCK inventory items to send per transmission. */
+static constexpr unsigned int INVENTORY_MAX_BLOCKS = 500;
 /** Average delay between feefilter broadcasts in seconds. */
 static constexpr unsigned int AVG_FEEFILTER_BROADCAST_INTERVAL = 10 * 60;
 /** Maximum feefilter broadcast delay after significant change. */
@@ -2387,7 +2389,7 @@ bool ProcessMessage(CNode* pfrom, const std::string& msg_type, CDataStream& vRec
         // Send the rest of the chain
         if (pindex)
             pindex = ::ChainActive().Next(pindex);
-        int nLimit = 500;
+        int nLimit = INVENTORY_MAX_BLOCKS;
         LogPrint(BCLog::NET, "getblocks %d to %s limit %d from peer=%d\n", (pindex ? pindex->nHeight : -1), hashStop.IsNull() ? "end" : hashStop.ToString(), nLimit, pfrom->GetId());
         for (; pindex; pindex = ::ChainActive().Next(pindex))
         {
