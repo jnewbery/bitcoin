@@ -23,32 +23,18 @@ static const unsigned int DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN = 100;
 static const bool DEFAULT_PEERBLOOMFILTERS = false;
 
 class PeerLogicValidation final : public CValidationInterface, public NetEventsInterface {
-private:
-    CConnman* const connman;
-    BanMan* const m_banman;
-    CTxMemPool& m_mempool;
-
-    bool CheckIfBanned(CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
-
 public:
     PeerLogicValidation(CConnman* connman, BanMan* banman, CScheduler& scheduler, CTxMemPool& pool);
 
-    /**
-     * Overridden from CValidationInterface.
-     */
+    /** Overridden from CValidationInterface */
     void BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindexConnected) override;
+    /** Overridden from CValidationInterface */
     void BlockDisconnected(const std::shared_ptr<const CBlock> &block, const CBlockIndex* pindex) override;
-    /**
-     * Overridden from CValidationInterface.
-     */
+    /** Overridden from CValidationInterface */
     void UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload) override;
-    /**
-     * Overridden from CValidationInterface.
-     */
+    /** Overridden from CValidationInterface */
     void BlockChecked(const CBlock& block, const BlockValidationState& state) override;
-    /**
-     * Overridden from CValidationInterface.
-     */
+    /** Overridden from CValidationInterface */
     void NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock>& pblock) override;
 
     /** Initialize a peer by adding it to mapNodeState and pushing a message requesting its version */
@@ -70,17 +56,27 @@ public:
     */
     bool SendMessages(CNode* pto) override EXCLUSIVE_LOCKS_REQUIRED(pto->cs_sendProcessing);
 
-    /** Consider evicting an outbound peer based on the amount of time they've been behind our tip */
-    void ConsiderEviction(CNode *pto, int64_t time_in_seconds) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     /** Evict extra outbound peers. If we think our tip may be stale, connect to an extra outbound */
     void CheckForStaleTipAndEvictPeers(const Consensus::Params &consensusParams);
+
+private:
+    /** Non-owning pointer to connman */
+    CConnman* const connman;
+    /** Non-owning pointer to banman */
+    BanMan* const m_banman;
+    /** Non-owning pointer to mempool */
+    CTxMemPool& m_mempool;
+    //* Next time to check for stale tip */
+    int64_t m_stale_tip_check_time; 
+
     /** If we have extra outbound peers, try to disconnect the one with the oldest block announcement */
     void EvictExtraOutboundPeers(int64_t time_in_seconds) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+    /** Consider evicting an outbound peer based on the amount of time they've been behind our tip */
+    void ConsiderEviction(CNode *pto, int64_t time_in_seconds) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+    bool CheckIfBanned(CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     /** Retrieve unbroadcast transactions from the mempool and reattempt sending to peers */
     void ReattemptInitialBroadcast(CScheduler& scheduler) const;
 
-private:
-    int64_t m_stale_tip_check_time; //!< Next time to check for stale tip
 };
 
 struct CNodeStateStats {
