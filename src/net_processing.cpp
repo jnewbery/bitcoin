@@ -1617,6 +1617,14 @@ void static ProcessGetTransactionData(CNode* pfrom,
                                       const CInv& inv,
                                       std::vector<CInv>& vNotFound)
 {
+    {
+        // Check if the requested transaction is so recent that we're just
+        // about to announce it to the peer; if so, they certainly shouldn't
+        // know we already have it.
+        LOCK(pfrom->m_tx_relay->cs_tx_inventory);
+        if (pfrom->m_tx_relay->setInventoryTxToSend.count(inv.hash) > 0) return;
+    } // exit cs_tx_inventory lock
+
     const CNetMsgMaker msgMaker(pfrom->GetSendVersion());
     const int nSendFlags = (inv.type == MSG_TX ? SERIALIZE_TRANSACTION_NO_WITNESS : 0);
 
