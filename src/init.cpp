@@ -995,6 +995,8 @@ bool AppInitParameterInteraction()
         if (!index_enabled) {
             return InitError(_("Cannot set -peercfilters without -blockfilterindex.").translated);
         }
+
+        nLocalServices = ServiceFlags(nLocalServices | NODE_COMPACT_FILTERS);
     }
 
     // if using block pruning, then disallow txindex
@@ -1776,6 +1778,19 @@ bool AppInitMain(NodeContext& node)
     for (const auto& filter_type : g_enabled_filter_types) {
         InitBlockFilterIndex(filter_type, filter_index_cache, false, fReindex);
         GetBlockFilterIndex(filter_type)->Start();
+    }
+
+    if (nLocalServices & NODE_COMPACT_FILTERS) {
+        const BlockFilterIndex* const basic_filter_index =
+            GetBlockFilterIndex(BlockFilterType::BASIC);
+        if (!basic_filter_index) {
+            error("NODE_COMPACT_FILTERS is signaled, but filter index is not available");
+            return false;
+        }
+        if (!basic_filter_index->IsSynced()) {
+            InitError(strprintf(_("Cannot enable -peercfilters until basic block filter index is in sync. Please disable and reenable once filters have been indexed.").translated));
+            return false;
+        }
     }
 
     // ********************************************************* Step 9: load wallet
