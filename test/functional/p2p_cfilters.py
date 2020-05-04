@@ -4,18 +4,19 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Tests NODE_COMPACT_FILTERS (BIP 157/158).
 
-Tests that a node configured with -blockfilterindex and -peercfilters can serve
-cfheaders and cfcheckpts.
+Tests that a node configured with -blockfilterindex and -peercfilters signals
+NODE_COMPACT_FILTERS and can serve cfilters, cfheaders and cfcheckpts.
 """
 
 from test_framework.messages import (
     FILTER_TYPE_BASIC,
-    hash256,
-    msg_getcfcheckpt,
-    msg_getcfheaders,
+    NODE_COMPACT_FILTERS,
     msg_getcfilters,
+    msg_getcfheaders,
+    msg_getcfcheckpt,
     ser_uint256,
     uint256_from_str,
+    hash256,
 )
 from test_framework.mininode import P2PInterface
 from test_framework.test_framework import BitcoinTestFramework
@@ -154,7 +155,7 @@ class CompactFiltersTest(BitcoinTestFramework):
             int(stale_cfcheckpt, 16)
         )
 
-        # Check that peers can fetch cfilters.
+        self.log.info("Check that peers can fetch cfilters.")
         stop_hash = self.nodes[0].getblockhash(10)
         request = msg_getcfilters(
             filter_type=FILTER_TYPE_BASIC,
@@ -166,7 +167,7 @@ class CompactFiltersTest(BitcoinTestFramework):
         response = node0.pop_cfilters()
         assert_equal(len(response), 10)
 
-        # Check that cfilter responses are correct.
+        self.log.info("Check that cfilter responses are correct.")
         for cfilter, cfhash, height in zip(response, main_cfhashes, range(1, 11)):
             block_hash = self.nodes[0].getblockhash(height)
             assert_equal(cfilter.filter_type, FILTER_TYPE_BASIC)
@@ -174,7 +175,7 @@ class CompactFiltersTest(BitcoinTestFramework):
             computed_cfhash = uint256_from_str(hash256(cfilter.filter_data))
             assert_equal(computed_cfhash, cfhash)
 
-        # Check that peers can fetch cfilters for stale blocks.
+        self.log.info("Check that peers can fetch cfilters for stale blocks.")
         stop_hash = self.nodes[0].getblockhash(10)
         request = msg_getcfilters(
             filter_type=FILTER_TYPE_BASIC,
