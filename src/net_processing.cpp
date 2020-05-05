@@ -1970,9 +1970,17 @@ void static ProcessOrphanTx(CConnman* connman, CTxMemPool& mempool, std::set<uin
 }
 
 /**
- * Common validation logic for GETCFILTER, GETCFHEADER, GETCFCHECKPT request handling. If the
- * request is valid and can be serviced, this returns the stop block index and the filter index
- * as out parameters. May disconnect from the peer in the case of a bad request.
+ * Validation logic for compact filters request handling.
+ *
+ * May disconnect from the peer in the case of a bad request.
+ *
+ * @param[in]   pfrom           The peer that we received the request from
+ * @param[in]   chain_params    Chain parameters
+ * @param[in]   filter_type     The filter type the request is for. Must be basic filters.
+ * @param[in]   stop_hash       The stop_hash for the request
+ * @param[out]  stop_index      The CBlockIndex for the stop_hash block, if the request can be serviced.
+ * @param[out]  filter_index    The filter index, if the request can be serviced.
+ * @return                      True if the request can be serviced.
  */
 static bool PrepareBlockFilterRequest(CNode* pfrom, const CChainParams& chain_params,
                                       BlockFilterType filter_type,
@@ -2008,7 +2016,16 @@ static bool PrepareBlockFilterRequest(CNode* pfrom, const CChainParams& chain_pa
     return true;
 }
 
-static bool ProcessGetCFCheckPt(CNode* pfrom, CDataStream& vRecv, const CChainParams& chain_params,
+/**
+ * Handle a cfcheckpt request.
+ *
+ * May disconnect from the peer in the case of a bad request.
+ *
+ * @param[in]   pfrom           The peer that we received the request from
+ * @param[in]   chain_params    Chain parameters
+ * @param[in]   connman         Pointer to the connection manager
+ */
+static void ProcessGetCFCheckPt(CNode* pfrom, CDataStream& vRecv, const CChainParams& chain_params,
                                 CConnman* connman)
 {
     uint8_t filter_type_ser;
@@ -2022,8 +2039,7 @@ static bool ProcessGetCFCheckPt(CNode* pfrom, CDataStream& vRecv, const CChainPa
     BlockFilterIndex* filter_index;
     if (!PrepareBlockFilterRequest(pfrom, chain_params, filter_type, stop_hash,
                                    stop_index, filter_index)) {
-        // Return true because the issue with the invalid request has already been logged.
-        return true;
+        return;
     }
 
     std::vector<uint256> headers(stop_index->nHeight / CFCHECKPT_INTERVAL);
@@ -2036,8 +2052,9 @@ static bool ProcessGetCFCheckPt(CNode* pfrom, CDataStream& vRecv, const CChainPa
 
         // Filter header requested for stale block.
         if (!filter_index->LookupFilterHeader(block_index, headers[i])) {
-            return error("Failed to find block filter header in index: filter_type=%s, block_hash=%s",
+            LogPrint(BCLog::NET, "Failed to find block filter header in index: filter_type=%s, block_hash=%s",
                          BlockFilterTypeName(filter_type), block_index->GetBlockHash().ToString());
+            return;
         }
     }
 
@@ -2047,8 +2064,6 @@ static bool ProcessGetCFCheckPt(CNode* pfrom, CDataStream& vRecv, const CChainPa
               stop_index->GetBlockHash(),
               headers);
     connman->PushMessage(pfrom, std::move(msg));
-
-    return true;
 }
 
 bool ProcessMessage(CNode* pfrom, const std::string& msg_type, CDataStream& vRecv, int64_t nTimeReceived, const CChainParams& chainparams, CTxMemPool& mempool, CConnman* connman, BanMan* banman, const std::atomic<bool>& interruptMsgProc)
@@ -3358,7 +3373,8 @@ bool ProcessMessage(CNode* pfrom, const std::string& msg_type, CDataStream& vRec
     }
 
     if (msg_type == NetMsgType::GETCFCHECKPT) {
-        return ProcessGetCFCheckPt(pfrom, vRecv, chainparams, connman);
+        ProcessGetCFCheckPt(pfrom, vRecv, chainparams, connman);
+        return true;
     }
 
     if (msg_type == NetMsgType::NOTFOUND) {
