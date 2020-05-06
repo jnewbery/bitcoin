@@ -1604,6 +1604,11 @@ void static ProcessGetBlockData(CNode* pfrom, const CChainParams& chainparams, c
     }
 }
 
+/** Process a single GETDATA requests for a transaction. If it's found
+ *  in mapRelay or the mempool, send it immediately and remove it from
+ *  the unbroadcast set. If it's not found, or it's too new to be known
+ *  by the peer, add it to a notfound vector to be sent later.
+ */
 void static ProcessGetTransactionData(CNode* pfrom,
                                       CConnman* connman,
                                       CTxMemPool& mempool,
@@ -1613,36 +1618,31 @@ void static ProcessGetTransactionData(CNode* pfrom,
                                       std::vector<CInv>& vNotFound)
 {
     const CNetMsgMaker msgMaker(pfrom->GetSendVersion());
+    const int nSendFlags = (inv.type == MSG_TX ? SERIALIZE_TRANSACTION_NO_WITNESS : 0);
 
-    // Send stream from relay memory
-    bool push = false;
     auto mi = mapRelay.find(inv.hash);
-    int nSendFlags = (inv.type == MSG_TX ? SERIALIZE_TRANSACTION_NO_WITNESS : 0);
     if (mi != mapRelay.end()) {
+        // Transaction is still in mapRelay. Send it.
         connman->PushMessage(pfrom, msgMaker.Make(nSendFlags, NetMsgType::TX, *mi->second));
-        push = true;
-    } else {
-        auto txinfo = mempool.info(inv.hash);
-        // To protect privacy, do not answer getdata using the mempool when
-        // that TX couldn't have been INVed in reply to a MEMPOOL request,
-        // or when it's too recent to have expired from mapRelay.
-        if (txinfo.tx && (
-             (mempool_req.count() && txinfo.m_time <= mempool_req)
-              || (txinfo.m_time <= longlived_mempool_time)))
-        {
-            connman->PushMessage(pfrom, msgMaker.Make(nSendFlags, NetMsgType::TX, *txinfo.tx));
-            push = true;
-        }
+        mempool.RemoveUnbroadcastTx(inv.hash);
+        return;
     }
 
-    if (push) {
-        // We interpret fulfilling a GETDATA for a transaction as a
-        // successful initial broadcast and remove it from our
-        // unbroadcast set.
+    auto txinfo = mempool.info(inv.hash);
+    // To protect privacy, do not answer getdata using the mempool when
+    // that TX couldn't have been INVed in reply to a MEMPOOL request,
+    // or when it's too recent to have expired from mapRelay.
+    if (txinfo.tx && (
+         (mempool_req.count() && txinfo.m_time <= mempool_req)
+          || (txinfo.m_time <= longlived_mempool_time))) {
+        connman->PushMessage(pfrom, msgMaker.Make(nSendFlags, NetMsgType::TX, *txinfo.tx));
         mempool.RemoveUnbroadcastTx(inv.hash);
-    } else {
-        vNotFound.push_back(inv);
+        return;
     }
+
+    // Transaction was not found in mapRelay or mempool. Add it to vNotFound to
+    // send as a batch in ProcessGetData.
+    vNotFound.push_back(inv);
 }
 
 void static ProcessGetData(CNode* pfrom, const CChainParams& chainparams, CConnman* connman, CTxMemPool& mempool, const std::atomic<bool>& interruptMsgProc) LOCKS_EXCLUDED(cs_main)
