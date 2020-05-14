@@ -2051,6 +2051,8 @@ static void ProcessGetCFCheckPt(CNode* pfrom, CDataStream& vRecv, const CChainPa
         return;
     }
 
+    LogPrint(BCLog::NET, "getcfcheckpt request received, stop_hash=%s\n", stop_hash.ToString());
+
     std::vector<uint256> headers(stop_index->nHeight / CFCHECKPT_INTERVAL);
 
     // Populate headers.
@@ -2065,6 +2067,8 @@ static void ProcessGetCFCheckPt(CNode* pfrom, CDataStream& vRecv, const CChainPa
             return;
         }
     }
+
+    LogPrint(BCLog::NET, "cfcheckpt response constructed, stop_hash=%s\n", stop_hash.ToString());
 
     CSerializedNetMsg msg = CNetMsgMaker(pfrom->GetSendVersion())
         .Make(NetMsgType::CFCHECKPT,
