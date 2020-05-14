@@ -9,6 +9,7 @@ import decimal
 import errno
 from enum import Enum
 import http.client
+import datetime
 import json
 import logging
 import os
@@ -381,6 +382,45 @@ class TestNode():
                 break
             time.sleep(0.05)
         self._raise_assertion_error('Expected messages "{}" does not partially match log:\n\n{}\n\n'.format(str(expected_msgs), print_log))
+
+    @contextlib.contextmanager
+    def debug_log_delta(self, first_msg, second_msg, timeout=30):
+        time_end = time.time() + timeout
+        if self.chain == 'mainnet':
+            chain_dir = ''
+        else:
+            chain_dir = self.chain
+
+        debug_log = os.path.join(self.datadir, chain_dir, 'debug.log')
+        with open(debug_log, encoding='utf-8') as dl:
+            dl.seek(0, 2)
+            prev_size = dl.tell()
+
+        yield
+
+        DEBUG_LOG_TIMESTAMP = "^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2}.\d{6})Z"
+        found_first = False
+
+        while True:
+            with open(debug_log, encoding='utf-8') as dl:
+                dl.seek(prev_size)
+                log = dl.read()
+            print_log = " - " + "\n - ".join(log.splitlines())
+            if not found_first:
+                m = re.search(DEBUG_LOG_TIMESTAMP + ".*" + first_msg + ".*$", log, re.MULTILINE)
+                if m:
+                    time_first = datetime.datetime.strptime(m.groups()[0], "%H:%M:%S.%f")
+                    found_first = True
+            if found_first:
+                m2 = re.search(DEBUG_LOG_TIMESTAMP + ".*" + second_msg + ".*$", log, re.MULTILINE)
+                if m2:
+                    time_second = datetime.datetime.strptime(m2.groups()[0], "%H:%M:%S.%f")
+                    print("{} to {}: {}ms".format(first_msg, second_msg, (time_second - time_first).microseconds / 1000))
+                    return
+            if time.time() >= time_end:
+                break
+            time.sleep(0.05)
+        self._raise_assertion_error('Expected messages "{}" does not partially match log:\n\n{}\n\n'.format(first_msg, print_log))
 
     @contextlib.contextmanager
     def profile_with_perf(self, profile_name):
