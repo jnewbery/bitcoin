@@ -13,6 +13,11 @@
 /** Interval between compact filter checkpoints. See BIP 157. */
 static constexpr int CFCHECKPT_INTERVAL = 1000;
 
+struct FilterHeaderHasher
+{
+    size_t operator()(const uint256& hash) const { return ReadLE64(hash.begin()); }
+};
+
 /**
  * BlockFilterIndex is used to store and retrieve block filters, hashes, and headers for a range of
  * blocks by height. An index is constructed for each supported filter type with its own database
@@ -34,7 +39,7 @@ private:
     size_t WriteFilterToDisk(FlatFilePos& pos, const BlockFilter& filter);
 
     Mutex m_cs_headers_cache;
-    std::map<uint256, uint256> m_headers_cache GUARDED_BY(m_cs_headers_cache);
+    std::unordered_map<uint256, uint256, FilterHeaderHasher> m_headers_cache GUARDED_BY(m_cs_headers_cache);
 
 protected:
     bool Init() override;
