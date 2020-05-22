@@ -629,20 +629,25 @@ public:
     }
 };
 
+enum class DeserializeResult {
+    //* A message has been fully deserialized from the buffer successfully */
+    COMPLETE,
+    //* A message has been partially deserialized from the buffer */
+    PARTIAL,
+    //* The message or header contains an error */
+    ERROR
+};
+
 /** The TransportDeserializer takes care of holding and deserializing the
  * network receive buffer. It can deserialize the network buffer into a
  * transport protocol agnostic CNetMessage (command & payload)
  */
 class TransportDeserializer {
 public:
-    // returns true if the current deserialization is complete
-    virtual bool Complete() const = 0;
     // set the serialization context version
     virtual void SetVersion(int version) = 0;
     // read and deserialize data
-    virtual int Read(const char *data, unsigned int bytes) = 0;
-    // decomposes a message from the context
-    virtual CNetMessage GetMessage(const CMessageHeader::MessageStartChars& message_start, int64_t time) = 0;
+    virtual DeserializeResult Read(const char *data, unsigned int bytes_in, unsigned int& bytes_read, CNetMessage& msg) = 0;
     virtual ~TransportDeserializer() {}
 };
 
@@ -655,12 +660,17 @@ private:
     CDataStream hdrbuf;             // partially received header
     CMessageHeader hdr;             // complete header
     CDataStream vRecv;              // received message data
+    //* Message start bytes */
+    CMessageHeader::MessageStartChars message_start_bytes;
     unsigned int nHdrPos;
     unsigned int nDataPos;
 
     const uint256& GetMessageHash() const;
-    int readHeader(const char *pch, unsigned int nBytes);
-    int readData(const char *pch, unsigned int nBytes);
+    DeserializeResult readHeader(const char *pch, unsigned int bytes_in, unsigned int& bytes_read);
+    DeserializeResult readData(const char *pch, unsigned int bytes_in, unsigned int& bytes_read, CNetMessage& msg);
+
+    // decomposes a message from the context
+    virtual CNetMessage GetMessage() = 0;
 
     void Reset() {
         vRecv.clear();
@@ -675,27 +685,29 @@ private:
 
 public:
 
-    V1TransportDeserializer(const CMessageHeader::MessageStartChars& pchMessageStartIn, int nTypeIn, int nVersionIn) : hdrbuf(nTypeIn, nVersionIn), hdr(pchMessageStartIn), vRecv(nTypeIn, nVersionIn) {
+    V1TransportDeserializer(const CMessageHeader::MessageStartChars& pchMessageStartIn, int nTypeIn, int nVersionIn) :
+        hdrbuf(nTypeIn, nVersionIn), hdr(pchMessageStartIn), vRecv(nTypeIn, nVersionIn) {
+        memcpy(message_start_bytes, pchMessageStartIn, CMessageHeader::MESSAGE_START_SIZE);
         Reset();
     }
 
-    bool Complete() const override
-    {
-        if (!in_data)
-            return false;
-        return (hdr.nMessageSize == nDataPos);
-    }
     void SetVersion(int nVersionIn) override
     {
         hdrbuf.SetVersion(nVersionIn);
         vRecv.SetVersion(nVersionIn);
     }
-    int Read(const char *pch, unsigned int nBytes) override {
-        int ret = in_data ? readData(pch, nBytes) : readHeader(pch, nBytes);
-        if (ret < 0) Reset();
-        return ret;
+    DeserializeResult Read(const char *pch, unsigned int bytes_in,
+                           unsigned int& bytes_read, CNetMessage& msg) override
+    {
+        DeserializeResult result = in_data ?
+                                   readData(pch, bytes_in, bytes_read, msg) :
+                                   readHeader(pch, bytes_in, bytes_read);
+        if (result == DeserializeResult::ERROR) Reset();
+        if (result == DeserializeResult::COMPLETE) {
+            msg = GetMessage();
+        }
+        return result;
     }
-    CNetMessage GetMessage(const CMessageHeader::MessageStartChars& message_start, int64_t time) override;
 };
 
 /** The TransportSerializer prepares messages for the network transport

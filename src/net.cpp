@@ -575,25 +575,30 @@ bool CNode::ReceiveMsgBytes(const char *pch, unsigned int nBytes, bool& complete
     nRecvBytes += nBytes;
     while (nBytes > 0) {
         // absorb network data
-        int handled = m_deserializer->Read(pch, nBytes);
-        if (handled < 0) return false;
+        int handled{0};
+        CNetMessage msg;
+        DeserializeResult result = m_deserializer->Read(pch, nBytes, handled, msg);
+        if (result == DeserializeResult::ERROR) return false;
 
         pch += handled;
         nBytes -= handled;
 
-        if (m_deserializer->Complete()) {
-            // decompose a transport agnostic CNetMessage from the deserializer
-            CNetMessage msg = m_deserializer->GetMessage(Params().MessageStart(), nTimeMicros);
+        if (result == DeserializeResult::COMPLETE) {
+            // Message has been fully deserialized. msg is a valid net message.
 
-            //store received bytes per message command
-            //to prevent a memory DOS, only allow valid commands
+            // store receive time
+            msg.m_time = nTimeMicros;
+
+            // Store received bytes per valid message command (and a total for
+            // all unknown message types)
             mapMsgCmdSize::iterator i = mapRecvBytesPerMsgCmd.find(msg.m_command);
-            if (i == mapRecvBytesPerMsgCmd.end())
+            if (i == mapRecvBytesPerMsgCmd.end()) {
                 i = mapRecvBytesPerMsgCmd.find(NET_MESSAGE_COMMAND_OTHER);
+            }
             assert(i != mapRecvBytesPerMsgCmd.end());
             i->second += msg.m_raw_message_size;
 
-            // push the message to the process queue,
+            // Push the message to the process queue.
             vRecvMsg.push_back(std::move(msg));
 
             complete = true;
@@ -629,53 +634,53 @@ int CNode::GetSendVersion() const
     return nSendVersion;
 }
 
-int V1TransportDeserializer::readHeader(const char *pch, unsigned int nBytes)
+DeserializeResult V1TransportDeserializer::readHeader(const char *pch, unsigned int bytes_in, unsigned int& bytes_read)
 {
     // copy data to temporary parsing buffer
     unsigned int nRemaining = CMessageHeader::HEADER_SIZE - nHdrPos;
-    unsigned int nCopy = std::min(nRemaining, nBytes);
+    unsigned int byte_read = std::min(nRemaining, bytes_in);
 
-    memcpy(&hdrbuf[nHdrPos], pch, nCopy);
-    nHdrPos += nCopy;
+    memcpy(&hdrbuf[nHdrPos], pch, byte_read);
+    nHdrPos += byte_read;
 
     // if header incomplete, exit
     if (nHdrPos < CMessageHeader::HEADER_SIZE)
-        return nCopy;
+        return DeserializeResult::PARTIAL;
 
     // deserialize to CMessageHeader
     try {
         hdrbuf >> hdr;
     }
     catch (const std::exception&) {
-        return -1;
+        return DeserializeResult::ERROR;
     }
 
     // reject messages larger than MAX_SIZE or MAX_PROTOCOL_MESSAGE_LENGTH
     if (hdr.nMessageSize > MAX_SIZE || hdr.nMessageSize > MAX_PROTOCOL_MESSAGE_LENGTH) {
-        return -1;
+        return DeserializeResult::ERROR;
     }
 
     // switch state to reading message data
     in_data = true;
 
-    return nCopy;
+    return DeserializeResult::PARTIAL;
 }
 
-int V1TransportDeserializer::readData(const char *pch, unsigned int nBytes)
+DeserializeResult V1TransportDeserializer::readData(const char *pch, unsigned int bytes_in, unsigned int& bytes_read)
 {
     unsigned int nRemaining = hdr.nMessageSize - nDataPos;
-    unsigned int nCopy = std::min(nRemaining, nBytes);
+    unsigned int bytes_read = std::min(nRemaining, bytes_in);
 
-    if (vRecv.size() < nDataPos + nCopy) {
+    if (vRecv.size() < nDataPos + bytes_read) {
         // Allocate up to 256 KiB ahead, but never more than the total message size.
-        vRecv.resize(std::min(hdr.nMessageSize, nDataPos + nCopy + 256 * 1024));
+        vRecv.resize(std::min(hdr.nMessageSize, nDataPos + bytes_read + 256 * 1024));
     }
 
-    hasher.Write((const unsigned char*)pch, nCopy);
-    memcpy(&vRecv[nDataPos], pch, nCopy);
-    nDataPos += nCopy;
+    hasher.Write((const unsigned char*)pch, bytes_read);
+    memcpy(&vRecv[nDataPos], pch, bytes_read);
+    nDataPos += bytes_read;
 
-    return nCopy;
+    return nDataPos == hdr.nMessageSize ? DeserializeResult::COMPLETE : DeserializeResult::PARTIAL;
 }
 
 const uint256& V1TransportDeserializer::GetMessageHash() const
@@ -686,13 +691,13 @@ const uint256& V1TransportDeserializer::GetMessageHash() const
     return data_hash;
 }
 
-CNetMessage V1TransportDeserializer::GetMessage(const CMessageHeader::MessageStartChars& message_start, int64_t time) {
+CNetMessage V1TransportDeserializer::GetMessage() {
     // decompose a single CNetMessage from the TransportDeserializer
     CNetMessage msg(std::move(vRecv));
 
     // store state about valid header, netmagic and checksum
     msg.m_valid_header = hdr.IsValid(message_start);
-    msg.m_valid_netmagic = (memcmp(hdr.pchMessageStart, message_start, CMessageHeader::MESSAGE_START_SIZE) == 0);
+    msg.m_valid_netmagic = (memcmp(hdr.pchMessageStart, message_start_bytes, CMessageHeader::MESSAGE_START_SIZE) == 0);
     uint256 hash = GetMessageHash();
 
     // store command string, payload size
@@ -710,9 +715,6 @@ CNetMessage V1TransportDeserializer::GetMessage(const CMessageHeader::MessageSta
                  HexStr(hash.begin(), hash.begin()+CMessageHeader::CHECKSUM_SIZE),
                  HexStr(hdr.pchChecksum, hdr.pchChecksum+CMessageHeader::CHECKSUM_SIZE));
     }
-
-    // store receive time
-    msg.m_time = time;
 
     // reset the network deserializer (prepare for the next message)
     Reset();
