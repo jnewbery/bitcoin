@@ -68,13 +68,12 @@ void BanMan::ClearBanned()
     if (m_client_interface) m_client_interface->BannedListChanged();
 }
 
-int BanMan::IsBannedLevel(CNetAddr net_addr)
+int BanMan::IsBannedLevel(const CNetAddr& net_addr)
 {
     // Returns the most severe level of banning that applies to this address.
     // 0 - Not banned
-    // 1 - Automatic misbehavior ban
+    // 1 - Discouraged because of misbehavior
     // 2 - Any other ban
-    int level = 0;
     auto current_time = GetTime();
     LOCK(m_cs_banned);
     for (const auto& it : m_banned) {
@@ -82,14 +81,13 @@ int BanMan::IsBannedLevel(CNetAddr net_addr)
         CBanEntry ban_entry = it.second;
 
         if (current_time < ban_entry.nBanUntil && sub_net.Match(net_addr)) {
-            if (ban_entry.banReason != BanReasonNodeMisbehaving) return 2;
-            level = 1;
+            return 2;
         }
     }
-    return level;
+    return m_discouraged.contains(net_addr.GetAddrBytes()) ? 1 : 0;
 }
 
-bool BanMan::IsBanned(CNetAddr net_addr)
+bool BanMan::IsBanned(const CNetAddr& net_addr)
 {
     auto current_time = GetTime();
     LOCK(m_cs_banned);
@@ -104,7 +102,16 @@ bool BanMan::IsBanned(CNetAddr net_addr)
     return false;
 }
 
-bool BanMan::IsBanned(CSubNet sub_net)
+bool BanMan::IsBannedOrDiscouraged(const CNetAddr& net_addr)
+{
+    {
+        LOCK(m_cs_banned);
+        if (m_discouraged.contains(net_addr.GetAddrBytes())) return true;
+    }
+    return IsBanned(net_addr);
+}
+
+bool BanMan::IsBanned(const CSubNet& sub_net)
 {
     auto current_time = GetTime();
     LOCK(m_cs_banned);
@@ -122,6 +129,12 @@ void BanMan::Ban(const CNetAddr& net_addr, const BanReason& ban_reason, int64_t 
 {
     CSubNet sub_net(net_addr);
     Ban(sub_net, ban_reason, ban_time_offset, since_unix_epoch);
+}
+
+void BanMan::Discourage(const CNetAddr& net_addr)
+{
+    LOCK(m_cs_banned);
+    m_discouraged.insert(net_addr.GetAddrBytes());
 }
 
 void BanMan::Ban(const CSubNet& sub_net, const BanReason& ban_reason, int64_t ban_time_offset, bool since_unix_epoch)

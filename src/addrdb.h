@@ -20,7 +20,7 @@ class CDataStream;
 typedef enum BanReason
 {
     BanReasonUnknown          = 0,
-    BanReasonNodeMisbehaving  = 1,
+    BanReasonNodeMisbehaving  = 1, //!< Only for backward compatibility; superseded by discouragement
     BanReasonManuallyAdded    = 2
 } BanReason;
 
