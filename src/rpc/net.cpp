@@ -555,7 +555,8 @@ static UniValue getnetworkinfo(const JSONRPCRequest& request)
 static UniValue setban(const JSONRPCRequest& request)
 {
     const RPCHelpMan help{"setban",
-                "\nAttempts to add or remove an IP/Subnet from the banned list.\n",
+                "\nAttempts to add or remove an IP/Subnet from the banned list.\n"
+                "Peers that are automatically banned cannot be unbanned.\n",
                 {
                     {"subnet", RPCArg::Type::STR, RPCArg::Optional::NO, "The IP/Subnet (see getpeerinfo for nodes IP) with an optional netmask (default is /32 = single IP)"},
                     {"command", RPCArg::Type::STR, RPCArg::Optional::NO, "'add' to add an IP/Subnet to the list, 'remove' to remove an IP/Subnet from the list"},
@@ -600,7 +601,8 @@ static UniValue setban(const JSONRPCRequest& request)
 
     if (strCommand == "add")
     {
-        if (isSubnet ? node.banman->IsBanned(subNet) : node.banman->IsBanned(netAddr)) {
+        if ((isSubnet && node.banman->IsBanned(subNet)) ||
+            (!isSubnet && node.banman->IsBannedLevel(netAddr) == BanReasonManuallyAdded)) {
             throw JSONRPCError(RPC_CLIENT_NODE_ALREADY_ADDED, "Error: IP/Subnet already banned");
         }
 
@@ -627,7 +629,7 @@ static UniValue setban(const JSONRPCRequest& request)
     else if(strCommand == "remove")
     {
         if (!( isSubnet ? node.banman->Unban(subNet) : node.banman->Unban(netAddr) )) {
-            throw JSONRPCError(RPC_CLIENT_INVALID_IP_OR_SUBNET, "Error: Unban failed. Requested address/subnet was not previously banned.");
+            throw JSONRPCError(RPC_CLIENT_INVALID_IP_OR_SUBNET, "Error: Unban failed. Requested address/subnet was not previously manually banned.");
         }
     }
     return NullUniValue;
@@ -636,7 +638,7 @@ static UniValue setban(const JSONRPCRequest& request)
 static UniValue listbanned(const JSONRPCRequest& request)
 {
             RPCHelpMan{"listbanned",
-                "\nList all banned IPs/Subnets.\n",
+                "\nList all manually banned IPs/Subnets.\n",
                 {},
         RPCResult{RPCResult::Type::ARR, "", "",
             {
@@ -670,7 +672,6 @@ static UniValue listbanned(const JSONRPCRequest& request)
         rec.pushKV("address", entry.first.ToString());
         rec.pushKV("banned_until", banEntry.nBanUntil);
         rec.pushKV("ban_created", banEntry.nCreateTime);
-        rec.pushKV("ban_reason", banEntry.banReasonToString());
 
         bannedAddresses.push_back(rec);
     }

@@ -46,19 +46,15 @@ public:
     BanMan(fs::path ban_file, CClientUIInterface* client_interface, int64_t default_ban_time);
     void Ban(const CNetAddr& net_addr, const BanReason& ban_reason, int64_t ban_time_offset = 0, bool since_unix_epoch = false);
     void Ban(const CSubNet& sub_net, const BanReason& ban_reason, int64_t ban_time_offset = 0, bool since_unix_epoch = false);
-    void Discourage(const CNetAddr& net_addr);
     void ClearBanned();
 
-    //! Return 0 for not banned; 1 for discouraged; 2 for explicitly banned
+    //! Return 0 for not banned; 1 for automatically banned; 2 for manually banned
     int IsBannedLevel(const CNetAddr& net_addr);
 
     //! Return whether net_addr is banned
     bool IsBanned(const CNetAddr& net_addr);
 
-    //! Return whether net_addr is banned or discouraged.
-    bool IsBannedOrDiscouraged(const CNetAddr& net_addr);
-
-    //! Return whether sub_net is explicitly banned
+    //! Return whether sub_net is manually banned (a subnet cannot be automatically banned)
     bool IsBanned(const CSubNet& sub_net);
 
     bool Unban(const CNetAddr& net_addr);
@@ -80,7 +76,15 @@ private:
     CClientUIInterface* m_client_interface = nullptr;
     CBanDB m_ban_db;
     const int64_t m_default_ban_time;
-    CRollingBloomFilter m_discouraged GUARDED_BY(m_cs_banned) {50000, 0.000001};
+    /** Individual addresses can be automatically banned for misbehaviour (see Misbehaving() in
+     *  in net_processing. We will allow incoming connections from automatically banned addresses,
+     *  but prefer them for eviction. We will never make outgoing connections to automatically
+     *  banned peers.
+     *
+     *  This is implemented as a bloom filter. We can (probabilistically) test for membership,
+     *  but can't list or unban automatically banned peers.
+     */
+    CRollingBloomFilter m_automatically_banned GUARDED_BY(m_cs_banned) {50000, 0.000001};
 };
 
 #endif

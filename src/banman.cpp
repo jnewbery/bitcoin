@@ -61,6 +61,7 @@ void BanMan::ClearBanned()
 {
     {
         LOCK(m_cs_banned);
+        m_automatically_banned.reset();
         m_banned.clear();
         m_is_dirty = true;
     }
@@ -72,7 +73,7 @@ int BanMan::IsBannedLevel(const CNetAddr& net_addr)
 {
     // Returns the most severe level of banning that applies to this address.
     // 0 - Not banned
-    // 1 - Discouraged because of misbehavior
+    // 1 - Automatic misbehavior ban
     // 2 - Any other ban
     auto current_time = GetTime();
     LOCK(m_cs_banned);
@@ -84,13 +85,14 @@ int BanMan::IsBannedLevel(const CNetAddr& net_addr)
             return 2;
         }
     }
-    return m_discouraged.contains(net_addr.GetAddrBytes()) ? 1 : 0;
+    return m_automatically_banned.contains(net_addr.GetAddrBytes()) ? 1 : 0;
 }
 
 bool BanMan::IsBanned(const CNetAddr& net_addr)
 {
     auto current_time = GetTime();
     LOCK(m_cs_banned);
+    if (m_automatically_banned.contains(net_addr.GetAddrBytes())) return true;
     for (const auto& it : m_banned) {
         CSubNet sub_net = it.first;
         CBanEntry ban_entry = it.second;
@@ -100,15 +102,6 @@ bool BanMan::IsBanned(const CNetAddr& net_addr)
         }
     }
     return false;
-}
-
-bool BanMan::IsBannedOrDiscouraged(const CNetAddr& net_addr)
-{
-    {
-        LOCK(m_cs_banned);
-        if (m_discouraged.contains(net_addr.GetAddrBytes())) return true;
-    }
-    return IsBanned(net_addr);
 }
 
 bool BanMan::IsBanned(const CSubNet& sub_net)
@@ -127,14 +120,13 @@ bool BanMan::IsBanned(const CSubNet& sub_net)
 
 void BanMan::Ban(const CNetAddr& net_addr, const BanReason& ban_reason, int64_t ban_time_offset, bool since_unix_epoch)
 {
+    if (ban_reason == BanReasonNodeMisbehaving) {
+        LOCK(m_cs_banned);
+        m_automatically_banned.insert(net_addr.GetAddrBytes());
+        return;
+    }
     CSubNet sub_net(net_addr);
     Ban(sub_net, ban_reason, ban_time_offset, since_unix_epoch);
-}
-
-void BanMan::Discourage(const CNetAddr& net_addr)
-{
-    LOCK(m_cs_banned);
-    m_discouraged.insert(net_addr.GetAddrBytes());
 }
 
 void BanMan::Ban(const CSubNet& sub_net, const BanReason& ban_reason, int64_t ban_time_offset, bool since_unix_epoch)
