@@ -24,14 +24,14 @@ enum NetPermissionFlags
     // Always relay transactions from this peer, even if already in mempool
     // Keep parameter interaction: forcerelay implies relay
     PF_FORCERELAY = (1U << 2) | PF_RELAY,
-    // Can't be banned for misbehavior
-    PF_NOBAN = (1U << 4),
+    // Can't be disconnected/discouraged for misbehavior
+    PF_NODISCOURAGE = (1U << 4),
     // Can query the mempool
     PF_MEMPOOL = (1U << 5),
 
     // True if the user did not specifically set fine grained permissions
     PF_ISIMPLICIT = (1U << 31),
-    PF_ALL = PF_BLOOMFILTER | PF_FORCERELAY | PF_RELAY | PF_NOBAN | PF_MEMPOOL,
+    PF_ALL = PF_BLOOMFILTER | PF_FORCERELAY | PF_RELAY | PF_NODISCOURAGE | PF_MEMPOOL,
 };
 
 class NetPermissions

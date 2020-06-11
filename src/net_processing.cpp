@@ -252,8 +252,8 @@ struct CNodeState {
     bool fCurrentlyConnected;
     //! Accumulated misbehaviour score for this peer.
     int nMisbehavior;
-    //! Whether this peer should be disconnected and banned (unless whitelisted).
-    bool fShouldBan;
+    //! Whether this peer should be disconnected and marked as discouraged (unless whitelisted with noban).
+    bool m_should_discourage;
     //! String name of this peer (debugging/logging purposes).
     const std::string name;
     //! The best known block we know this peer has announced.
@@ -404,7 +404,7 @@ struct CNodeState {
     {
         fCurrentlyConnected = false;
         nMisbehavior = 0;
-        fShouldBan = false;
+        m_should_discourage = false;
         pindexBestKnownBlock = nullptr;
         hashLastUnknownBlock.SetNull();
         pindexLastCommonBlock = nullptr;
@@ -446,7 +446,7 @@ static void UpdatePreferredDownload(const CNode& node, CNodeState* state) EXCLUS
     nPreferredDownload -= state->fPreferredDownload;
 
     // Whether this node should be marked as a preferred download node.
-    state->fPreferredDownload = (!node.fInbound || node.HasPermission(PF_NOBAN)) && !node.fOneShot && !node.fClient;
+    state->fPreferredDownload = (!node.fInbound || node.HasPermission(PF_NODISCOURAGE)) && !node.fOneShot && !node.fClient;
 
     nPreferredDownload += state->fPreferredDownload;
 }
@@ -1019,7 +1019,7 @@ unsigned int LimitOrphanTxSize(unsigned int nMaxOrphans)
 }
 
 /**
- * Mark a misbehaving peer to be banned depending upon the value of `-banscore`.
+ * Mark a misbehaving peer to be discouraged depending upon the value of `-banscore`.
  */
 void Misbehaving(NodeId pnode, int howmuch, const std::string& message) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
@@ -1035,14 +1035,14 @@ void Misbehaving(NodeId pnode, int howmuch, const std::string& message) EXCLUSIV
     std::string message_prefixed = message.empty() ? "" : (": " + message);
     if (state->nMisbehavior >= banscore && state->nMisbehavior - howmuch < banscore)
     {
-        LogPrint(BCLog::NET, "%s: %s peer=%d (%d -> %d) BAN THRESHOLD EXCEEDED%s\n", __func__, state->name, pnode, state->nMisbehavior-howmuch, state->nMisbehavior, message_prefixed);
-        state->fShouldBan = true;
+        LogPrint(BCLog::NET, "%s: %s peer=%d (%d -> %d) DISCOURAGE THRESHOLD EXCEEDED%s\n", __func__, state->name, pnode, state->nMisbehavior-howmuch, state->nMisbehavior, message_prefixed);
+        state->m_should_discourage = true;
     } else
         LogPrint(BCLog::NET, "%s: %s peer=%d (%d -> %d)%s\n", __func__, state->name, pnode, state->nMisbehavior-howmuch, state->nMisbehavior, message_prefixed);
 }
 
 /**
- * Potentially ban a node based on the contents of a BlockValidationState object
+ * Potentially mark a node discouraged based on the contents of a BlockValidationState object
  *
  * @param[in] via_compact_block this bool is passed in because net_processing should
  * punish peers differently depending on whether the data was provided in a compact
@@ -1072,7 +1072,7 @@ static bool MaybePunishNodeForBlock(NodeId nodeid, const BlockValidationState& s
                 break;
             }
 
-            // Ban outbound (but not inbound) peers if on an invalid chain.
+            // Discourage outbound (but not inbound) peers if on an invalid chain.
             // Exempt HB compact block peers and manual connections.
             if (!via_compact_block && !node_state->m_is_inbound && !node_state->m_is_manual_connection) {
                 Misbehaving(nodeid, 100, message);
@@ -1107,7 +1107,7 @@ static bool MaybePunishNodeForBlock(NodeId nodeid, const BlockValidationState& s
 }
 
 /**
- * Potentially ban a node based on the contents of a TxValidationState object
+ * Potentially disconnect and discourage a node based on the contents of a TxValidationState object
  *
  * @return Returns true if the peer was punished (probably disconnected)
  */
@@ -1339,7 +1339,7 @@ void PeerLogicValidation::UpdatedBlockTip(const CBlockIndex *pindexNew, const CB
 }
 
 /**
- * Handle invalid block rejection and consequent peer banning, maintain which
+ * Handle invalid block rejection and consequent peer discouragement, maintain which
  * peers announce compact blocks.
  */
 void PeerLogicValidation::BlockChecked(const CBlock& block, const BlockValidationState& state) {
@@ -1512,7 +1512,7 @@ void static ProcessGetBlockData(CNode& pfrom, const CChainParams& chainparams, c
     if (send &&
         connman->OutboundTargetReached(true) &&
         (((pindexBestHeader != nullptr) && (pindexBestHeader->GetBlockTime() - pindex->GetBlockTime() > HISTORICAL_BLOCK_AGE)) || inv.type == MSG_FILTERED_BLOCK) &&
-        !pfrom.HasPermission(PF_NOBAN) // never disconnect nodes with the noban permission
+        !pfrom.HasPermission(PF_NODISCOURAGE) // never disconnect nodes with the noban permission
     ) {
         LogPrint(BCLog::NET, "historical block serving limit reached, disconnect peer=%d\n", pfrom.GetId());
 
@@ -1521,7 +1521,7 @@ void static ProcessGetBlockData(CNode& pfrom, const CChainParams& chainparams, c
         send = false;
     }
     // Avoid leaking prune-height by never sending blocks below the NODE_NETWORK_LIMITED threshold
-    if (send && !pfrom.HasPermission(PF_NOBAN) && (
+    if (send && !pfrom.HasPermission(PF_NODISCOURAGE) && (
             (((pfrom.GetLocalServices() & NODE_NETWORK_LIMITED) == NODE_NETWORK_LIMITED) && ((pfrom.GetLocalServices() & NODE_NETWORK) != NODE_NETWORK) && (::ChainActive().Tip()->nHeight - pindex->nHeight > (int)NODE_NETWORK_LIMITED_MIN_BLOCKS + 2 /* add two blocks buffer extension for possible races */) )
        )) {
         LogPrint(BCLog::NET, "Ignore block request below NODE_NETWORK_LIMITED threshold from peer=%d\n", pfrom.GetId());
@@ -2746,7 +2746,7 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
         }
 
         LOCK(cs_main);
-        if (::ChainstateActive().IsInitialBlockDownload() && !pfrom.HasPermission(PF_NOBAN)) {
+        if (::ChainstateActive().IsInitialBlockDownload() && !pfrom.HasPermission(PF_NODISCOURAGE)) {
             LogPrint(BCLog::NET, "Ignoring getheaders from peer=%d because node is in initial block download\n", pfrom.GetId());
             return true;
         }
@@ -3124,7 +3124,7 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
             // relayed before full validation (see BIP 152), so we don't want to disconnect
             // the peer if the header turns out to be for an invalid block.
             // Note that if a peer tries to build on an invalid chain, that
-            // will be detected and the peer will be banned.
+            // will be detected and the peer will be disconnected/discouraged.
             return ProcessHeadersMessage(pfrom, connman, chainman, mempool, {cmpctblock.header}, chainparams, /*via_compact_block=*/true);
         }
 
@@ -3210,7 +3210,7 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
                 // 3. the block is otherwise invalid (eg invalid coinbase,
                 //    block is too big, too many legacy sigops, etc).
                 // So if CheckBlock failed, #3 is the only possibility.
-                // Under BIP 152, we don't DoS-ban unless proof of work is
+                // Under BIP 152, we don't discourage the peer unless proof of work is
                 // invalid (we don't require all the stateless checks to have
                 // been run).  This is handled below, so just treat this as
                 // though the block was successfully read, and rely on the
@@ -3345,7 +3345,7 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
     if (msg_type == NetMsgType::MEMPOOL) {
         if (!(pfrom.GetLocalServices() & NODE_BLOOM) && !pfrom.HasPermission(PF_MEMPOOL))
         {
-            if (!pfrom.HasPermission(PF_NOBAN))
+            if (!pfrom.HasPermission(PF_NODISCOURAGE))
             {
                 LogPrint(BCLog::NET, "mempool request with bloom filters disabled, disconnect peer=%d\n", pfrom.GetId());
                 pfrom.fDisconnect = true;
@@ -3355,7 +3355,7 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
 
         if (connman->OutboundTargetReached(false) && !pfrom.HasPermission(PF_MEMPOOL))
         {
-            if (!pfrom.HasPermission(PF_NOBAN))
+            if (!pfrom.HasPermission(PF_NODISCOURAGE))
             {
                 LogPrint(BCLog::NET, "mempool request with bandwidth limit reached, disconnect peer=%d\n", pfrom.GetId());
                 pfrom.fDisconnect = true;
@@ -3560,19 +3560,19 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
     return true;
 }
 
-bool PeerLogicValidation::CheckIfBanned(CNode& pnode)
+bool PeerLogicValidation::CheckIfShouldDiscourage(CNode& pnode)
 {
     AssertLockHeld(cs_main);
     CNodeState &state = *State(pnode.GetId());
 
-    if (state.fShouldBan) {
-        state.fShouldBan = false;
-        if (pnode.HasPermission(PF_NOBAN))
+    if (state.m_should_discourage) {
+        state.m_should_discourage = false;
+        if (pnode.HasPermission(PF_NODISCOURAGE))
             LogPrintf("Warning: not punishing whitelisted peer %s!\n", pnode.addr.ToString());
         else if (pnode.m_manual_connection)
             LogPrintf("Warning: not punishing manually-connected peer %s!\n", pnode.addr.ToString());
         else if (pnode.addr.IsLocal()) {
-            // Disconnect but don't ban _this_ local node
+            // Disconnect but don't discourage this local node
             LogPrintf("Warning: disconnecting but not discouraging local peer %s!\n", pnode.addr.ToString());
             pnode.fDisconnect = true;
         } else {
@@ -3685,7 +3685,7 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
     }
 
     LOCK(cs_main);
-    CheckIfBanned(*pfrom);
+    CheckIfShouldDiscourage(*pfrom);
 
     return fMoreWork;
 }
@@ -3888,7 +3888,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         if (!lockMain)
             return true;
 
-        if (CheckIfBanned(*pto)) return true;
+        if (CheckIfShouldDiscourage(*pto)) return true;
 
         CNodeState &state = *State(pto->GetId());
 
@@ -4116,7 +4116,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
             if (pto->m_tx_relay != nullptr) {
                 LOCK(pto->m_tx_relay->cs_tx_inventory);
                 // Check whether periodic sends should happen
-                bool fSendTrickle = pto->HasPermission(PF_NOBAN);
+                bool fSendTrickle = pto->HasPermission(PF_NODISCOURAGE);
                 if (pto->m_tx_relay->nNextInvSend < current_time) {
                     fSendTrickle = true;
                     if (pto->fInbound) {
@@ -4274,7 +4274,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
                     // Note: If all our peers are inbound, then we won't
                     // disconnect our sync peer for stalling; we have bigger
                     // problems if we can't get any outbound peers.
-                    if (!pto->HasPermission(PF_NOBAN)) {
+                    if (!pto->HasPermission(PF_NODISCOURAGE)) {
                         LogPrintf("Timeout downloading headers from peer=%d, disconnecting\n", pto->GetId());
                         pto->fDisconnect = true;
                         return true;

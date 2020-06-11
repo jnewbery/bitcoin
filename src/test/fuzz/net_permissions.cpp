@@ -22,7 +22,7 @@ void test_one_input(const std::vector<uint8_t>& buffer)
                                                                                              NetPermissionFlags::PF_BLOOMFILTER,
                                                                                              NetPermissionFlags::PF_RELAY,
                                                                                              NetPermissionFlags::PF_FORCERELAY,
-                                                                                             NetPermissionFlags::PF_NOBAN,
+                                                                                             NetPermissionFlags::PF_NODISCOURAGE,
                                                                                              NetPermissionFlags::PF_MEMPOOL,
                                                                                              NetPermissionFlags::PF_ISIMPLICIT,
                                                                                              NetPermissionFlags::PF_ALL,

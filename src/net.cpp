@@ -868,7 +868,7 @@ bool CConnman::AttemptToEvictConnection()
         LOCK(cs_vNodes);
 
         for (const CNode* node : vNodes) {
-            if (node->HasPermission(PF_NOBAN))
+            if (node->HasPermission(PF_NODISCOURAGE))
                 continue;
             if (!node->fInbound)
                 continue;
@@ -974,7 +974,7 @@ void CConnman::AcceptConnection(const ListenSocket& hListenSocket) {
         if (gArgs.GetBoolArg("-whitelistforcerelay", DEFAULT_WHITELISTFORCERELAY)) NetPermissions::AddFlag(permissionFlags, PF_FORCERELAY);
         if (gArgs.GetBoolArg("-whitelistrelay", DEFAULT_WHITELISTRELAY)) NetPermissions::AddFlag(permissionFlags, PF_RELAY);
         NetPermissions::AddFlag(permissionFlags, PF_MEMPOOL);
-        NetPermissions::AddFlag(permissionFlags, PF_NOBAN);
+        NetPermissions::AddFlag(permissionFlags, PF_NODISCOURAGE);
         legacyWhitelisted = true;
     }
 
@@ -1013,11 +1013,11 @@ void CConnman::AcceptConnection(const ListenSocket& hListenSocket) {
     bool discouraged = m_banman && m_banman->IsDiscouraged(addr);
     bool banned = m_banman && m_banman->IsBanned(addr);
 
-    // Don't accept connections from banned peers, but if our inbound slots aren't almost full, accept
-    // if the only banning reason was an automatic misbehavior ban.
-    if (!NetPermissions::HasFlag(permissionFlags, NetPermissionFlags::PF_NOBAN) && (banned || (discouraged && nInbound + 1 < nMaxInbound)))
+    // Don't accept connections from banned peers.
+    // If our inbound slots aren't almost full, accept connections from discouraged peers.
+    if (!NetPermissions::HasFlag(permissionFlags, NetPermissionFlags::PF_NODISCOURAGE) && (banned || (discouraged && nInbound + 1 < nMaxInbound)))
     {
-        LogPrint(BCLog::NET, "connection from %s dropped (banned)\n", addr.ToString());
+        LogPrint(BCLog::NET, "connection from %s dropped (banned or discouraged)\n", addr.ToString());
         CloseSocket(hSocket);
         return;
     }
@@ -2189,7 +2189,7 @@ bool CConnman::BindListenPort(const CService& addrBind, bilingual_str& strError,
 
     vhListenSocket.push_back(ListenSocket(hListenSocket, permissions));
 
-    if (addrBind.IsRoutable() && fDiscover && (permissions & PF_NOBAN) == 0)
+    if (addrBind.IsRoutable() && fDiscover && (permissions & PF_NODISCOURAGE) == 0)
         AddLocal(addrBind, LOCAL_BIND);
 
     return true;

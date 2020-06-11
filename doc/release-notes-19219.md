@@ -1,20 +1,20 @@
-#### Change in automatic banning
+#### Change in banning behaviour
 
-Automatic banning of peers for bad behavior has been slightly altered:
+Peers that misbehave (eg send us invalid blocks) are now referred to as
+discouraged nodes in log output, as they're not (and weren't) strictly banned:
+incoming connections are still allowed from them, but they're preferred for
+eviction. There are some small changes to our treatment of discouraged
+addresses:
 
-- automatic bans will no longer time out automatically after 24 hours.
-  Depending on traffic from other peers, automatic bans may time out at an
+- Discouraging an address does not time out automatically after 24 hours.
+  Depending on traffic from other peers, discouragement may time out at an
   indeterminate time.
 
-- automatic bans will no longer be persisted over restarts. Only manual bans
-  will be persisted.
+- Discouragement is not persisted over restarts.
 
-- automatic bans will no longer be returned by the `listbanned` RPC.
+- There is no method to list discouraged addresses. They are not returned by
+  the `listbanned` RPC.
 
-- automatic bans can no longer be lifted with the `setban remove` RPC command.
-  If you need to remove an automatic ban, you can clear all bans (including
-  manual bans) with the `clearbanned` RPC, or stop-start to clear automatic bans.
-
-- automatic bans are now referred to as discouraged nodes in log output, as
-  they're not (and weren't) strictly banned: incoming connections are still
-  allowed from them, but they're preferred for eviction.
+- Discouragement cannot be removed with the `setban remove` RPC command.
+  If you need to remove a discouragement, you can remove all discouragements by
+  stop-starting your node.
