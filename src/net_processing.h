@@ -31,7 +31,7 @@ private:
     ChainstateManager& m_chainman;
     CTxMemPool& m_mempool;
 
-    bool CheckIfShouldDiscourage(CNode& pnode) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+    bool CheckIfShouldDiscourage(CNode& pnode);
 
 public:
     PeerLogicValidation(CConnman* connman, BanMan* banman, CScheduler& scheduler, ChainstateManager& chainman, CTxMemPool& pool);

@@ -3558,7 +3558,7 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
 
 bool PeerLogicValidation::CheckIfShouldDiscourage(CNode& pnode)
 {
-    AssertLockHeld(cs_main);
+    LOCK(cs_main);
     CNodeState &state = *State(pnode.GetId());
 
     if (state.m_should_discourage) {
@@ -3842,6 +3842,8 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
 {
     const Consensus::Params& consensusParams = Params().GetConsensus();
 
+    if (CheckIfShouldDiscourage(*pto)) return true;
+
     // Don't send anything until the version handshake is complete
     if (!pto->fSuccessfullyConnected || pto->fDisconnect)
         return true;
@@ -3880,8 +3882,6 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
 
     {
         LOCK(cs_main);
-
-        if (CheckIfShouldDiscourage(*pto)) return true;
 
         CNodeState &state = *State(pto->GetId());
 
