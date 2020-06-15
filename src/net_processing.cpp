@@ -3556,32 +3556,45 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
     return true;
 }
 
+/** Check whether we should disconnect a peer and discourage future connections from its address.
+ *
+ * @param[in]   pnode           The node to check.
+ * @return                      True if the peer will be disconnected.
+ */
 bool PeerLogicValidation::CheckIfShouldDiscourage(CNode& pnode)
 {
-    LOCK(cs_main);
-    CNodeState &state = *State(pnode.GetId());
+    {
+        LOCK(cs_main);
+        CNodeState &state = *State(pnode.GetId());
 
-    if (state.m_should_discourage) {
+        // There's nothing to do if the ShouldBan flag isn't set
+        if (!state.m_should_discourage) return false;
+
+        // Reset ShouldBan flag
         state.m_should_discourage = false;
-        if (pnode.HasPermission(PF_NOBAN)) {
-            LogPrintf("Warning: not punishing whitelisted peer %s!\n", pnode.addr.ToString());
-        } else if (pnode.m_manual_connection) {
-            LogPrintf("Warning: not punishing manually-connected peer %s!\n", pnode.addr.ToString());
-        } else if (pnode.addr.IsLocal()) {
-            // Disconnect but don't discourage this local node
-            LogPrintf("Warning: disconnecting but not discouraging local peer %s!\n", pnode.addr.ToString());
-            pnode.fDisconnect = true;
-        } else {
-            // Disconnect and discourage all nodes sharing the address
-            LogPrintf("Disconnecting and discouraging peer %s!\n", pnode.addr.ToString());
-            if (m_banman) {
-                m_banman->Discourage(pnode.addr);
-            }
-            connman->DisconnectNode(pnode.addr);
+    } // cs_main
+
+    if (pnode.HasPermission(PF_NOBAN)) {
+        // Log but don't disconnect
+        LogPrintf("Warning: not punishing whitelisted peer %s!\n", pnode.addr.ToString());
+        return false;
+    } else if (pnode.m_manual_connection) {
+        // Log but don't disconnect
+        LogPrintf("Warning: not punishing manually-connected peer %s!\n", pnode.addr.ToString());
+        return false;
+    } else if (pnode.addr.IsLocal()) {
+        // Disconnect but don't discourage this local node
+        LogPrintf("Warning: disconnecting but not discouraging local peer %s!\n", pnode.addr.ToString());
+        pnode.fDisconnect = true;
+        return true;
+    } else {
+        // Disconnect and discourage all nodes sharing the address
+        if (m_banman) {
+            m_banman->Discourage(pnode.addr);
         }
+        connman->DisconnectNode(pnode.addr);
         return true;
     }
-    return false;
 }
 
 bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& interruptMsgProc)
