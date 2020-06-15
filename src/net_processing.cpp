@@ -3844,7 +3844,7 @@ public:
 bool PeerLogicValidation::SendMessages(CNode* pto)
 {
     const Consensus::Params& consensusParams = Params().GetConsensus();
-    {
+
         // Don't send anything until the version handshake is complete
         if (!pto->fSuccessfullyConnected || pto->fDisconnect)
             return true;
@@ -3881,9 +3881,8 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
             }
         }
 
-        TRY_LOCK(cs_main, lockMain);
-        if (!lockMain)
-            return true;
+    {
+        LOCK(cs_main);
 
         if (CheckIfShouldDiscourage(*pto)) return true;
 
@@ -4411,7 +4410,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
                 pto->m_tx_relay->nextSendTimeFeeFilter = timeNow + GetRandInt(MAX_FEEFILTER_CHANGE_DELAY) * 1000000;
             }
         }
-    }
+    } // release cs_main
     return true;
 }
 
