@@ -3681,9 +3681,6 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
         LogPrint(BCLog::NET, "%s(%s, %u bytes) FAILED peer=%d\n", __func__, SanitizeString(msg_type), nMessageSize, pfrom->GetId());
     }
 
-    LOCK(cs_main);
-    CheckIfShouldDiscourage(*pfrom);
-
     return fMoreWork;
 }
 
