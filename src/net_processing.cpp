@@ -3681,9 +3681,6 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
         LogPrint(BCLog::NET, "%s(%s, %u bytes): Unknown exception caught\n", __func__, SanitizeString(msg_type), nMessageSize);
     }
 
-    LOCK(cs_main);
-    MaybeDiscourageAndDisconnect(*pfrom);
-
     return fMoreWork;
 }
 
