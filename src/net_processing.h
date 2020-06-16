@@ -29,8 +29,8 @@ struct CNodeStateStats {
     int m_starting_height = -1;
     std::chrono::microseconds m_ping_wait;
     std::vector<int> vHeightInFlight;
-    bool fRelayTxes;
-    CAmount minFeeFilter;
+    bool m_relay_txs;
+    CAmount m_fee_filter_theirs;
 };
 
 class PeerManager : public CValidationInterface, public NetEventsInterface
