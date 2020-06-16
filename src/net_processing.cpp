@@ -472,7 +472,7 @@ struct Peer {
     std::atomic<bool> m_ping_queued{false};
 
     /** A vector of addresses to send to the peer, limited to MAX_ADDR_TO_SEND */
-    std::vector<CAddress> vAddrToSend;
+    std::vector<CAddress> m_addr_to_send;
     /** Probabilistic filter of addresses that this peer already knows. Don't relay
      *  the same addresses to this peer again. */
     const std::unique_ptr<CRollingBloomFilter> m_addr_known;
@@ -538,10 +538,10 @@ void PushAddress(Peer& peer, const CAddress& addr, FastRandomContext &insecure_r
     // after addresses were pushed.
     assert(peer.m_addr_known);
     if (addr.IsValid() && !peer.m_addr_known->contains(addr.GetKey())) {
-        if (peer.vAddrToSend.size() >= MAX_ADDR_TO_SEND) {
-            peer.vAddrToSend[insecure_rand.randrange(peer.vAddrToSend.size())] = addr;
+        if (peer.m_addr_to_send.size() >= MAX_ADDR_TO_SEND) {
+            peer.m_addr_to_send[insecure_rand.randrange(peer.m_addr_to_send.size())] = addr;
         } else {
-            peer.vAddrToSend.push_back(addr);
+            peer.m_addr_to_send.push_back(addr);
         }
     }
 }
@@ -3453,7 +3453,7 @@ void ProcessMessage(
         }
         pfrom.fSentAddr = true;
 
-        peer->vAddrToSend.clear();
+        peer->m_addr_to_send.clear();
         std::vector<CAddress> vAddr = connman->GetAddresses();
         FastRandomContext insecure_rand;
         for (const CAddress &addr : vAddr) {
@@ -4052,9 +4052,9 @@ void MaybeSendAddr(CNode& pto, CConnman& connman)
 
     peer->m_next_addr_send = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
     std::vector<CAddress> vAddr;
-    vAddr.reserve(peer->vAddrToSend.size());
+    vAddr.reserve(peer->m_addr_to_send.size());
     assert(peer->m_addr_known);
-    for (const CAddress& addr : peer->vAddrToSend)
+    for (const CAddress& addr : peer->m_addr_to_send)
     {
         if (!peer->m_addr_known->contains(addr.GetKey()))
         {
@@ -4068,13 +4068,13 @@ void MaybeSendAddr(CNode& pto, CConnman& connman)
             }
         }
     }
-    peer->vAddrToSend.clear();
+    peer->m_addr_to_send.clear();
     if (!vAddr.empty()) {
         connman.PushMessage(&pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
     }
     // we only send the big addr message once
-    if (peer->vAddrToSend.capacity() > 40) {
-        peer->vAddrToSend.shrink_to_fit();
+    if (peer->m_addr_to_send.capacity() > 40) {
+        peer->m_addr_to_send.shrink_to_fit();
     }
 }
 
