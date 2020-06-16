@@ -196,8 +196,8 @@ static UniValue getpeerinfo(const JSONRPCRequest& request)
             if (statestats.m_ping_wait_usec > 0) {
                 obj.pushKV("pingwait", ((double)statestats.m_ping_wait_usec) / 1e6);
             }
-            obj.pushKV("relaytxes", statestats.fRelayTxes);
-            obj.pushKV("minfeefilter", ValueFromAmount(statestats.minFeeFilter));
+            obj.pushKV("relaytxes", statestats.m_relay_txs);
+            obj.pushKV("minfeefilter", ValueFromAmount(statestats.m_fee_filter_theirs));
         }
         obj.pushKV("whitelisted", stats.m_legacyWhitelisted);
         UniValue permissions(UniValue::VARR);
