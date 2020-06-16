@@ -191,8 +191,8 @@ static RPCHelpMan getpeerinfo()
 
     for (const CNodeStats& stats : vstats) {
         UniValue obj(UniValue::VOBJ);
-        CNodeStateStats statestats;
-        bool fStateStats = peerman.GetNodeStateStats(stats.nodeid, statestats);
+        PeerStats statestats;
+        bool fStateStats = peerman.GetPeerStats(stats.nodeid, statestats);
         obj.pushKV("id", stats.nodeid);
         obj.pushKV("addr", stats.addrName);
         if (stats.addrBind.IsValid()) {

@@ -5,7 +5,7 @@
 #ifndef BITCOIN_QT_PEERTABLEMODEL_H
 #define BITCOIN_QT_PEERTABLEMODEL_H
 
-#include <net_processing.h> // For CNodeStateStats
+#include <net_processing.h> // For PeerStats
 #include <net.h>
 
 #include <memory>
@@ -25,7 +25,7 @@ QT_END_NAMESPACE
 
 struct CNodeCombinedStats {
     CNodeStats nodeStats;
-    CNodeStateStats nodeStateStats;
+    PeerStats nodeStateStats;
     bool fNodeStateStatsAvailable;
 };
 Q_DECLARE_METATYPE(CNodeCombinedStats*)
