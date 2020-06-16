@@ -524,7 +524,7 @@ struct Peer {
     std::unique_ptr<TxRelay> m_tx_relay;
 
     /** Work queue of items requested by this peer */
-    std::deque<CInv> vRecvGetData;
+    std::deque<CInv> m_inventory_requested;
 
     Peer(NodeId id, bool tx_relay, bool addr_relay)
         : m_id(id),
@@ -1859,7 +1859,7 @@ void static ProcessGetData(CNode& pfrom, const CChainParams& chainparams, CConnm
 
     PeerRef peer = GetPeer(pfrom.GetId());
 
-    std::deque<CInv>::iterator it = peer->vRecvGetData.begin();
+    std::deque<CInv>::iterator it = peer->m_inventory_requested.begin();
     std::vector<CInv> vNotFound;
     const CNetMsgMaker msgMaker(pfrom.GetSendVersion());
 
@@ -1872,7 +1872,7 @@ void static ProcessGetData(CNode& pfrom, const CChainParams& chainparams, CConnm
     // Process as many TX items from the front of the getdata queue as
     // possible, since they're common and it's efficient to batch process
     // them.
-    while (it != peer->vRecvGetData.end() && (it->type == MSG_TX || it->type == MSG_WITNESS_TX)) {
+    while (it != peer->m_inventory_requested.end() && (it->type == MSG_TX || it->type == MSG_WITNESS_TX)) {
         if (interruptMsgProc) return;
         // The send buffer provides backpressure. If there's no space in
         // the buffer, pause processing until the next call.
@@ -1897,7 +1897,7 @@ void static ProcessGetData(CNode& pfrom, const CChainParams& chainparams, CConnm
 
     // Only process one BLOCK item per call, since they're uncommon and can be
     // expensive to process.
-    if (it != peer->vRecvGetData.end() && !pfrom.fPauseSend) {
+    if (it != peer->m_inventory_requested.end() && !pfrom.fPauseSend) {
         const CInv &inv = *it++;
         if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_CMPCT_BLOCK || inv.type == MSG_WITNESS_BLOCK) {
             ProcessGetBlockData(pfrom, chainparams, inv, connman);
@@ -1906,7 +1906,7 @@ void static ProcessGetData(CNode& pfrom, const CChainParams& chainparams, CConnm
         // and continue processing the queue on the next call.
     }
 
-    peer->vRecvGetData.erase(peer->vRecvGetData.begin(), it);
+    peer->m_inventory_requested.erase(peer->m_inventory_requested.begin(), it);
 
     if (!vNotFound.empty()) {
         // Let the peer know that we didn't find what it asked for, so it doesn't
@@ -2805,7 +2805,7 @@ void ProcessMessage(
             LogPrint(BCLog::NET, "received getdata for: %s peer=%d\n", vInv[0].ToString(), pfrom.GetId());
         }
 
-        peer->vRecvGetData.insert(peer->vRecvGetData.end(), vInv.begin(), vInv.end());
+        peer->m_inventory_requested.insert(peer->m_inventory_requested.end(), vInv.begin(), vInv.end());
         ProcessGetData(pfrom, chainparams, connman, mempool, interruptMsgProc);
         return;
     }
@@ -2914,7 +2914,7 @@ void ProcessMessage(
             CInv inv;
             inv.type = State(pfrom.GetId())->fWantsCmpctWitness ? MSG_WITNESS_BLOCK : MSG_BLOCK;
             inv.hash = req.blockhash;
-            peer->vRecvGetData.push_back(inv);
+            peer->m_inventory_requested.push_back(inv);
             // The message processing loop will go around again (without pausing) and we'll respond then (without cs_main)
             return;
         }
@@ -3814,7 +3814,7 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
     bool fMoreWork = false;
 
     PeerRef peer = GetPeer(pfrom->GetId());
-    if (!peer->vRecvGetData.empty()) {
+    if (!peer->m_inventory_requested.empty()) {
         ProcessGetData(*pfrom, chainparams, connman, m_mempool, interruptMsgProc);
     }
 
@@ -3831,8 +3831,8 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
         return false;
 
     // this maintains the order of responses
-    // and prevents vRecvGetData to grow unbounded
-    if (!peer->vRecvGetData.empty()) return true;
+    // and prevents m_inventory_requested to grow unbounded
+    if (!peer->m_inventory_requested.empty()) return true;
     if (!peer->m_orphan_work_set.empty()) return true;
 
     // Don't bother if send buffer is too full to respond anyway
@@ -3884,7 +3884,7 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
         ProcessMessage(*pfrom, msg_type, vRecv, msg.m_time, chainparams, m_chainman, m_mempool, connman, m_banman, interruptMsgProc);
         if (interruptMsgProc)
             return false;
-        if (!peer->vRecvGetData.empty())
+        if (!peer->m_inventory_requested.empty())
             fMoreWork = true;
     } catch (const std::exception& e) {
         LogPrint(BCLog::NET, "%s(%s, %u bytes): Exception '%s' (%s) caught\n", __func__, SanitizeString(msg_type), nMessageSize, e.what(), typeid(e).name());
