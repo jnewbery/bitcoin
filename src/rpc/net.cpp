@@ -227,8 +227,8 @@ static RPCHelpMan getpeerinfo()
                 heights.push_back(height);
             }
             obj.pushKV("inflight", heights);
-            obj.pushKV("relaytxes", statestats.fRelayTxes);
-            obj.pushKV("minfeefilter", ValueFromAmount(statestats.minFeeFilter));
+            obj.pushKV("relaytxes", statestats.m_relay_txs);
+            obj.pushKV("minfeefilter", ValueFromAmount(statestats.m_fee_filter_theirs));
         }
         UniValue permissions(UniValue::VARR);
         for (const auto& permission : NetPermissions::ToStrings(stats.m_permissionFlags)) {
