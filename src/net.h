@@ -798,12 +798,6 @@ public:
 
     bool IsAddrRelayPeer() const { return m_addr_known != nullptr; }
 
-    // List of block ids we still have announce.
-    // There is no final sorting before sending, as they are always sent immediately
-    // and in the order requested.
-    std::vector<uint256> vInventoryBlockToSend GUARDED_BY(cs_inventory);
-    Mutex cs_inventory;
-
     struct TxRelay {
         mutable RecursiveMutex cs_filter;
         // We use fRelayTxes for two purposes -
@@ -833,9 +827,6 @@ public:
 
     // m_tx_relay == nullptr if we're not relaying transactions with this peer
     std::unique_ptr<TxRelay> m_tx_relay;
-
-    // Used for headers announcements - unfiltered blocks to relay
-    std::vector<uint256> vBlockHashesToAnnounce GUARDED_BY(cs_inventory);
 
     // Block and TXN accept times
     std::atomic<int64_t> nLastBlockTime{0};

@@ -444,6 +444,14 @@ struct Peer {
     /** Whether this peer should be disconnected and banned (unless whitelisted) */
     bool m_should_discourage{false} GUARDED_BY(m_misbehavior_mutex);
 
+    /** Protects block inventory data members */
+    RecursiveMutex m_block_inv_mutex;
+    /** List of block ids we still have announce.
+     * There is no final sorting before sending, as they are always sent
+     * immediately and in the order requested. */
+    std::vector<uint256> vInventoryBlockToSend GUARDED_BY(m_block_inv_mutex);
+    /** List of headers to relay */
+    std::vector<uint256> vBlockHashesToAnnounce GUARDED_BY(m_block_inv_mutex);
     /** Starting height of this peer */
     std::atomic<int> m_starting_height{-1};
 
@@ -945,6 +953,7 @@ bool GetNodeStateStats(NodeId nodeid, CNodeStateStats &stats) {
         PeerRef peer = GetPeer(nodeid);
         if (peer == nullptr) return false;
         stats.m_misbehavior_score = WITH_LOCK(peer->m_misbehavior_mutex, return peer->m_misbehavior_score);
+        stats.m_starting_height = peer->m_starting_height;
     }
 
     return true;
@@ -1382,11 +1391,11 @@ void PeerLogicValidation::UpdatedBlockTip(const CBlockIndex *pindexNew, const CB
             }
         }
         // Relay inventory, but don't relay old inventory during initial block download.
-        connman->ForEachNode([nNewHeight, &vHashes](CNode* pnode) {
-            PeerRef peer = GetPeer(pnode->GetId());
+        ForEachPeer([nNewHeight, &vHashes](const PeerRef& peer) {
+            LOCK(peer->m_block_inv_mutex);
             if (nNewHeight > (peer->m_starting_height != -1 ? peer->m_starting_height - 2000 : 0)) {
                 for (const uint256& hash : reverse_iterate(vHashes)) {
-                    pnode->vBlockHashesToAnnounce.push_back(hash);
+                    peer->vBlockHashesToAnnounce.push_back(hash);
                 }
             }
         });
@@ -1804,6 +1813,7 @@ static void ProcessHeadersMessage(CNode& pfrom, CConnman* connman, ChainstateMan
 {
     const CNetMsgMaker msgMaker(pfrom.GetSendVersion());
     size_t nCount = headers.size();
+    PeerRef peer = GetPeer(pfrom.GetId());
 
     if (nCount == 0) {
         // Nothing interesting. Stop asking this peers for more headers.
@@ -2718,7 +2728,7 @@ void ProcessMessage(
                 LogPrint(BCLog::NET, " getblocks stopping, pruned or too old block at %d %s\n", pindex->nHeight, pindex->GetBlockHash().ToString());
                 break;
             }
-            WITH_LOCK(pfrom.cs_inventory, pfrom.vInventoryBlockToSend.push_back(pindex->GetBlockHash()));
+            WITH_LOCK(peer->m_block_inv_mutex, peer->vInventoryBlockToSend.push_back(pindex->GetBlockHash()));
             if (--nLimit <= 0)
             {
                 // When this block is requested, we'll send an inv that'll
@@ -4023,11 +4033,11 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
             // If no header would connect, or if we have too many
             // blocks, or if the peer doesn't want headers, just
             // add all to the inv queue.
-            LOCK(pto->cs_inventory);
+            LOCK(peer->m_block_inv_mutex);
             std::vector<CBlock> vHeaders;
             bool fRevertToInv = ((!state.fPreferHeaders &&
-                                 (!state.fPreferHeaderAndIDs || pto->vBlockHashesToAnnounce.size() > 1)) ||
-                                pto->vBlockHashesToAnnounce.size() > MAX_BLOCKS_TO_ANNOUNCE);
+                                 (!state.fPreferHeaderAndIDs || peer->vBlockHashesToAnnounce.size() > 1)) ||
+                                peer->vBlockHashesToAnnounce.size() > MAX_BLOCKS_TO_ANNOUNCE);
             const CBlockIndex *pBestIndex = nullptr; // last header queued for delivery
             ProcessBlockAvailability(pto->GetId()); // ensure pindexBestKnownBlock is up-to-date
 
@@ -4036,7 +4046,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
                 // Try to find first header that our peer doesn't have, and
                 // then send all headers past that one.  If we come across any
                 // headers that aren't on ::ChainActive(), give up.
-                for (const uint256 &hash : pto->vBlockHashesToAnnounce) {
+                for (const uint256 &hash : peer->vBlockHashesToAnnounce) {
                     const CBlockIndex* pindex = LookupBlockIndex(hash);
                     assert(pindex);
                     if (::ChainActive()[pindex->nHeight] != pindex) {
@@ -4127,8 +4137,8 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
                 // If falling back to using an inv, just try to inv the tip.
                 // The last entry in vBlockHashesToAnnounce was our tip at some point
                 // in the past.
-                if (!pto->vBlockHashesToAnnounce.empty()) {
-                    const uint256 &hashToAnnounce = pto->vBlockHashesToAnnounce.back();
+                if (!peer->vBlockHashesToAnnounce.empty()) {
+                    const uint256 &hashToAnnounce = peer->vBlockHashesToAnnounce.back();
                     const CBlockIndex* pindex = LookupBlockIndex(hashToAnnounce);
                     assert(pindex);
 
@@ -4142,13 +4152,13 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
 
                     // If the peer's chain has this block, don't inv it back.
                     if (!PeerHasHeader(&state, pindex)) {
-                        pto->vInventoryBlockToSend.push_back(hashToAnnounce);
+                        peer->vInventoryBlockToSend.push_back(hashToAnnounce);
                         LogPrint(BCLog::NET, "%s: sending inv peer=%d hash=%s\n", __func__,
                             pto->GetId(), hashToAnnounce.ToString());
                     }
                 }
             }
-            pto->vBlockHashesToAnnounce.clear();
+            peer->vBlockHashesToAnnounce.clear();
         }
 
         //
@@ -4156,18 +4166,18 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         //
         std::vector<CInv> vInv;
         {
-            LOCK(pto->cs_inventory);
-            vInv.reserve(std::max<size_t>(pto->vInventoryBlockToSend.size(), INVENTORY_BROADCAST_MAX));
+            LOCK(peer->m_block_inv_mutex);
+            vInv.reserve(std::max<size_t>(peer->vInventoryBlockToSend.size(), INVENTORY_BROADCAST_MAX));
 
             // Add blocks
-            for (const uint256& hash : pto->vInventoryBlockToSend) {
+            for (const uint256& hash : peer->vInventoryBlockToSend) {
                 vInv.push_back(CInv(MSG_BLOCK, hash));
                 if (vInv.size() == MAX_INV_SZ) {
                     connman->PushMessage(pto, msgMaker.Make(NetMsgType::INV, vInv));
                     vInv.clear();
                 }
             }
-            pto->vInventoryBlockToSend.clear();
+            peer->vInventoryBlockToSend.clear();
 
             if (pto->m_tx_relay != nullptr) {
                 LOCK(pto->m_tx_relay->cs_tx_inventory);
