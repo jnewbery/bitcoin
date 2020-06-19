@@ -1118,7 +1118,6 @@ void RPCConsole::updateNodeDetail(const CNodeCombinedStats *stats)
     ui->peerVersion->setText(QString::number(stats->nodeStats.nVersion));
     ui->peerSubversion->setText(QString::fromStdString(stats->nodeStats.cleanSubVer));
     ui->peerDirection->setText(stats->nodeStats.fInbound ? tr("Inbound") : tr("Outbound"));
-    ui->peerHeight->setText(QString::number(stats->nodeStats.nStartingHeight));
     ui->peerWhitelisted->setText(stats->nodeStats.m_legacyWhitelisted ? tr("Yes") : tr("No"));
     ui->peerMappedAS->setText(stats->nodeStats.m_mapped_as != 0 ? QString::number(stats->nodeStats.m_mapped_as) : tr("N/A"));
 
@@ -1139,6 +1138,8 @@ void RPCConsole::updateNodeDetail(const CNodeCombinedStats *stats)
             ui->peerCommonHeight->setText(QString("%1").arg(stats->nodeStateStats.nCommonHeight));
         else
             ui->peerCommonHeight->setText(tr("Unknown"));
+
+        ui->peerHeight->setText(QString::number(stats->nodeStateStats.nStartingHeight));
     }
 
     ui->detailWidget->show();

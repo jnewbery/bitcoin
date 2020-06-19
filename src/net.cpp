@@ -537,7 +537,6 @@ void CNode::copyStats(CNodeStats &stats, const std::vector<bool> &m_asmap)
     }
     X(fInbound);
     X(m_manual_connection);
-    X(nStartingHeight);
     {
         LOCK(cs_vSend);
         X(mapSendBytesPerMsgCmd);

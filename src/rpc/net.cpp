@@ -189,11 +189,11 @@ static UniValue getpeerinfo(const JSONRPCRequest& request)
         obj.pushKV("subver", stats.cleanSubVer);
         obj.pushKV("inbound", stats.fInbound);
         obj.pushKV("addnode", stats.m_manual_connection);
-        obj.pushKV("startingheight", stats.nStartingHeight);
         if (fStateStats) {
             obj.pushKV("banscore", statestats.m_misbehavior_score);
             obj.pushKV("synced_headers", statestats.nSyncHeight);
             obj.pushKV("synced_blocks", statestats.nCommonHeight);
+            obj.pushKV("startingheight", statestats.nStartingHeight);
             UniValue heights(UniValue::VARR);
             for (const int height : statestats.vHeightInFlight) {
                 heights.push_back(height);
