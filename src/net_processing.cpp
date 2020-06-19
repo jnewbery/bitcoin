@@ -146,9 +146,6 @@ std::map<uint256, COrphanTx> mapOrphanTransactions GUARDED_BY(g_cs_orphans);
 
 void EraseOrphansFor(NodeId peer);
 
-/** Increase a node's misbehavior score. */
-void Misbehaving(NodeId nodeid, int howmuch, const std::string& message="") EXCLUSIVE_LOCKS_REQUIRED(cs_main);
-
 // Internal stuff
 namespace {
     /** Number of nodes with fSyncStarted. */
@@ -1735,7 +1732,7 @@ inline void static SendBlockTransactions(const CBlock& block, const BlockTransac
     for (size_t i = 0; i < req.indexes.size(); i++) {
         if (req.indexes[i] >= block.vtx.size()) {
             LOCK(cs_main);
-            Misbehaving(pfrom.GetId(), 100, strprintf("Peer %d sent us a getblocktxn with out-of-bounds tx indices", pfrom.GetId()));
+            Misbehaving(pfrom.GetId(), 100, "getblocktxn with out-of-bounds tx indices");
             return;
         }
         resp.txn[i] = block.vtx[req.indexes[i]];
@@ -1784,7 +1781,7 @@ bool static ProcessHeadersMessage(CNode& pfrom, CConnman* connman, ChainstateMan
             UpdateBlockAvailability(pfrom.GetId(), headers.back().GetHash());
 
             if (nodestate->nUnconnectingHeaders % MAX_UNCONNECTING_HEADERS == 0) {
-                Misbehaving(pfrom.GetId(), 20);
+                Misbehaving(pfrom.GetId(), 20, strprintf("%d unconnecting headers", nodestate->nUnconnectingHeaders));
             }
             return true;
         }
@@ -2220,7 +2217,7 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
         if (pfrom.nVersion != 0)
         {
             LOCK(cs_main);
-            Misbehaving(pfrom.GetId(), 1);
+            Misbehaving(pfrom.GetId(), 1, "redundant version message");
             return false;
         }
 
@@ -2380,7 +2377,7 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
     if (pfrom.nVersion == 0) {
         // Must have a version message before anything else
         LOCK(cs_main);
-        Misbehaving(pfrom.GetId(), 1);
+        Misbehaving(pfrom.GetId(), 1, "non-version message before version handshake");
         return false;
     }
 
@@ -2428,7 +2425,7 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
     if (!pfrom.fSuccessfullyConnected) {
         // Must have a verack message before anything else
         LOCK(cs_main);
-        Misbehaving(pfrom.GetId(), 1);
+        Misbehaving(pfrom.GetId(), 1, "non-verack message before version handshake");
         return false;
     }
 
@@ -3044,7 +3041,7 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
                 ReadStatus status = partialBlock.InitData(cmpctblock, vExtraTxnForCompact);
                 if (status == READ_STATUS_INVALID) {
                     MarkBlockAsReceived(pindex->GetBlockHash()); // Reset in-flight state in case of whitelist
-                    Misbehaving(pfrom.GetId(), 100, strprintf("Peer %d sent us invalid compact block\n", pfrom.GetId()));
+                    Misbehaving(pfrom.GetId(), 100, "invalid compact block");
                     return true;
                 } else if (status == READ_STATUS_FAILED) {
                     // Duplicate txindexes, the block is now in-flight, so just request it
@@ -3177,7 +3174,7 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
             ReadStatus status = partialBlock.FillBlock(*pblock, resp.txn);
             if (status == READ_STATUS_INVALID) {
                 MarkBlockAsReceived(resp.blockhash); // Reset in-flight state in case of whitelist
-                Misbehaving(pfrom.GetId(), 100, strprintf("Peer %d sent us invalid compact block/non-matching block transactions\n", pfrom.GetId()));
+                Misbehaving(pfrom.GetId(), 100, "invalid compact block/non-matching block transactions");
                 return true;
             } else if (status == READ_STATUS_FAILED) {
                 // Might have collided, fall back to getdata now :(
@@ -3445,7 +3442,7 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
         {
             // There is no excuse for sending a too-large filter
             LOCK(cs_main);
-            Misbehaving(pfrom.GetId(), 100);
+            Misbehaving(pfrom.GetId(), 100, "too-large bloom filter");
         }
         else if (pfrom.m_tx_relay != nullptr)
         {
@@ -3479,7 +3476,7 @@ bool ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRec
         }
         if (bad) {
             LOCK(cs_main);
-            Misbehaving(pfrom.GetId(), 100);
+            Misbehaving(pfrom.GetId(), 100, "bad filteradd message");
         }
         return true;
     }
