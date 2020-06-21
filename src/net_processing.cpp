@@ -3916,17 +3916,29 @@ public:
 };
 }
 
-/** Send a ping message on a regular schedule or if requested manually */
-void MaybeSendPing(CNode& pto, CConnman& connman)
+/** Send a ping message on a regular schedule or if requested manually.
+ *  Disconnect the peer if the previous ping has timed out.
+ *
+ * @param[in]   pnode     The node to send the ping to
+ * @return                True if the peer was marked for disconnection in this function
+ */
+bool MaybeSendPing(CNode& pto, CConnman& connman)
 {
     const CNetMsgMaker msgMaker(pto.GetSendVersion());
     bool pingSend = false;
+    if (pto.nPingUsecStart + PING_INTERVAL * 1000000 < GetTimeMicros()) {
+        if (pto.nPingNonceSent) {
+            // Ping has timed out. Disconnect peer.
+            LogPrint(BCLog::NET, "ping timeout: %fs, peer=%s\n", 0.000001 * (GetTimeMicros() - pto.nPingUsecStart), pto.GetId());
+            pto.fDisconnect = true;
+            return true;
+        } else {
+            // Ping automatically sent as a latency probe & keepalive.
+            pingSend = true;
+        }
+    }
     if (pto.fPingQueued) {
         // RPC ping request by user
-        pingSend = true;
-    }
-    if (pto.nPingNonceSent == 0 && pto.nPingUsecStart + PING_INTERVAL * 1000000 < GetTimeMicros()) {
-        // Ping automatically sent as a latency probe & keepalive.
         pingSend = true;
     }
     if (pingSend) {
@@ -3945,6 +3957,7 @@ void MaybeSendPing(CNode& pto, CConnman& connman)
             connman.PushMessage(&pto, msgMaker.Make(NetMsgType::PING));
         }
     }
+    return false;
 }
 
 bool PeerLogicValidation::SendMessages(CNode* pto)
@@ -3958,7 +3971,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
     if (!pto->fSuccessfullyConnected || pto->fDisconnect)
         return true;
 
-    MaybeSendPing(*pto, *connman);
+    if (MaybeSendPing(*pto, *connman)) return true;
 
     // If we get here, the outgoing message serialization version is set and can't change.
     const CNetMsgMaker msgMaker(pto->GetSendVersion());
