@@ -315,7 +315,8 @@ private:
     /** Send a version message to a peer */
     void PushNodeVersion(CNode& pnode, int64_t nTime);
 
-    /** Send a ping message on a regular schedule or if requested manually */
+    /** Send a ping message every PING_INTERVAL or if requested via RPC. May
+     *  disconnect the peer if a ping has timed out. */
     void MaybeSendPing(CNode& node_to);
 
     const CChainParams& m_chainparams;
@@ -4291,6 +4292,18 @@ public:
 
 void PeerManagerImpl::MaybeSendPing(CNode& node_to)
 {
+    // Use mockable time for ping timeouts.
+    // This means that setmocktime may cause pings to time out.
+    auto now = GetTime<std::chrono::microseconds>();
+
+    if (gArgs.GetArg("-pingtimeout", DEFAULT_PING_TIMEOUT) &&
+        node_to.nPingNonceSent &&
+        now > node_to.m_ping_start.load() + std::chrono::seconds{TIMEOUT_INTERVAL}) {
+        LogPrint(BCLog::NET, "ping timeout: %fs peer=%d\n", 0.000001 * count_microseconds(now - node_to.m_ping_start.load()), node_to.GetId());
+        node_to.fDisconnect = true;
+        return;
+    }
+
     const CNetMsgMaker msgMaker(node_to.GetCommonVersion());
     bool pingSend = false;
 
@@ -4299,7 +4312,7 @@ void PeerManagerImpl::MaybeSendPing(CNode& node_to)
         pingSend = true;
     }
 
-    if (node_to.nPingNonceSent == 0 && node_to.m_ping_start.load() + PING_INTERVAL < GetTime<std::chrono::microseconds>()) {
+    if (node_to.nPingNonceSent == 0 && now > node_to.m_ping_start.load() + PING_INTERVAL) {
         // Ping automatically sent as a latency probe & keepalive.
         pingSend = true;
     }
@@ -4333,6 +4346,9 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
         return true;
 
     MaybeSendPing(*pto);
+
+    // MaybeSendPing may have marked peer for disconnection
+    if (pto->fDisconnect) return true;
 
     // If we get here, the outgoing message serialization version is set and can't change.
     const CNetMsgMaker msgMaker(pto->GetCommonVersion());

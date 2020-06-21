@@ -25,6 +25,8 @@ static const bool DEFAULT_PEERBLOOMFILTERS = false;
 static const bool DEFAULT_PEERBLOCKFILTERS = false;
 /** Threshold for marking a node to be discouraged, e.g. disconnected and added to the discouragement filter. */
 static const int DISCOURAGEMENT_THRESHOLD{100};
+/** -pingtimeout default */
+static const int64_t DEFAULT_PING_TIMEOUT = true;
 
 struct CNodeStateStats {
     int nSyncHeight = -1;
