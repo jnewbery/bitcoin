@@ -591,8 +591,6 @@ public:
     mapMsgCmdSize mapRecvBytesPerMsgCmd;
     NetPermissionFlags m_permissionFlags;
     bool m_legacyWhitelisted;
-    int64_t m_ping_usec;
-    int64_t m_ping_wait_usec;
     int64_t m_min_ping_usec;
     CAmount minFeeFilter;
     // Our address, as reported by the peer
@@ -831,17 +829,8 @@ public:
     std::atomic<int64_t> nLastBlockTime{0};
     std::atomic<int64_t> nLastTXTime{0};
 
-    // Ping time measurement:
-    // The pong reply we're expecting, or 0 if no pong expected.
-    std::atomic<uint64_t> nPingNonceSent{0};
-    // Time (in usec) the last ping was sent, or 0 if no ping was ever sent.
-    std::atomic<int64_t> nPingUsecStart{0};
-    // Last measured round-trip time.
-    std::atomic<int64_t> nPingUsecTime{0};
-    // Best measured round-trip time.
+    /** Best measured ping round-trip time. Used in eviction decisions */
     std::atomic<int64_t> nMinPingUsecTime{std::numeric_limits<int64_t>::max()};
-    // Whether a ping is requested.
-    std::atomic<bool> fPingQueued{false};
 
     std::set<uint256> orphan_work_set;
 

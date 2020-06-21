@@ -82,6 +82,9 @@ public:
     /** Retrieve unbroadcast transactions from the mempool and reattempt sending to peers */
     void ReattemptInitialBroadcast(CScheduler& scheduler) const;
 
+    /** Send ping message to all peers */
+    void SendPings();
+
 private:
     int64_t m_stale_tip_check_time; //!< Next time to check for stale tip
 };
@@ -91,6 +94,8 @@ struct CNodeStateStats {
     int nSyncHeight = -1;
     int nCommonHeight = -1;
     int m_starting_height = -1;
+    int64_t m_ping_usec;
+    int64_t m_ping_wait_usec;
     std::vector<int> vHeightInFlight;
 };
 
