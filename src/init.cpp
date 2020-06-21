@@ -1864,15 +1864,12 @@ bool AppInitMain(const util::Ref& context, NodeContext& node)
 
     // ********************************************************* Step 12: start node
 
-    int chain_active_height;
-
     //// debug print
     {
         LOCK(cs_main);
         LogPrintf("block tree size = %u\n", ::BlockIndex().size());
-        chain_active_height = ::ChainActive().Height();
+        LogPrintf("nBestHeight = %d\n", ::ChainActive().Height());
     }
-    LogPrintf("nBestHeight = %d\n", chain_active_height);
 
     if (gArgs.GetBoolArg("-listenonion", DEFAULT_LISTEN_ONION))
         StartTorControl();
@@ -1891,7 +1888,6 @@ bool AppInitMain(const util::Ref& context, NodeContext& node)
     connOptions.m_max_outbound_block_relay = std::min(MAX_BLOCKS_ONLY_CONNECTIONS, connOptions.nMaxConnections-connOptions.m_max_outbound_full_relay);
     connOptions.nMaxAddnode = MAX_ADDNODE_CONNECTIONS;
     connOptions.nMaxFeeler = MAX_FEELER_CONNECTIONS;
-    connOptions.nBestHeight = chain_active_height;
     connOptions.uiInterface = &uiInterface;
     connOptions.m_banman = node.banman.get();
     connOptions.m_msgproc = node.peer_logic.get();
