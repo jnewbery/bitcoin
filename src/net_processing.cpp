@@ -458,7 +458,7 @@ static void PushNodeVersion(CNode& pnode, CConnman* connman, int64_t nTime)
     // peer.
     ServiceFlags nLocalNodeServices = pnode.GetLocalServices();
     uint64_t nonce = pnode.GetLocalNonce();
-    int nNodeStartingHeight = pnode.GetMyStartingHeight();
+    int my_starting_height = WITH_LOCK(cs_main, return (int)::ChainActive().Height())
     NodeId nodeid = pnode.GetId();
     CAddress addr = pnode.addr;
 
@@ -466,12 +466,12 @@ static void PushNodeVersion(CNode& pnode, CConnman* connman, int64_t nTime)
     CAddress addrMe = CAddress(CService(), nLocalNodeServices);
 
     connman->PushMessage(&pnode, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::VERSION, PROTOCOL_VERSION, (uint64_t)nLocalNodeServices, nTime, addrYou, addrMe,
-            nonce, strSubVersion, nNodeStartingHeight, ::g_relay_txes && pnode.m_tx_relay != nullptr));
+            nonce, strSubVersion, my_starting_height, ::g_relay_txes && pnode.m_tx_relay != nullptr));
 
     if (fLogIPs) {
-        LogPrint(BCLog::NET, "send version message: version %d, blocks=%d, us=%s, them=%s, peer=%d\n", PROTOCOL_VERSION, nNodeStartingHeight, addrMe.ToString(), addrYou.ToString(), nodeid);
+        LogPrint(BCLog::NET, "send version message: version %d, blocks=%d, us=%s, them=%s, peer=%d\n", PROTOCOL_VERSION, my_starting_height, addrMe.ToString(), addrYou.ToString(), nodeid);
     } else {
-        LogPrint(BCLog::NET, "send version message: version %d, blocks=%d, us=%s, peer=%d\n", PROTOCOL_VERSION, nNodeStartingHeight, addrMe.ToString(), nodeid);
+        LogPrint(BCLog::NET, "send version message: version %d, blocks=%d, us=%s, peer=%d\n", PROTOCOL_VERSION, my_starting_height, addrMe.ToString(), nodeid);
     }
 }
 
