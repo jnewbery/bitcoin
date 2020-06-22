@@ -787,7 +787,6 @@ protected:
     mapMsgCmdSize mapRecvBytesPerMsgCmd GUARDED_BY(cs_vRecv);
 
 public:
-    uint256 hashContinue;
 
     // flood relay
     std::vector<CAddress> vAddrToSend;

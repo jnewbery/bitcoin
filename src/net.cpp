@@ -2765,7 +2765,6 @@ CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn
 {
     hSocket = hSocketIn;
     addrName = addrNameIn == "" ? addr.ToStringIPPort() : addrNameIn;
-    hashContinue = uint256();
     if (!block_relay_only) {
         m_tx_relay = MakeUnique<TxRelay>();
     }

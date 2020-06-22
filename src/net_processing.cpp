@@ -452,8 +452,14 @@ struct Peer {
     std::vector<uint256> m_blocks_for_inv_relay GUARDED_BY(m_block_inv_mutex);
     /** List of headers to relay */
     std::vector<uint256> m_blocks_for_headers_relay GUARDED_BY(m_block_inv_mutex);
+
     /** Starting height of this peer */
     std::atomic<int> m_starting_height{-1};
+    /** The final block hash in a INV message. When the peer requests this
+     * block, we send a BLOCK message to trigger them to request the next
+     * sequence of block hashes.
+     * Most peers use headers-first syncing, which doesn't use this mechanism */
+    uint256 m_hash_continue;
 
     Peer(NodeId id) : m_id(id) {}
 };
@@ -1528,6 +1534,7 @@ static void RelayAddress(const CAddress& addr, bool fReachable, const CConnman& 
 
 void static ProcessGetBlockData(CNode& pfrom, const CChainParams& chainparams, const CInv& inv, CConnman* connman)
 {
+    PeerRef peer = GetPeer(pfrom.GetId());
     bool send = false;
     std::shared_ptr<const CBlock> a_recent_block;
     std::shared_ptr<const CBlockHeaderAndShortTxIDs> a_recent_compact_block;
@@ -1670,15 +1677,14 @@ void static ProcessGetBlockData(CNode& pfrom, const CChainParams& chainparams, c
         }
 
         // Trigger the peer node to send a getblocks request for the next batch of inventory
-        if (inv.hash == pfrom.hashContinue)
-        {
+        if (inv.hash == peer->m_hash_continue) {
             // Send immediately. This must send even if redundant,
             // and we want it right after the last block so they don't
             // wait for other stuff first.
             std::vector<CInv> vInv;
             vInv.push_back(CInv(MSG_BLOCK, ::ChainActive().Tip()->GetBlockHash()));
             connman->PushMessage(&pfrom, msgMaker.Make(NetMsgType::INV, vInv));
-            pfrom.hashContinue.SetNull();
+            peer->m_hash_continue.SetNull();
         }
     }
 }
@@ -2734,7 +2740,7 @@ void ProcessMessage(
                 // When this block is requested, we'll send an inv that'll
                 // trigger the peer to getblocks the next batch of inventory.
                 LogPrint(BCLog::NET, "  getblocks stopping at limit %d %s\n", pindex->nHeight, pindex->GetBlockHash().ToString());
-                pfrom.hashContinue = pindex->GetBlockHash();
+                peer->m_hash_continue = pindex->GetBlockHash();
                 break;
             }
         }
