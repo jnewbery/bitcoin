@@ -471,6 +471,9 @@ struct Peer {
     /** Whether a pong response is currently outstanding */
     std::atomic<bool> m_ping_queued{false};
 
+    /** Set of txids of orphans to reconsider now that parents have been accepted */
+    std::set<uint256> m_orphan_work_set;
+
     /** A vector of addresses to send to the peer, limited to MAX_ADDR_TO_SEND */
     std::vector<CAddress> m_addr_to_send;
     /** Probabilistic filter of addresses that this peer already knows. Don't relay
@@ -3025,7 +3028,7 @@ void ProcessMessage(
                 auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(inv.hash, i));
                 if (it_by_prev != mapOrphanTransactionsByPrev.end()) {
                     for (const auto& elem : it_by_prev->second) {
-                        pfrom.m_orphan_work_set.insert(elem->first);
+                        peer->m_orphan_work_set.insert(elem->first);
                     }
                 }
             }
@@ -3038,7 +3041,7 @@ void ProcessMessage(
                 mempool.size(), mempool.DynamicMemoryUsage() / 1000);
 
             // Recursively process any orphan transactions that depended on this one
-            ProcessOrphanTx(connman, mempool, pfrom.m_orphan_work_set, lRemovedTxn);
+            ProcessOrphanTx(connman, mempool, peer->m_orphan_work_set, lRemovedTxn);
         }
         else if (state.GetResult() == TxValidationResult::TX_MISSING_INPUTS)
         {
@@ -3810,10 +3813,11 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
     if (!pfrom->vRecvGetData.empty())
         ProcessGetData(*pfrom, chainparams, connman, m_mempool, interruptMsgProc);
 
-    if (!pfrom->m_orphan_work_set.empty()) {
+    PeerRef peer = GetPeer(pfrom->GetId());
+    if (!peer->m_orphan_work_set.empty()) {
         std::list<CTransactionRef> removed_txn;
         LOCK2(cs_main, g_cs_orphans);
-        ProcessOrphanTx(connman, m_mempool, pfrom->m_orphan_work_set, removed_txn);
+        ProcessOrphanTx(connman, m_mempool, peer->m_orphan_work_set, removed_txn);
         for (const CTransactionRef& removedTx : removed_txn) {
             AddToCompactExtraTransactions(removedTx);
         }
@@ -3825,7 +3829,7 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
     // this maintains the order of responses
     // and prevents vRecvGetData to grow unbounded
     if (!pfrom->vRecvGetData.empty()) return true;
-    if (!pfrom->m_orphan_work_set.empty()) return true;
+    if (!peer->m_orphan_work_set.empty()) return true;
 
     // Don't bother if send buffer is too full to respond anyway
     if (pfrom->fPauseSend)
