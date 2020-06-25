@@ -2016,10 +2016,10 @@ static void ProcessHeadersMessage(CNode& pfrom, CConnman& connman, ChainstateMan
  *
  * @param[in]      connman          Connection manager
  * @param[in]      mempool          Mempool
- * @param[in/out]  orphan_work_set  The set of orphan transactions to reconsider. Generally only one
- *                                  orphan will be reconsidered on each call of this function. This set
- *                                  may be added to if accepting an orphan causes its children to be
- *                                  reconsidered.
+ * @param[in/out]  orphan_work_set  The set of orphan transactions to reconsider. Only one orphan
+ *                                  will be reconsidered on each call of this function. This set
+ *                                  may be added to if accepting an orphan causes its children to
+ *                                  be reconsidered.
  * @param[out]     removed_txn      Transactions that were removed from the mempool as a result of an
  *                                  orphan transaction being added.
  */
@@ -2028,74 +2028,72 @@ void static ProcessOrphanTx(CConnman& connman, CTxMemPool& mempool, std::set<uin
     AssertLockHeld(cs_main);
     AssertLockHeld(g_cs_orphans);
 
-    while (!orphan_work_set.empty()) {
-        const uint256 orphanHash = *orphan_work_set.begin();
-        orphan_work_set.erase(orphan_work_set.begin());
+    if (orphan_work_set.empty()) return;
 
-        auto orphan_it = mapOrphanTransactions.find(orphanHash);
-        if (orphan_it == mapOrphanTransactions.end()) continue;
+    const uint256 orphanHash = *orphan_work_set.begin();
+    orphan_work_set.erase(orphan_work_set.begin());
 
-        const CTransactionRef porphanTx = orphan_it->second.tx;
-        TxValidationState state;
+    auto orphan_it = mapOrphanTransactions.find(orphanHash);
+    if (orphan_it == mapOrphanTransactions.end()) return;
 
-        if (AcceptToMemoryPool(mempool, state, porphanTx, &removed_txn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
-            LogPrint(BCLog::MEMPOOL, "   accepted orphan tx %s\n", orphanHash.ToString());
-            RelayTransaction(orphanHash, porphanTx->GetWitnessHash(), connman);
-            for (unsigned int i = 0; i < porphanTx->vout.size(); i++) {
-                auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(orphanHash, i));
-                if (it_by_prev != mapOrphanTransactionsByPrev.end()) {
-                    for (const auto& elem : it_by_prev->second) {
-                        orphan_work_set.insert(elem->first);
-                    }
+    const CTransactionRef porphanTx = orphan_it->second.tx;
+    TxValidationState state;
+
+    if (AcceptToMemoryPool(mempool, state, porphanTx, &removed_txn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
+        LogPrint(BCLog::MEMPOOL, "   accepted orphan tx %s\n", orphanHash.ToString());
+        RelayTransaction(orphanHash, porphanTx->GetWitnessHash(), connman);
+        for (unsigned int i = 0; i < porphanTx->vout.size(); i++) {
+            auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(orphanHash, i));
+            if (it_by_prev != mapOrphanTransactionsByPrev.end()) {
+                for (const auto& elem : it_by_prev->second) {
+                    orphan_work_set.insert(elem->first);
                 }
             }
-            EraseOrphanTx(orphanHash);
-            break;
-        } else if (state.GetResult() != TxValidationResult::TX_MISSING_INPUTS) {
-            if (state.IsInvalid()) {
-                LogPrint(BCLog::MEMPOOL, "   invalid orphan tx %s from peer=%d. %s\n",
-                    orphanHash.ToString(),
-                    orphan_it->second.fromPeer,
-                    state.ToString());
-                // Maybe punish peer that gave us an invalid orphan tx
-                MaybePunishNodeForTx(orphan_it->second.fromPeer, state);
-            }
-            // Has inputs but not accepted to mempool
-            // Probably non-standard or insufficient fee
-            LogPrint(BCLog::MEMPOOL, "   removed orphan tx %s\n", orphanHash.ToString());
-            if (state.GetResult() != TxValidationResult::TX_WITNESS_STRIPPED) {
-                // We can add the wtxid of this transaction to our reject filter.
-                // Do not add txids of witness transactions or witness-stripped
-                // transactions to the filter, as they can have been malleated;
-                // adding such txids to the reject filter would potentially
-                // interfere with relay of valid transactions from peers that
-                // do not support wtxid-based relay. See
-                // https://github.com/bitcoin/bitcoin/issues/8279 for details.
-                // We can remove this restriction (and always add wtxids to
-                // the filter even for witness stripped transactions) once
-                // wtxid-based relay is broadly deployed.
-                // See also comments in https://github.com/bitcoin/bitcoin/pull/18044#discussion_r443419034
-                // for concerns around weakening security of unupgraded nodes
-                // if we start doing this too early.
-                assert(recentRejects);
-                recentRejects->insert(porphanTx->GetWitnessHash());
-                // If the transaction failed for TX_INPUTS_NOT_STANDARD,
-                // then we know that the witness was irrelevant to the policy
-                // failure, since this check depends only on the txid
-                // (the scriptPubKey being spent is covered by the txid).
-                // Add the txid to the reject filter to prevent repeated
-                // processing of this transaction in the event that child
-                // transactions are later received (resulting in
-                // parent-fetching by txid via the orphan-handling logic).
-                if (state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD && porphanTx->GetWitnessHash() != porphanTx->GetHash()) {
-                    // We only add the txid if it differs from the wtxid, to
-                    // avoid wasting entries in the rolling bloom filter.
-                    recentRejects->insert(porphanTx->GetHash());
-                }
-            }
-            EraseOrphanTx(orphanHash);
-            break;
         }
+        EraseOrphanTx(orphanHash);
+    } else if (state.GetResult() != TxValidationResult::TX_MISSING_INPUTS) {
+        if (state.IsInvalid()) {
+            LogPrint(BCLog::MEMPOOL, "   invalid orphan tx %s from peer=%d. %s\n",
+                orphanHash.ToString(),
+                orphan_it->second.fromPeer,
+                state.ToString());
+            // Maybe punish peer that gave us an invalid orphan tx
+            MaybePunishNodeForTx(orphan_it->second.fromPeer, state);
+        }
+        // Has inputs but not accepted to mempool
+        // Probably non-standard or insufficient fee
+        LogPrint(BCLog::MEMPOOL, "   removed orphan tx %s\n", orphanHash.ToString());
+        if (state.GetResult() != TxValidationResult::TX_WITNESS_STRIPPED) {
+            // We can add the wtxid of this transaction to our reject filter.
+            // Do not add txids of witness transactions or witness-stripped
+            // transactions to the filter, as they can have been malleated;
+            // adding such txids to the reject filter would potentially
+            // interfere with relay of valid transactions from peers that
+            // do not support wtxid-based relay. See
+            // https://github.com/bitcoin/bitcoin/issues/8279 for details.
+            // We can remove this restriction (and always add wtxids to
+            // the filter even for witness stripped transactions) once
+            // wtxid-based relay is broadly deployed.
+            // See also comments in https://github.com/bitcoin/bitcoin/pull/18044#discussion_r443419034
+            // for concerns around weakening security of unupgraded nodes
+            // if we start doing this too early.
+            assert(recentRejects);
+            recentRejects->insert(porphanTx->GetWitnessHash());
+            // If the transaction failed for TX_INPUTS_NOT_STANDARD,
+            // then we know that the witness was irrelevant to the policy
+            // failure, since this check depends only on the txid
+            // (the scriptPubKey being spent is covered by the txid).
+            // Add the txid to the reject filter to prevent repeated
+            // processing of this transaction in the event that child
+            // transactions are later received (resulting in
+            // parent-fetching by txid via the orphan-handling logic).
+            if (state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD && porphanTx->GetWitnessHash() != porphanTx->GetHash()) {
+                // We only add the txid if it differs from the wtxid, to
+                // avoid wasting entries in the rolling bloom filter.
+                recentRejects->insert(porphanTx->GetHash());
+            }
+        }
+        EraseOrphanTx(orphanHash);
     }
     mempool.check(&::ChainstateActive().CoinsTip());
 }
