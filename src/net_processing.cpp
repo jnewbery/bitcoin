@@ -1940,7 +1940,7 @@ static void ProcessHeadersMessage(CNode& pfrom, CConnman* connman, ChainstateMan
     return;
 }
 
-void static ProcessOrphanTx(CConnman* connman, CTxMemPool& mempool, std::set<uint256>& orphan_work_set, std::list<CTransactionRef>& removed_txn) EXCLUSIVE_LOCKS_REQUIRED(cs_main, g_cs_orphans)
+void static ProcessOrphanTx(CConnman* connman, CTxMemPool& mempool, std::set<uint256>& orphan_work_set) EXCLUSIVE_LOCKS_REQUIRED(cs_main, g_cs_orphans)
 {
     AssertLockHeld(cs_main);
     AssertLockHeld(g_cs_orphans);
@@ -1955,6 +1955,7 @@ void static ProcessOrphanTx(CConnman* connman, CTxMemPool& mempool, std::set<uin
 
     const CTransactionRef porphanTx = orphan_it->second.tx;
     TxValidationState state;
+    std::list<CTransactionRef> removed_txn;
 
     if (AcceptToMemoryPool(mempool, state, porphanTx, &removed_txn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
         LogPrint(BCLog::MEMPOOL, "   accepted orphan tx %s\n", orphanHash.ToString());
@@ -1968,6 +1969,9 @@ void static ProcessOrphanTx(CConnman* connman, CTxMemPool& mempool, std::set<uin
             }
         }
         EraseOrphanTx(orphanHash);
+        for (const CTransactionRef& removedTx : removed_txn) {
+            AddToCompactExtraTransactions(removedTx);
+        }
     } else if (state.GetResult() != TxValidationResult::TX_MISSING_INPUTS) {
         if (state.IsInvalid()) {
             // Maybe punish peer that gave us an invalid orphan tx
@@ -3681,11 +3685,7 @@ bool PeerLogicValidation::ProcessGlobalTasks(std::atomic<bool>& interruptMsgProc
     {
         LOCK2(cs_main, g_cs_orphans);
         if (!g_orphan_work_set.empty()) {
-            std::list<CTransactionRef> removed_txn;
-            ProcessOrphanTx(connman, m_mempool, g_orphan_work_set, removed_txn);
-            for (const CTransactionRef& removedTx : removed_txn) {
-                AddToCompactExtraTransactions(removedTx);
-            }
+            ProcessOrphanTx(connman, m_mempool, g_orphan_work_set);
             if (!g_orphan_work_set.empty()) return true;
         }
     }
