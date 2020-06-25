@@ -1940,15 +1940,10 @@ static void ProcessHeadersMessage(CNode& pfrom, CConnman* connman, ChainstateMan
     return;
 }
 
-void static ProcessOrphanTx(CConnman* connman, CTxMemPool& mempool, std::set<uint256>& orphan_work_set) EXCLUSIVE_LOCKS_REQUIRED(cs_main, g_cs_orphans)
+void static ProcessOrphanTx(CConnman* connman, CTxMemPool& mempool, const uint256& orphanHash) EXCLUSIVE_LOCKS_REQUIRED(cs_main, g_cs_orphans)
 {
     AssertLockHeld(cs_main);
     AssertLockHeld(g_cs_orphans);
-
-    if (orphan_work_set.empty()) return;
-
-    const uint256 orphanHash = *orphan_work_set.begin();
-    orphan_work_set.erase(orphan_work_set.begin());
 
     auto orphan_it = mapOrphanTransactions.find(orphanHash);
     if (orphan_it == mapOrphanTransactions.end()) return;
@@ -1964,7 +1959,7 @@ void static ProcessOrphanTx(CConnman* connman, CTxMemPool& mempool, std::set<uin
             auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(orphanHash, i));
             if (it_by_prev != mapOrphanTransactionsByPrev.end()) {
                 for (const auto& elem : it_by_prev->second) {
-                    orphan_work_set.insert(elem->first);
+                    g_orphan_work_set.insert(elem->first);
                 }
             }
         }
@@ -3685,7 +3680,12 @@ bool PeerLogicValidation::ProcessGlobalTasks(std::atomic<bool>& interruptMsgProc
     {
         LOCK2(cs_main, g_cs_orphans);
         if (!g_orphan_work_set.empty()) {
-            ProcessOrphanTx(connman, m_mempool, g_orphan_work_set);
+            // Reprocess the first g_orphan_work_set transaction. If there are
+            // more transactions in the set, return true to indicate that
+            // there's more work to do.
+            const uint256 orphan_hash = *g_orphan_work_set.begin();
+            g_orphan_work_set.erase(g_orphan_work_set.begin());
+            ProcessOrphanTx(connman, m_mempool, orphan_hash);
             if (!g_orphan_work_set.empty()) return true;
         }
     }
