@@ -1945,48 +1945,46 @@ void static ProcessOrphanTx(CConnman* connman, CTxMemPool& mempool, std::set<uin
     AssertLockHeld(cs_main);
     AssertLockHeld(g_cs_orphans);
 
-    while (!orphan_work_set.empty()) {
-        const uint256 orphanHash = *orphan_work_set.begin();
-        orphan_work_set.erase(orphan_work_set.begin());
+    if (orphan_work_set.empty()) return;
 
-        auto orphan_it = mapOrphanTransactions.find(orphanHash);
-        if (orphan_it == mapOrphanTransactions.end()) continue;
+    const uint256 orphanHash = *orphan_work_set.begin();
+    orphan_work_set.erase(orphan_work_set.begin());
 
-        const CTransactionRef porphanTx = orphan_it->second.tx;
-        TxValidationState state;
+    auto orphan_it = mapOrphanTransactions.find(orphanHash);
+    if (orphan_it == mapOrphanTransactions.end()) return;
 
-        if (AcceptToMemoryPool(mempool, state, porphanTx, &removed_txn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
-            LogPrint(BCLog::MEMPOOL, "   accepted orphan tx %s\n", orphanHash.ToString());
-            RelayTransaction(orphanHash, *connman);
-            for (unsigned int i = 0; i < porphanTx->vout.size(); i++) {
-                auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(orphanHash, i));
-                if (it_by_prev != mapOrphanTransactionsByPrev.end()) {
-                    for (const auto& elem : it_by_prev->second) {
-                        orphan_work_set.insert(elem->first);
-                    }
+    const CTransactionRef porphanTx = orphan_it->second.tx;
+    TxValidationState state;
+
+    if (AcceptToMemoryPool(mempool, state, porphanTx, &removed_txn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
+        LogPrint(BCLog::MEMPOOL, "   accepted orphan tx %s\n", orphanHash.ToString());
+        RelayTransaction(orphanHash, *connman);
+        for (unsigned int i = 0; i < porphanTx->vout.size(); i++) {
+            auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(orphanHash, i));
+            if (it_by_prev != mapOrphanTransactionsByPrev.end()) {
+                for (const auto& elem : it_by_prev->second) {
+                    orphan_work_set.insert(elem->first);
                 }
             }
-            EraseOrphanTx(orphanHash);
-            break;
-        } else if (state.GetResult() != TxValidationResult::TX_MISSING_INPUTS) {
-            if (state.IsInvalid()) {
-                // Maybe punish peer that gave us an invalid orphan tx
-                MaybePunishNodeForTx(orphan_it->second.fromPeer, state);
-                LogPrint(BCLog::MEMPOOL, "   invalid orphan tx %s\n", orphanHash.ToString());
-            }
-            // Has inputs but not accepted to mempool
-            // Probably non-standard or insufficient fee
-            LogPrint(BCLog::MEMPOOL, "   removed orphan tx %s\n", orphanHash.ToString());
-            if (!porphanTx->HasWitness() && state.GetResult() != TxValidationResult::TX_WITNESS_MUTATED) {
-                // Do not use rejection cache for witness transactions or
-                // witness-stripped transactions, as they can have been malleated.
-                // See https://github.com/bitcoin/bitcoin/issues/8279 for details.
-                assert(recentRejects);
-                recentRejects->insert(orphanHash);
-            }
-            EraseOrphanTx(orphanHash);
-            break;
         }
+        EraseOrphanTx(orphanHash);
+    } else if (state.GetResult() != TxValidationResult::TX_MISSING_INPUTS) {
+        if (state.IsInvalid()) {
+            // Maybe punish peer that gave us an invalid orphan tx
+            MaybePunishNodeForTx(orphan_it->second.fromPeer, state);
+            LogPrint(BCLog::MEMPOOL, "   invalid orphan tx %s\n", orphanHash.ToString());
+        }
+        // Has inputs but not accepted to mempool
+        // Probably non-standard or insufficient fee
+        LogPrint(BCLog::MEMPOOL, "   removed orphan tx %s\n", orphanHash.ToString());
+        if (!porphanTx->HasWitness() && state.GetResult() != TxValidationResult::TX_WITNESS_MUTATED) {
+            // Do not use rejection cache for witness transactions or
+            // witness-stripped transactions, as they can have been malleated.
+            // See https://github.com/bitcoin/bitcoin/issues/8279 for details.
+            assert(recentRejects);
+            recentRejects->insert(orphanHash);
+        }
+        EraseOrphanTx(orphanHash);
     }
     mempool.check(&::ChainstateActive().CoinsTip());
 }
