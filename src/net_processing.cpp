@@ -2020,10 +2020,8 @@ static void ProcessHeadersMessage(CNode& pfrom, CConnman& connman, ChainstateMan
  *                                  will be reconsidered on each call of this function. This set
  *                                  may be added to if accepting an orphan causes its children to
  *                                  be reconsidered.
- * @param[out]     removed_txn      Transactions that were removed from the mempool as a result of an
- *                                  orphan transaction being added.
  */
-void static ProcessOrphanTx(CConnman& connman, CTxMemPool& mempool, std::set<uint256>& orphan_work_set, std::list<CTransactionRef>& removed_txn) EXCLUSIVE_LOCKS_REQUIRED(cs_main, g_cs_orphans)
+void static ProcessOrphanTx(CConnman& connman, CTxMemPool& mempool, std::set<uint256>& orphan_work_set) EXCLUSIVE_LOCKS_REQUIRED(cs_main, g_cs_orphans)
 {
     AssertLockHeld(cs_main);
     AssertLockHeld(g_cs_orphans);
@@ -2038,6 +2036,7 @@ void static ProcessOrphanTx(CConnman& connman, CTxMemPool& mempool, std::set<uin
 
     const CTransactionRef porphanTx = orphan_it->second.tx;
     TxValidationState state;
+    std::list<CTransactionRef> removed_txn;
 
     if (AcceptToMemoryPool(mempool, state, porphanTx, &removed_txn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
         LogPrint(BCLog::MEMPOOL, "   accepted orphan tx %s\n", orphanHash.ToString());
@@ -2051,6 +2050,9 @@ void static ProcessOrphanTx(CConnman& connman, CTxMemPool& mempool, std::set<uin
             }
         }
         EraseOrphanTx(orphanHash);
+        for (const CTransactionRef& removedTx : removed_txn) {
+            AddToCompactExtraTransactions(removedTx);
+        }
     } else if (state.GetResult() != TxValidationResult::TX_MISSING_INPUTS) {
         if (state.IsInvalid()) {
             LogPrint(BCLog::MEMPOOL, "   invalid orphan tx %s from peer=%d. %s\n",
@@ -3011,7 +3013,7 @@ void ProcessMessage(
                 mempool.size(), mempool.DynamicMemoryUsage() / 1000);
 
             // Recursively process any orphan transactions that depended on this one
-            ProcessOrphanTx(connman, mempool, pfrom.orphan_work_set, lRemovedTxn);
+            ProcessOrphanTx(connman, mempool, pfrom.orphan_work_set);
         }
         else if (state.GetResult() == TxValidationResult::TX_MISSING_INPUTS)
         {
@@ -3836,12 +3838,8 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
         ProcessGetData(*pfrom, chainparams, *connman, m_mempool, interruptMsgProc);
 
     if (!pfrom->orphan_work_set.empty()) {
-        std::list<CTransactionRef> removed_txn;
         LOCK2(cs_main, g_cs_orphans);
-        ProcessOrphanTx(*connman, m_mempool, pfrom->orphan_work_set, removed_txn);
-        for (const CTransactionRef& removedTx : removed_txn) {
-            AddToCompactExtraTransactions(removedTx);
-        }
+        ProcessOrphanTx(*connman, m_mempool, pfrom->orphan_work_set);
     }
 
     if (pfrom->fDisconnect)
