@@ -2038,12 +2038,9 @@ void static ProcessOrphanTx(CConnman& connman, CTxMemPool& mempool, std::set<uin
         const CTransactionRef porphanTx = orphan_it->second.tx;
         const CTransaction& orphanTx = *porphanTx;
         NodeId fromPeer = orphan_it->second.fromPeer;
-        // Use a new TxValidationState because orphans come from different peers (and we call
-        // MaybePunishNodeForTx based on the source peer from the orphan map, not based on the peer
-        // that relayed the previous transaction).
-        TxValidationState orphan_state;
+        TxValidationState state;
 
-        if (AcceptToMemoryPool(mempool, orphan_state, porphanTx, &removed_txn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
+        if (AcceptToMemoryPool(mempool, state, porphanTx, &removed_txn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
             LogPrint(BCLog::MEMPOOL, "   accepted orphan tx %s\n", orphanHash.ToString());
             RelayTransaction(orphanHash, porphanTx->GetWitnessHash(), connman);
             for (unsigned int i = 0; i < orphanTx.vout.size(); i++) {
@@ -2056,19 +2053,19 @@ void static ProcessOrphanTx(CConnman& connman, CTxMemPool& mempool, std::set<uin
             }
             EraseOrphanTx(orphanHash);
             break;
-        } else if (orphan_state.GetResult() != TxValidationResult::TX_MISSING_INPUTS) {
-            if (orphan_state.IsInvalid()) {
+        } else if (state.GetResult() != TxValidationResult::TX_MISSING_INPUTS) {
+            if (state.IsInvalid()) {
                 LogPrint(BCLog::MEMPOOL, "   invalid orphan tx %s from peer=%d. %s\n",
                     orphanHash.ToString(),
                     fromPeer,
-                    orphan_state.ToString());
+                    state.ToString());
                 // Maybe punish peer that gave us an invalid orphan tx
-                MaybePunishNodeForTx(fromPeer, orphan_state);
+                MaybePunishNodeForTx(fromPeer, state);
             }
             // Has inputs but not accepted to mempool
             // Probably non-standard or insufficient fee
             LogPrint(BCLog::MEMPOOL, "   removed orphan tx %s\n", orphanHash.ToString());
-            if (orphan_state.GetResult() != TxValidationResult::TX_WITNESS_STRIPPED) {
+            if (state.GetResult() != TxValidationResult::TX_WITNESS_STRIPPED) {
                 // We can add the wtxid of this transaction to our reject filter.
                 // Do not add txids of witness transactions or witness-stripped
                 // transactions to the filter, as they can have been malleated;
