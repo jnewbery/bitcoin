@@ -1944,7 +1944,6 @@ void static ProcessOrphanTx(CConnman* connman, CTxMemPool& mempool, std::set<uin
 {
     AssertLockHeld(cs_main);
     AssertLockHeld(g_cs_orphans);
-    std::set<NodeId> setMisbehaving;
 
     while (!orphan_work_set.empty()) {
         const uint256 orphanHash = *orphan_work_set.begin();
@@ -1961,7 +1960,6 @@ void static ProcessOrphanTx(CConnman* connman, CTxMemPool& mempool, std::set<uin
         // that relayed the previous transaction).
         TxValidationState orphan_state;
 
-        if (setMisbehaving.count(fromPeer)) continue;
         if (AcceptToMemoryPool(mempool, orphan_state, porphanTx, &removed_txn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
             LogPrint(BCLog::MEMPOOL, "   accepted orphan tx %s\n", orphanHash.ToString());
             RelayTransaction(orphanHash, *connman);
@@ -1977,10 +1975,8 @@ void static ProcessOrphanTx(CConnman* connman, CTxMemPool& mempool, std::set<uin
             break;
         } else if (orphan_state.GetResult() != TxValidationResult::TX_MISSING_INPUTS) {
             if (orphan_state.IsInvalid()) {
-                // Punish peer that gave us an invalid orphan tx
-                if (MaybePunishNodeForTx(fromPeer, orphan_state)) {
-                    setMisbehaving.insert(fromPeer);
-                }
+                // Maybe punish peer that gave us an invalid orphan tx
+                MaybePunishNodeForTx(fromPeer, orphan_state);
                 LogPrint(BCLog::MEMPOOL, "   invalid orphan tx %s\n", orphanHash.ToString());
             }
             // Has inputs but not accepted to mempool
