@@ -2036,14 +2036,12 @@ void static ProcessOrphanTx(CConnman& connman, CTxMemPool& mempool, std::set<uin
         if (orphan_it == mapOrphanTransactions.end()) continue;
 
         const CTransactionRef porphanTx = orphan_it->second.tx;
-        const CTransaction& orphanTx = *porphanTx;
-        NodeId fromPeer = orphan_it->second.fromPeer;
         TxValidationState state;
 
         if (AcceptToMemoryPool(mempool, state, porphanTx, &removed_txn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
             LogPrint(BCLog::MEMPOOL, "   accepted orphan tx %s\n", orphanHash.ToString());
             RelayTransaction(orphanHash, porphanTx->GetWitnessHash(), connman);
-            for (unsigned int i = 0; i < orphanTx.vout.size(); i++) {
+            for (unsigned int i = 0; i < porphanTx->vout.size(); i++) {
                 auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(orphanHash, i));
                 if (it_by_prev != mapOrphanTransactionsByPrev.end()) {
                     for (const auto& elem : it_by_prev->second) {
@@ -2057,10 +2055,10 @@ void static ProcessOrphanTx(CConnman& connman, CTxMemPool& mempool, std::set<uin
             if (state.IsInvalid()) {
                 LogPrint(BCLog::MEMPOOL, "   invalid orphan tx %s from peer=%d. %s\n",
                     orphanHash.ToString(),
-                    fromPeer,
+                    orphan_it->second.fromPeer,
                     state.ToString());
                 // Maybe punish peer that gave us an invalid orphan tx
-                MaybePunishNodeForTx(fromPeer, state);
+                MaybePunishNodeForTx(orphan_it->second.fromPeer, state);
             }
             // Has inputs but not accepted to mempool
             // Probably non-standard or insufficient fee
@@ -2080,7 +2078,7 @@ void static ProcessOrphanTx(CConnman& connman, CTxMemPool& mempool, std::set<uin
                 // for concerns around weakening security of unupgraded nodes
                 // if we start doing this too early.
                 assert(recentRejects);
-                recentRejects->insert(orphanTx.GetWitnessHash());
+                recentRejects->insert(porphanTx->GetWitnessHash());
                 // If the transaction failed for TX_INPUTS_NOT_STANDARD,
                 // then we know that the witness was irrelevant to the policy
                 // failure, since this check depends only on the txid
@@ -2089,10 +2087,10 @@ void static ProcessOrphanTx(CConnman& connman, CTxMemPool& mempool, std::set<uin
                 // processing of this transaction in the event that child
                 // transactions are later received (resulting in
                 // parent-fetching by txid via the orphan-handling logic).
-                if (orphan_state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD && orphanTx.GetWitnessHash() != orphanTx.GetHash()) {
+                if (state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD && porphanTx->GetWitnessHash() != porphanTx->GetHash()) {
                     // We only add the txid if it differs from the wtxid, to
                     // avoid wasting entries in the rolling bloom filter.
-                    recentRejects->insert(orphanTx.GetHash());
+                    recentRejects->insert(porphanTx->GetHash());
                 }
             }
             EraseOrphanTx(orphanHash);
