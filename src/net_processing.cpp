@@ -2028,8 +2028,8 @@ void static ProcessOrphanTx(CConnman& connman, CTxMemPool& mempool, std::set<uin
     AssertLockHeld(cs_main);
     AssertLockHeld(g_cs_orphans);
     std::set<NodeId> setMisbehaving;
-    bool done = false;
-    while (!done && !orphan_work_set.empty()) {
+
+    while (!orphan_work_set.empty()) {
         const uint256 orphanHash = *orphan_work_set.begin();
         orphan_work_set.erase(orphan_work_set.begin());
 
@@ -2057,7 +2057,7 @@ void static ProcessOrphanTx(CConnman& connman, CTxMemPool& mempool, std::set<uin
                 }
             }
             EraseOrphanTx(orphanHash);
-            done = true;
+            break;
         } else if (orphan_state.GetResult() != TxValidationResult::TX_MISSING_INPUTS) {
             if (orphan_state.IsInvalid()) {
                 // Punish peer that gave us an invalid orphan tx
@@ -2103,10 +2103,10 @@ void static ProcessOrphanTx(CConnman& connman, CTxMemPool& mempool, std::set<uin
                 }
             }
             EraseOrphanTx(orphanHash);
-            done = true;
+            break;
         }
-        mempool.check(&::ChainstateActive().CoinsTip());
     }
+    mempool.check(&::ChainstateActive().CoinsTip());
 }
 
 /**
