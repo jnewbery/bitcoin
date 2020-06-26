@@ -719,216 +719,318 @@ class CNode
     friend struct ConnmanTestMsg;
 
 public:
-    std::unique_ptr<TransportDeserializer> m_deserializer;
-    std::unique_ptr<TransportSerializer> m_serializer;
-
-    // socket
-    std::atomic<ServiceFlags> nServices{NODE_NONE};
-    SOCKET hSocket GUARDED_BY(cs_hSocket);
-    size_t nSendSize{0}; // total size of all vSendMsg entries
-    size_t nSendOffset{0}; // offset inside the first vSendMsg already sent
-    uint64_t nSendBytes GUARDED_BY(cs_vSend){0};
-    std::deque<std::vector<unsigned char>> vSendMsg GUARDED_BY(cs_vSend);
-    RecursiveMutex cs_vSend;
-    RecursiveMutex cs_hSocket;
-    RecursiveMutex cs_vRecv;
-
-    RecursiveMutex cs_vProcessMsg;
-    std::list<CNetMessage> vProcessMsg GUARDED_BY(cs_vProcessMsg);
-    size_t nProcessQueueSize{0};
-
-    RecursiveMutex cs_sendProcessing;
-
-    std::deque<CInv> vRecvGetData;
-    uint64_t nRecvBytes GUARDED_BY(cs_vRecv){0};
-    std::atomic<int> nRecvVersion{INIT_PROTO_VERSION};
-
-    std::atomic<int64_t> nLastSend{0};
-    std::atomic<int64_t> nLastRecv{0};
-    const int64_t nTimeConnected;
-    std::atomic<int64_t> nTimeOffset{0};
-    // Address of this peer
-    const CAddress addr;
-    // Bind address of our side of the connection
-    const CAddress addrBind;
-    std::atomic<int> nVersion{0};
-    RecursiveMutex cs_SubVer;
-    /**
-     * cleanSubVer is a sanitized string of the user agent byte array we read
-     * from the wire. This cleaned string can safely be logged or displayed.
-     */
-    std::string cleanSubVer GUARDED_BY(cs_SubVer){};
-    bool m_prefer_evict{false}; // This peer is preferred for eviction.
-    bool HasPermission(NetPermissionFlags permission) const {
-        return NetPermissions::HasFlag(m_permissionFlags, permission);
-    }
-    // This boolean is unusued in actual processing, only present for backward compatibility at RPC/QT level
-    bool m_legacyWhitelisted{false};
-    bool fFeeler{false}; // If true this node is being used as a short lived feeler.
-    bool fOneShot{false};
-    bool m_manual_connection{false};
-    bool fClient{false}; // set by version message
-    bool m_limited_node{false}; //after BIP159, set by version message
-    const bool fInbound;
-    std::atomic_bool fSuccessfullyConnected{false};
-    // Setting fDisconnect to true will cause the node to be disconnected the
-    // next time DisconnectNodes() runs
-    std::atomic_bool fDisconnect{false};
-    bool fSentAddr{false};
+    /** A semaphore limits the number of outbound and manual peers. This
+     *  CNode holds the grant until the connection is closed, at which point
+     *  it's released to allow another connection. */
     CSemaphoreGrant grantOutbound;
+    /** Reference count to prevent the CNode from being deleted while there
+     *  are still references to it being held.
+     *  TODO: replace with std::shared_ptr */
     std::atomic<int> nRefCount{0};
 
-    const uint64_t nKeyedNetGroup;
-    std::atomic_bool fPauseRecv{false};
+    /** Socket mutex */
+    RecursiveMutex cs_hSocket;
+    /** Socket */
+    SOCKET hSocket GUARDED_BY(cs_hSocket);
+
+    /** Send buffer mutex */
+    RecursiveMutex cs_vSend;
+    /** Send buffer */
+    std::deque<std::vector<unsigned char>> vSendMsg GUARDED_BY(cs_vSend);
+    /** Total size of all vSendMsg entries */
+    size_t nSendSize{0};
+    /** Offset inside the first vSendMsg already sent */
+    size_t nSendOffset{0};
+    /** Total bytes sent to this peer */
+    uint64_t nSendBytes GUARDED_BY(cs_vSend){0};
+    /** Whether the send buffer is full and we should pause sending
+     *  data to this peer. */
     std::atomic_bool fPauseSend{false};
 
-protected:
-    mapMsgCmdSize mapSendBytesPerMsgCmd;
-    mapMsgCmdSize mapRecvBytesPerMsgCmd GUARDED_BY(cs_vRecv);
+    /** Send processing mutex. Ensures that we don't enter SendMessages()
+     *  for this peer on multiple threads */
+    RecursiveMutex cs_sendProcessing;
 
-public:
+    /** Receive buffer mutex */
+    RecursiveMutex cs_vProcessMsg;
+    /** Buffer of deserialized net messages */
+    std::list<CNetMessage> vProcessMsg GUARDED_BY(cs_vProcessMsg);
+    /** Total size of receive buffer mutex */
+    size_t nProcessQueueSize{0} GUARDED_BY(cs_vProcessMsg);
+    /** Whether the receive buffer is full and we should pause receiving
+     *  data from this peer. */
+    std::atomic_bool fPauseRecv{false};
+
+    /** Receive buffer statistics mutex */
+    RecursiveMutex cs_vRecv;
+    /** Total bytes received from this peer */
+    uint64_t nRecvBytes GUARDED_BY(cs_vRecv){0};
+
+    /** Address of this peer */
+    const CAddress addr;
+    /** Bind address of our side of the connection */
+    const CAddress addrBind;
+    /** Mutex guarding the cleanSubVer field.
+     *  TODO: replace with atomic */
+    RecursiveMutex cs_SubVer;
+    /** Sanitized string of the user agent byte array we read from the wire.
+     *  This cleaned string can safely be logged or displayed.  */
+    std::string cleanSubVer GUARDED_BY(cs_SubVer){};
+    /** Unusued in actual processing, only present for backward compatibility at RPC/QT level */
+    bool m_legacyWhitelisted{false};
+
+    /** If this peer is being used as a short lived feeler. */
+    bool fFeeler{false}; 
+    /** If this peer is being used to fetch addresses and then disconnect */
+    bool fOneShot{false};
+    /** If this peer is a manual connection added by command-line argument or RPC */
+    bool m_manual_connection{false};
+    /** If the connection with this peer was initiated by the peer */
+    const bool fInbound;
+
+    /** If the version-verack handshake has successfully completed. */
+    std::atomic_bool fSuccessfullyConnected{false};
+    /** Setting fDisconnect to true will cause the node to be disconnected the
+    / * next time DisconnectNodes() runs */
+    std::atomic_bool fDisconnect{false};
+
+    /** If this peer is a light client (doesn't serve blocks).
+     *  TODO: move this application layer data to net processing. */
+    bool fClient{false};
+    /** If this peer is 'limited' (can only serve recent blocks).
+     *  TODO: move this application layer data to net processing. */
+    bool m_limited_node{false};
+
+    /** Whether this peer is preferred for eviction */
+    bool m_prefer_evict{false};
+    /** The time of the last message sent to this peer. Used in inactivity checks */
+    std::atomic<int64_t> nLastSend{0};
+    /** The time of the last message received from this peer. Used in inactivity checks */
+    std::atomic<int64_t> nLastRecv{0};
+    /** Which netgroup this peer is in. Used in eviction logic */
+    const uint64_t nKeyedNetGroup;
+    /** Last time we accepted a block from this peer. Used in eviction logic */
+    std::atomic<int64_t> nLastBlockTime{0};
+    /** Last time we accepted a transaction from this peer. Used in eviction logic */
+    std::atomic<int64_t> nLastTXTime{0};
+    /** Best measured round-trip time for this peer. Used in eviction logic */
+    std::atomic<int64_t> nMinPingUsecTime{std::numeric_limits<int64_t>::max()};
+
+    /** The time that the connection with this node was established. Used in eviction logic */
+    const int64_t nTimeConnected;
+    /** The difference between the peer's clock and our own. Only used in logging */
+    std::atomic<int64_t> nTimeOffset{0};
+
+    /** The P2P version announced by the peer in its version message.
+     *  TODO: this is only used in the application layer. Move to net processing */
+    std::atomic<int> nRecvVersion{INIT_PROTO_VERSION};
+    /** The P2P version announced by the peer in its version message.
+     *  TODO: This seems to largely a duplicate of nRecvVersion. Remove. */
+    std::atomic<int> nVersion{0};
+    /** The supported services announced by the peer in its version message.
+     *  TODO: Move this application layer data to net processing. */
+    std::atomic<ServiceFlags> nServices{NODE_NONE};
+
+    /** Addresses to send to this peer.
+     *  TODO: move this application layer data to net processing. */
+    std::vector<CAddress> vAddrToSend;
+    /** Probabilistic filter of addresses that this peer already knows.
+     *  TODO: move this application layer data to net processing. */
+    const std::unique_ptr<CRollingBloomFilter> m_addr_known;
+    /** Whether a GETADDR request is pending from this node.
+     *  TODO: move this application layer data to net processing. */
+    bool fGetAddr{false};
+    /** Timestamp after which we should send the next addr message to this peer.
+     *  TODO: move this application layer data to net processing. */
+    std::chrono::microseconds m_next_addr_send GUARDED_BY(cs_sendProcessing){0};
+    /** Timestamp after which we should advertise our local address to this peer.
+     *  TODO: move this application layer data to net processing. */
+    std::chrono::microseconds m_next_local_addr_send GUARDED_BY(cs_sendProcessing){0};
+    /** If we've sent an initial ADDR message to this peer.
+     *  TODO: move this application layer data to net processing. */
+    bool fSentAddr{false};
+
+    /** Address relay mutex.
+     *  TODO: move this application layer data to net processing. */
+    RecursiveMutex cs_inventory;
+    /** List of block ids we still have announce.
+    / * There is no final sorting before sending, as they are always sent immediately
+    / * and in the order requested.
+     *  TODO: move this application layer data to net processing. */
+    std::vector<uint256> vInventoryBlockToSend GUARDED_BY(cs_inventory);
+    /** List of block hashes to relay in headers messages.
+     *  TODO: move this application layer data to net processing. */
+    std::vector<uint256> vBlockHashesToAnnounce GUARDED_BY(cs_inventory);
+    /** When the peer requests this block, we send an inv that
+      * triggers the peer to send a getblocks to fetch the next batch of
+      * inventory. Only used for peers that don't do headers-first syncing.
+      *  TODO: move this application layer data to net processing. */
     uint256 hashContinue;
+    /** This peer's height, as announced in its version message.
+      *  TODO: move this application layer data to net processing. */
     std::atomic<int> nStartingHeight{-1};
 
-    // flood relay
-    std::vector<CAddress> vAddrToSend;
-    const std::unique_ptr<CRollingBloomFilter> m_addr_known;
-    bool fGetAddr{false};
-    std::chrono::microseconds m_next_addr_send GUARDED_BY(cs_sendProcessing){0};
-    std::chrono::microseconds m_next_local_addr_send GUARDED_BY(cs_sendProcessing){0};
-
-    bool IsAddrRelayPeer() const { return m_addr_known != nullptr; }
-
-    // List of block ids we still have announce.
-    // There is no final sorting before sending, as they are always sent immediately
-    // and in the order requested.
-    std::vector<uint256> vInventoryBlockToSend GUARDED_BY(cs_inventory);
-    RecursiveMutex cs_inventory;
-
     struct TxRelay {
+        /** bloom filter mutex */
         mutable RecursiveMutex cs_filter;
-        // We use fRelayTxes for two purposes -
-        // a) it allows us to not relay tx invs before receiving the peer's version message
-        // b) the peer may tell us in its version message that we should not relay tx invs
-        //    unless it loads a bloom filter.
+        /** We use fRelayTxes for two purposes -
+         *  a) it allows us to not relay tx invs before receiving the peer's version message
+         *  b) the peer may tell us in its version message that we should not relay tx invs
+         *     unless it loads a bloom filter. */
         bool fRelayTxes GUARDED_BY(cs_filter){false};
+        /** BIP 31 bloom filter */
         std::unique_ptr<CBloomFilter> pfilter PT_GUARDED_BY(cs_filter) GUARDED_BY(cs_filter){nullptr};
 
+        /** Transaction relay mutex */
         mutable RecursiveMutex cs_tx_inventory;
+        /** Probabilistic filter of txids that the peer already knows */
         CRollingBloomFilter filterInventoryKnown GUARDED_BY(cs_tx_inventory){50000, 0.000001};
-        // Set of transaction ids we still have to announce.
-        // They are sorted by the mempool before relay, so the order is not important.
+        /** Set of transaction ids we still have to announce.
+         * They are sorted by the mempool before relay, so the order is not important. */
         std::set<uint256> setInventoryTxToSend;
-        // Used for BIP35 mempool sending
-        bool fSendMempool GUARDED_BY(cs_tx_inventory){false};
-        // Last time a "MEMPOOL" request was serviced.
-        std::atomic<std::chrono::seconds> m_last_mempool_req{std::chrono::seconds{0}};
+        /** Timestamp after which we should send the next transaction INV message to this peer */
         std::chrono::microseconds nNextInvSend{0};
 
+        /** If the peer has a pending BIP 35 MEMPOOL request to us */
+        bool fSendMempool GUARDED_BY(cs_tx_inventory){false};
+        /** Last time a MEMPOOL request was serviced. */
+        std::atomic<std::chrono::seconds> m_last_mempool_req{std::chrono::seconds{0}};
+
+        /** Feefilter mutex */
         RecursiveMutex cs_feeFilter;
-        // Minimum fee rate with which to filter inv's to this node
+        /** Minimum fee rate with which to filter inv's to this node */
         CAmount minFeeFilter GUARDED_BY(cs_feeFilter){0};
+        /** Last feefilter value we sent to the peer */
         CAmount lastSentFeeFilter{0};
+        /** Timestamp after which we should send the next FEEFILTER message to this peer */
         int64_t nextSendTimeFeeFilter{0};
     };
 
-    // m_tx_relay == nullptr if we're not relaying transactions with this peer
+    /** Transaction relay data for this peer. If m_tx_relay == nullptr then we don't
+     *  relay transactions with this peer.
+     *  TODO: move this application layer data to net processing. */
     std::unique_ptr<TxRelay> m_tx_relay;
 
-    // Used for headers announcements - unfiltered blocks to relay
-    std::vector<uint256> vBlockHashesToAnnounce GUARDED_BY(cs_inventory);
+    /** List of inv items requested by this peer in a getdata message.
+     *  TODO: move this application layer data to net processing. */
+    std::deque<CInv> vRecvGetData;
 
-    // Block and TXN accept times
-    std::atomic<int64_t> nLastBlockTime{0};
-    std::atomic<int64_t> nLastTXTime{0};
-
-    // Ping time measurement:
-    // The pong reply we're expecting, or 0 if no pong expected.
+    /** The pong reply we're expecting, or 0 if no pong expected.
+     *  TODO: move this application layer data to net processing. */
     std::atomic<uint64_t> nPingNonceSent{0};
-    // Time (in usec) the last ping was sent, or 0 if no ping was ever sent.
+    /** Time (in usec) the last ping was sent, or 0 if no ping was ever sent.
+     *  TODO: move this application layer data to net processing. */
     std::atomic<int64_t> nPingUsecStart{0};
-    // Last measured round-trip time.
+    /** Last measured ping round-trip time.
+     *  TODO: move this application layer data to net processing. */
     std::atomic<int64_t> nPingUsecTime{0};
-    // Best measured round-trip time.
-    std::atomic<int64_t> nMinPingUsecTime{std::numeric_limits<int64_t>::max()};
-    // Whether a ping is requested.
+    /** Whether a ping request is pending to this peer.
+     *  TODO: move this application layer data to net processing. */
     std::atomic<bool> fPingQueued{false};
 
+    /** Orphan transactions to reconsider after the parent was accepted.
+     *  TODO: move this application layer data to a global in net processing. */
     std::set<uint256> orphan_work_set;
 
-    CNode(NodeId id, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn, SOCKET hSocketIn, const CAddress &addrIn, uint64_t nKeyedNetGroupIn, uint64_t nLocalHostNonceIn, const CAddress &addrBindIn, const std::string &addrNameIn = "", bool fInboundIn = false, bool block_relay_only = false);
+private:
+    /** Unique numeric identifier for this node */
+    const NodeId id;
+    /** Node name mutex
+     *  TODO: replace with atomic */
+    mutable RecursiveMutex cs_addrName;
+    /** Node name */
+    std::string addrName GUARDED_BY(cs_addrName);
+    /** This node's permission flags. */
+    NetPermissionFlags m_permissionFlags{ PF_NONE };
+    /** addrLocal mutex
+     *  TODO: replace with atomic */
+    mutable RecursiveMutex cs_addrLocal;
+    /** Our address, as reported by the peer */
+    CService addrLocal GUARDED_BY(cs_addrLocal);
+
+    /** Random nonce sent in our VERSION message to detect connecting to ourselves.
+     *  TODO: move this application layer data to net processing */
+    const uint64_t nLocalHostNonce;
+    /** Services offered to this peer.
+     *
+     * This is supplied by the parent CConnman during peer connection
+     * (CConnman::ConnectNode()) from its attribute of the same name.
+     *
+     * This is const because there is no protocol defined for renegotiating
+     * services initially offered to a peer. The set of local services we
+     * offer should not change after initialization.
+     *
+     * An interesting example of this is NODE_NETWORK and initial block
+     * download: a node which starts up from scratch doesn't have any blocks
+     * to serve, but still advertises NODE_NETWORK because it will eventually
+     * fulfill this role after IBD completes. P2P code is written in such a
+     * way that it can gracefully handle peers who don't make good on their
+     * service advertisements.
+     *
+     * TODO: move this application layer data to net processing. */
+    const ServiceFlags nLocalServices;
+    /** Our starting height that we advertised to this node in our VERSION message.
+     * TODO: this value is not used after sending the version message. We can remove this field. */
+    const int nMyStartingHeight;
+    /** The version that we advertised to the peer in our VERSION message.
+     *  TODO: move this application layer data to net processing */
+    int nSendVersion{0};
+
+    /** Deserializer for messages received over the network. This is a derived
+     * class of TransportDeserializer based on the P2P version used with this
+     * peer. */
+    std::unique_ptr<TransportDeserializer> m_deserializer;
+    /** Serializer for messages sent over the network. This is a derived
+     * class of TransportDeserializer based on the P2P version used with this
+     * peer. */
+    std::unique_ptr<TransportSerializer> m_serializer;
+
+    /** Temporary buffer used by the SocketHandler thread for received messages,
+     *  before they're pushed onto the vProcessMsg buffer. */
+    std::list<CNetMessage> vRecvMsg;
+
+    /** Statistics of bytes sent to this peer, broken out by message type */
+    mapMsgCmdSize mapSendBytesPerMsgCmd GUARDED_BY(cs_vSend);
+    /** Statistics of bytes received from this peer, broken out by message type */
+    mapMsgCmdSize mapRecvBytesPerMsgCmd GUARDED_BY(cs_vRecv);
+
+public:
+    CNode(NodeId id, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn, SOCKET hSocketIn,
+          const CAddress &addrIn, uint64_t nKeyedNetGroupIn, uint64_t nLocalHostNonceIn,
+          const CAddress &addrBindIn, const std::string &addrNameIn = "",
+          bool fInboundIn = false, bool block_relay_only = false);
     ~CNode();
     CNode(const CNode&) = delete;
     CNode& operator=(const CNode&) = delete;
-
-private:
-    const NodeId id;
-    const uint64_t nLocalHostNonce;
-
-    //! Services offered to this peer.
-    //!
-    //! This is supplied by the parent CConnman during peer connection
-    //! (CConnman::ConnectNode()) from its attribute of the same name.
-    //!
-    //! This is const because there is no protocol defined for renegotiating
-    //! services initially offered to a peer. The set of local services we
-    //! offer should not change after initialization.
-    //!
-    //! An interesting example of this is NODE_NETWORK and initial block
-    //! download: a node which starts up from scratch doesn't have any blocks
-    //! to serve, but still advertises NODE_NETWORK because it will eventually
-    //! fulfill this role after IBD completes. P2P code is written in such a
-    //! way that it can gracefully handle peers who don't make good on their
-    //! service advertisements.
-    const ServiceFlags nLocalServices;
-
-    const int nMyStartingHeight;
-    int nSendVersion{0};
-    NetPermissionFlags m_permissionFlags{ PF_NONE };
-    std::list<CNetMessage> vRecvMsg;  // Used only by SocketHandler thread
-
-    mutable RecursiveMutex cs_addrName;
-    std::string addrName GUARDED_BY(cs_addrName);
-
-    // Our address, as reported by the peer
-    CService addrLocal GUARDED_BY(cs_addrLocal);
-    mutable RecursiveMutex cs_addrLocal;
-public:
 
     NodeId GetId() const {
         return id;
     }
 
-    uint64_t GetLocalNonce() const {
-        return nLocalHostNonce;
-    }
+    /** TODO: move this application layer function to net processing */
+    uint64_t GetLocalNonce() const {return nLocalHostNonce;}
 
-    int GetMyStartingHeight() const {
-        return nMyStartingHeight;
-    }
+    /** TODO: move this application layer function to net processing */
+    int GetMyStartingHeight() const {return nMyStartingHeight;}
 
+    /** TODO: move this application layer function to net processing */
+    ServiceFlags GetLocalServices() const { return nLocalServices; }
+
+    /** TODO: move these application layer functions to net processing */
+    void SetRecvVersion(int nVersionIn) { nRecvVersion = nVersionIn; }
+    int GetRecvVersion() const { return nRecvVersion; }
+    void SetSendVersion(int nVersionIn);
+    int GetSendVersion() const;
+
+    /** TODO: move this application layer function to net processing */
+    bool IsAddrRelayPeer() const { return m_addr_known != nullptr; }
+
+    /** TODO: Replace with std::shared_ptr refcounts */
     int GetRefCount() const
     {
         assert(nRefCount >= 0);
         return nRefCount;
     }
-
-    bool ReceiveMsgBytes(const char *pch, unsigned int nBytes, bool& complete);
-
-    void SetRecvVersion(int nVersionIn)
-    {
-        nRecvVersion = nVersionIn;
-    }
-    int GetRecvVersion() const
-    {
-        return nRecvVersion;
-    }
-    void SetSendVersion(int nVersionIn);
-    int GetSendVersion() const;
-
-    CService GetAddrLocal() const;
-    //! May not be called more than once
-    void SetAddrLocal(const CService& addrLocalIn);
 
     CNode* AddRef()
     {
@@ -941,14 +1043,28 @@ public:
         nRefCount--;
     }
 
+    bool ReceiveMsgBytes(const char *pch, unsigned int nBytes, bool& complete);
 
+    CService GetAddrLocal() const;
+    //! May not be called more than once
+    void SetAddrLocal(const CService& addrLocalIn);
 
+    std::string GetAddrName() const;
+    //! Sets the addrName only if it was not previously set
+    void MaybeSetAddrName(const std::string& addrNameIn);
+
+    bool HasPermission(NetPermissionFlags permission) const {
+        return NetPermissions::HasFlag(m_permissionFlags, permission);
+    }
+
+    /** TODO: move this application layer function to net processing */
     void AddAddressKnown(const CAddress& _addr)
     {
         assert(m_addr_known);
         m_addr_known->insert(_addr.GetKey());
     }
 
+    /** TODO: move this application layer function to net processing */
     void PushAddress(const CAddress& _addr, FastRandomContext &insecure_rand)
     {
         // Known checking here is only to save space from duplicates.
@@ -964,7 +1080,7 @@ public:
         }
     }
 
-
+    /** TODO: move this application layer function to net processing */
     void AddInventoryKnown(const CInv& inv)
     {
         if (m_tx_relay != nullptr) {
@@ -973,6 +1089,7 @@ public:
         }
     }
 
+    /** TODO: move this application layer function to net processing */
     void PushTxInventory(const uint256& hash)
     {
         if (m_tx_relay == nullptr) return;
@@ -982,12 +1099,14 @@ public:
         }
     }
 
+    /** TODO: move this application layer function to net processing */
     void PushBlockInventory(const uint256& hash)
     {
         LOCK(cs_inventory);
         vInventoryBlockToSend.push_back(hash);
     }
 
+    /** TODO: move this application layer function to net processing */
     void PushBlockHash(const uint256 &hash)
     {
         LOCK(cs_inventory);
@@ -997,15 +1116,6 @@ public:
     void CloseSocketDisconnect();
 
     void copyStats(CNodeStats &stats, const std::vector<bool> &m_asmap);
-
-    ServiceFlags GetLocalServices() const
-    {
-        return nLocalServices;
-    }
-
-    std::string GetAddrName() const;
-    //! Sets the addrName only if it was not previously set
-    void MaybeSetAddrName(const std::string& addrNameIn);
 };
 
 /** Return a timestamp in the future (in microseconds) for exponentially distributed events. */

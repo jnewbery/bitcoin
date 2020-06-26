@@ -2746,11 +2746,11 @@ int CConnman::GetBestHeight() const
 unsigned int CConnman::GetReceiveFloodSize() const { return nReceiveFloodSize; }
 
 CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn, SOCKET hSocketIn, const CAddress& addrIn, uint64_t nKeyedNetGroupIn, uint64_t nLocalHostNonceIn, const CAddress& addrBindIn, const std::string& addrNameIn, bool fInboundIn, bool block_relay_only)
-    : nTimeConnected(GetSystemTimeInSeconds()),
-    addr(addrIn),
+    : addr(addrIn),
     addrBind(addrBindIn),
     fInbound(fInboundIn),
     nKeyedNetGroup(nKeyedNetGroupIn),
+    nTimeConnected(GetSystemTimeInSeconds()),
     // Don't relay addr messages to peers that we connect to as block-relay-only
     // peers (to prevent adversaries from inferring these links from addr
     // traffic).
