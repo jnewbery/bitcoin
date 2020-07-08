@@ -584,7 +584,7 @@ public:
     std::string cleanSubVer;
     bool fInbound;
     bool m_manual_connection;
-    int nStartingHeight;
+    int m_starting_height;
     uint64_t nSendBytes;
     mapMsgCmdSize mapSendBytesPerMsgCmd;
     uint64_t nRecvBytes;
