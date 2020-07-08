@@ -461,6 +461,24 @@ using PeerRef = std::shared_ptr<Peer>;
 Mutex g_peer_mutex;
 static std::map<NodeId, PeerRef> g_peer_map GUARDED_BY(g_peer_mutex);
 
+/** Get a reference to each Peer, then call a function on each of them */
+template<typename Callable>
+void ForEachPeer(Callable&& func)
+{
+    std::vector<PeerRef> peer_copies;
+    {
+        LOCK(g_peer_mutex);
+        peer_copies.reserve(g_peer_map.size());
+        for (auto peer : g_peer_map) {
+            peer_copies.push_back(peer.second);
+        }
+    }
+
+    for (auto&& peer : peer_copies) {
+        func(peer);
+    }
+};
+
 static PeerRef GetPeer(NodeId id) {
     PeerRef ret;
     LOCK(g_peer_mutex);
