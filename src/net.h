@@ -195,7 +195,8 @@ enum
 };
 
 bool IsPeerAddrLocalGood(CNode *pnode);
-void AdvertiseLocal(CNode *pnode);
+/** Returns a local address that we should advertise to this peer */
+Optional<CAddress> GetPeerLocalAddr(CNode *pnode);
 
 /**
  * Mark a network as reachable or unreachable (no automatic connects to it)

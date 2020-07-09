@@ -4400,7 +4400,11 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
             if (pto->m_next_local_addr_send != 0us) {
                 pto->m_addr_known->reset();
             }
-            AdvertiseLocal(pto);
+            Optional<CAddress> local_addr = GetPeerLocalAddr(pto);
+            if (local_addr) {
+                FastRandomContext insecure_rand;
+                pto->PushAddress(*local_addr, insecure_rand);
+            }
             pto->m_next_local_addr_send = PoissonNextSend(current_time, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
         }
 
