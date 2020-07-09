@@ -50,8 +50,6 @@ static const bool DEFAULT_WHITELISTFORCERELAY = false;
 static const int TIMEOUT_INTERVAL = 20 * 60;
 /** Run the feeler connection loop once every 2 minutes or 120 seconds. **/
 static const int FEELER_INTERVAL = 120;
-/** The maximum number of new addresses to accumulate before announcing. */
-static const unsigned int MAX_ADDR_TO_SEND = 1000;
 /** Maximum length of incoming protocol messages (no message over 4 MB is currently acceptable). */
 static const unsigned int MAX_PROTOCOL_MESSAGE_LENGTH = 4 * 1000 * 1000;
 /** Maximum length of the user agent string in `version` message */
@@ -787,13 +785,8 @@ protected:
 
 public:
 
-    // flood relay
-    std::vector<CAddress> vAddrToSend;
-    const std::unique_ptr<CRollingBloomFilter> m_addr_known;
-    std::chrono::microseconds m_next_addr_send{0};
-    std::chrono::microseconds m_next_local_addr_send{0};
-
-    bool IsAddrRelayPeer() const { return m_addr_known != nullptr; }
+    //* Whether this peer is a block-relay-only peer. Used only in initialization */
+    bool m_block_relay_only;
 
     struct TxRelay {
         mutable RecursiveMutex cs_filter;
@@ -918,30 +911,6 @@ public:
     {
         nRefCount--;
     }
-
-
-
-    void AddAddressKnown(const CAddress& _addr)
-    {
-        assert(m_addr_known);
-        m_addr_known->insert(_addr.GetKey());
-    }
-
-    void PushAddress(const CAddress& _addr, FastRandomContext &insecure_rand)
-    {
-        // Known checking here is only to save space from duplicates.
-        // SendMessages will filter it again for knowns that were added
-        // after addresses were pushed.
-        assert(m_addr_known);
-        if (_addr.IsValid() && !m_addr_known->contains(_addr.GetKey())) {
-            if (vAddrToSend.size() >= MAX_ADDR_TO_SEND) {
-                vAddrToSend[insecure_rand.randrange(vAddrToSend.size())] = _addr;
-            } else {
-                vAddrToSend.push_back(_addr);
-            }
-        }
-    }
-
 
     void AddInventoryKnown(const CInv& inv)
     {
