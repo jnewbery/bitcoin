@@ -3986,6 +3986,56 @@ bool MaybeSendPing(CNode& pto, CConnman& connman)
     return false;
 }
 
+/** Send ADDR messages on a regular schedule*/
+void MaybeSendAddr(CNode& pto, CConnman& connman)
+{
+    const CNetMsgMaker msgMaker(pto.GetSendVersion());
+
+    // Address refresh broadcast
+    auto current_time = GetTime<std::chrono::microseconds>();
+
+    if (fListen && pto.IsAddrRelayPeer() &&
+        !::ChainstateActive().IsInitialBlockDownload() &&
+        pto.m_next_local_addr_send < current_time) {
+        Optional<CAddress> local_addr = GetPeerLocalAddr(&pto);
+        if (local_addr) {
+            FastRandomContext insecure_rand;
+            pto.PushAddress(*local_addr, insecure_rand);
+        }
+        pto.m_next_local_addr_send = PoissonNextSend(current_time, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
+    }
+
+    //
+    // Message: addr
+    //
+    if (pto.IsAddrRelayPeer() && pto.m_next_addr_send < current_time) {
+        pto.m_next_addr_send = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
+        std::vector<CAddress> vAddr;
+        vAddr.reserve(pto.vAddrToSend.size());
+        assert(pto.m_addr_known);
+        for (const CAddress& addr : pto.vAddrToSend)
+        {
+            if (!pto.m_addr_known->contains(addr.GetKey()))
+            {
+                pto.m_addr_known->insert(addr.GetKey());
+                vAddr.push_back(addr);
+                // receiver rejects addr messages larger than 1000
+                if (vAddr.size() >= 1000)
+                {
+                    connman.PushMessage(&pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
+                    vAddr.clear();
+                }
+            }
+        }
+        pto.vAddrToSend.clear();
+        if (!vAddr.empty())
+            connman.PushMessage(&pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
+        // we only send the big addr message once
+        if (pto.vAddrToSend.capacity() > 40)
+            pto.vAddrToSend.shrink_to_fit();
+    }
+}
+
 bool PeerLogicValidation::SendMessages(CNode* pto)
 {
     PeerRef peer = GetPeer(pto->GetId());
@@ -3999,6 +4049,8 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
 
     if (MaybeSendPing(*pto, *connman)) return true;
 
+    MaybeSendAddr(*pto, *connman);
+
     // If we get here, the outgoing message serialization version is set and can't change.
     const CNetMsgMaker msgMaker(pto->GetSendVersion());
 
@@ -4007,50 +4059,8 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
 
         CNodeState &state = *State(pto->GetId());
 
-        // Address refresh broadcast
         int64_t nNow = GetTimeMicros();
         auto current_time = GetTime<std::chrono::microseconds>();
-
-        if (fListen && pto->IsAddrRelayPeer() &&
-            !::ChainstateActive().IsInitialBlockDownload() &&
-            pto->m_next_local_addr_send < current_time) {
-            Optional<CAddress> local_addr = GetPeerLocalAddr(pto);
-            if (local_addr) {
-                FastRandomContext insecure_rand;
-                pto->PushAddress(*local_addr, insecure_rand);
-            }
-            pto->m_next_local_addr_send = PoissonNextSend(current_time, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
-        }
-
-        //
-        // Message: addr
-        //
-        if (pto->IsAddrRelayPeer() && pto->m_next_addr_send < current_time) {
-            pto->m_next_addr_send = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
-            std::vector<CAddress> vAddr;
-            vAddr.reserve(pto->vAddrToSend.size());
-            assert(pto->m_addr_known);
-            for (const CAddress& addr : pto->vAddrToSend)
-            {
-                if (!pto->m_addr_known->contains(addr.GetKey()))
-                {
-                    pto->m_addr_known->insert(addr.GetKey());
-                    vAddr.push_back(addr);
-                    // receiver rejects addr messages larger than 1000
-                    if (vAddr.size() >= 1000)
-                    {
-                        connman->PushMessage(pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
-                        vAddr.clear();
-                    }
-                }
-            }
-            pto->vAddrToSend.clear();
-            if (!vAddr.empty())
-                connman->PushMessage(pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
-            // we only send the big addr message once
-            if (pto->vAddrToSend.capacity() > 40)
-                pto->vAddrToSend.shrink_to_fit();
-        }
 
         // Start block sync
         if (pindexBestHeader == nullptr)
