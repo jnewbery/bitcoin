@@ -4362,13 +4362,13 @@ void PeerManagerImpl::MaybeSendPing(CNode& node_to, Peer& peer)
 
 void PeerManagerImpl::MaybeSendAddr(CNode& pto)
 {
-    const CNetMsgMaker msgMaker(pto.GetCommonVersion());
+    // Nothing to do for non-address-relay peers
+    if (!pto.RelayAddrsWithConn()) return;
 
-    // Address refresh broadcast
     auto current_time = GetTime<std::chrono::microseconds>();
 
-    if (fListen && pto.RelayAddrsWithConn() &&
-        !::ChainstateActive().IsInitialBlockDownload() &&
+    // Periodically advertise our local address to the peer.
+    if (fListen && !::ChainstateActive().IsInitialBlockDownload() &&
         pto.m_next_local_addr_send < current_time) {
         // If we've sent before, clear the bloom filter for the peer, so that our
         // self-announcement will actually go out.
@@ -4387,45 +4387,40 @@ void PeerManagerImpl::MaybeSendAddr(CNode& pto)
         pto.m_next_local_addr_send = PoissonNextSend(current_time, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
     }
 
-    //
-    // Message: addr
-    //
-    if (pto.RelayAddrsWithConn() && pto.m_next_addr_send < current_time) {
-        pto.m_next_addr_send = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
-        std::vector<CAddress> vAddr;
-        vAddr.reserve(pto.vAddrToSend.size());
-        assert(pto.m_addr_known);
+    // We sent an `addr` message to this peer recently. Nothing more to do.
+    if (pto.m_next_addr_send >= current_time) return;
+    pto.m_next_addr_send = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
 
-        const char* msg_type;
-        int make_flags;
-        if (pto.m_wants_addrv2) {
-            msg_type = NetMsgType::ADDRV2;
-            make_flags = ADDRV2_FORMAT;
-        } else {
-            msg_type = NetMsgType::ADDR;
-            make_flags = 0;
-        }
+    assert(pto.m_addr_known);
+    assert(pto.vAddrToSend.size() <= MAX_ADDR_TO_SEND);
 
-        for (const CAddress& addr : pto.vAddrToSend)
-        {
-            if (!pto.m_addr_known->contains(addr.GetKey()))
-            {
-                pto.m_addr_known->insert(addr.GetKey());
-                vAddr.push_back(addr);
-                // receiver rejects addr messages larger than MAX_ADDR_TO_SEND
-                if (vAddr.size() >= MAX_ADDR_TO_SEND)
-                {
-                    m_connman.PushMessage(&pto, msgMaker.Make(make_flags, msg_type, vAddr));
-                    vAddr.clear();
-                }
-            }
-        }
-        pto.vAddrToSend.clear();
-        if (!vAddr.empty())
-            m_connman.PushMessage(&pto, msgMaker.Make(make_flags, msg_type, vAddr));
-        // we only send the big addr message once
-        if (pto.vAddrToSend.capacity() > 40)
-            pto.vAddrToSend.shrink_to_fit();
+    // Remove addr records that the peer already knows about
+    pto.vAddrToSend.erase(std::remove_if(pto.vAddrToSend.begin(), pto.vAddrToSend.end(),
+                              [&pto](const CAddress& addr){return pto.m_addr_known->contains(addr.GetKey());}),pto.vAddrToSend.end());
+
+    // No addr messages to send
+    if (pto.vAddrToSend.empty()) return;
+
+    for (const CAddress& addr : pto.vAddrToSend) {
+        pto.m_addr_known->insert(addr.GetKey());
+    }
+
+    const CNetMsgMaker msgMaker(pto.GetCommonVersion());
+    const char* msg_type;
+    int make_flags;
+    if (pto.m_wants_addrv2) {
+        msg_type = NetMsgType::ADDRV2;
+        make_flags = ADDRV2_FORMAT;
+    } else {
+        msg_type = NetMsgType::ADDR;
+        make_flags = 0;
+    }
+    m_connman.PushMessage(&pto, msgMaker.Make(make_flags, msg_type, pto.vAddrToSend));
+    pto.vAddrToSend.clear();
+
+    // Only send the big addr message once
+    if (pto.vAddrToSend.capacity() > 40) {
+        pto.vAddrToSend.shrink_to_fit();
     }
 }
 
