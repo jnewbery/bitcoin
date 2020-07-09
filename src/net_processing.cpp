@@ -4016,7 +4016,11 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         auto current_time = GetTime<std::chrono::microseconds>();
 
         if (pto->IsAddrRelayPeer() && !::ChainstateActive().IsInitialBlockDownload() && pto->m_next_local_addr_send < current_time) {
-            AdvertiseLocal(pto);
+            Optional<CAddress> local_addr = GetPeerLocalAddr(pto);
+            if (local_addr) {
+                FastRandomContext insecure_rand;
+                pto->PushAddress(*local_addr, insecure_rand);
+            }
             pto->m_next_local_addr_send = PoissonNextSend(current_time, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
         }
 
