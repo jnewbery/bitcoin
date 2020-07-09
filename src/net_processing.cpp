@@ -3989,13 +3989,16 @@ bool MaybeSendPing(CNode& pto, CConnman& connman)
 /** Send ADDR messages on a regular schedule*/
 void MaybeSendAddr(CNode& pto, CConnman& connman)
 {
-    const CNetMsgMaker msgMaker(pto.GetSendVersion());
+    // Nothing to do for non-address-relay peers
+    if (!pto.IsAddrRelayPeer()) return;
 
-    // Address refresh broadcast
+    const CNetMsgMaker msgMaker(pto.GetSendVersion());
     auto current_time = GetTime<std::chrono::microseconds>();
 
-    if (fListen && pto.IsAddrRelayPeer() &&
-        !::ChainstateActive().IsInitialBlockDownload() &&
+    // Periodically advertise our local address to the peer. In practice, the
+    // address will be in the m_addr_known filter most of the time, so usually
+    // we won't actually re-announce it.
+    if (fListen && !::ChainstateActive().IsInitialBlockDownload() &&
         pto.m_next_local_addr_send < current_time) {
         Optional<CAddress> local_addr = GetPeerLocalAddr(&pto);
         if (local_addr) {
@@ -4005,34 +4008,36 @@ void MaybeSendAddr(CNode& pto, CConnman& connman)
         pto.m_next_local_addr_send = PoissonNextSend(current_time, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
     }
 
-    //
-    // Message: addr
-    //
-    if (pto.IsAddrRelayPeer() && pto.m_next_addr_send < current_time) {
-        pto.m_next_addr_send = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
-        std::vector<CAddress> vAddr;
-        vAddr.reserve(pto.vAddrToSend.size());
-        assert(pto.m_addr_known);
-        for (const CAddress& addr : pto.vAddrToSend)
+    if (pto.m_next_addr_send >= current_time) {
+        // We sent an ADDR message to this peer recently. Nothing more to do.
+        return;
+    }
+
+    pto.m_next_addr_send = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
+    std::vector<CAddress> vAddr;
+    vAddr.reserve(pto.vAddrToSend.size());
+    assert(pto.m_addr_known);
+    for (const CAddress& addr : pto.vAddrToSend)
+    {
+        if (!pto.m_addr_known->contains(addr.GetKey()))
         {
-            if (!pto.m_addr_known->contains(addr.GetKey()))
+            pto.m_addr_known->insert(addr.GetKey());
+            vAddr.push_back(addr);
+            // receiver rejects addr messages larger than 1000
+            if (vAddr.size() >= 1000)
             {
-                pto.m_addr_known->insert(addr.GetKey());
-                vAddr.push_back(addr);
-                // receiver rejects addr messages larger than 1000
-                if (vAddr.size() >= 1000)
-                {
-                    connman.PushMessage(&pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
-                    vAddr.clear();
-                }
+                connman.PushMessage(&pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
+                vAddr.clear();
             }
         }
-        pto.vAddrToSend.clear();
-        if (!vAddr.empty())
-            connman.PushMessage(&pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
-        // we only send the big addr message once
-        if (pto.vAddrToSend.capacity() > 40)
-            pto.vAddrToSend.shrink_to_fit();
+    }
+    pto.vAddrToSend.clear();
+    if (!vAddr.empty()) {
+        connman.PushMessage(&pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
+    }
+    // we only send the big addr message once
+    if (pto.vAddrToSend.capacity() > 40) {
+        pto.vAddrToSend.shrink_to_fit();
     }
 }
 
