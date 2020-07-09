@@ -4015,7 +4015,9 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         int64_t nNow = GetTimeMicros();
         auto current_time = GetTime<std::chrono::microseconds>();
 
-        if (pto->IsAddrRelayPeer() && !::ChainstateActive().IsInitialBlockDownload() && pto->m_next_local_addr_send < current_time) {
+        if (fListen && pto->IsAddrRelayPeer() &&
+            !::ChainstateActive().IsInitialBlockDownload() &&
+            pto->m_next_local_addr_send < current_time) {
             Optional<CAddress> local_addr = GetPeerLocalAddr(pto);
             if (local_addr) {
                 FastRandomContext insecure_rand;
