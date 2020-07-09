@@ -2455,7 +2455,6 @@ void ProcessMessage(
             if (pfrom.fOneShot || pfrom.nVersion >= CADDR_TIME_VERSION || connman->GetAddressCount() < 1000)
             {
                 connman->PushMessage(&pfrom, CNetMsgMaker(nSendVersion).Make(NetMsgType::GETADDR));
-                pfrom.fGetAddr = true;
             }
             connman->MarkAddressGood(pfrom.addr);
         }
@@ -2577,7 +2576,7 @@ void ProcessMessage(
             if (banman->IsDiscouraged(addr)) continue; // Do not process banned/discouraged addresses beyond remembering we received them
             if (banman->IsBanned(addr)) continue;
             bool fReachable = IsReachable(addr);
-            if (addr.nTime > nSince && !pfrom.fGetAddr && vAddr.size() <= 10 && addr.IsRoutable())
+            if (addr.nTime > nSince && vAddr.size() <= 10 && addr.IsRoutable())
             {
                 // Relay to a limited number of other nodes
                 RelayAddress(addr, fReachable, *connman);
@@ -2587,10 +2586,7 @@ void ProcessMessage(
                 vAddrOk.push_back(addr);
         }
         connman->AddNewAddresses(vAddrOk, pfrom.addr, 2 * 60 * 60);
-        if (vAddr.size() < 1000)
-            pfrom.fGetAddr = false;
-        if (pfrom.fOneShot)
-            pfrom.fDisconnect = true;
+        if (pfrom.fOneShot) pfrom.fDisconnect = true;
         return;
     }
 
