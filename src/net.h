@@ -573,7 +573,6 @@ class CNodeStats
 public:
     NodeId nodeid;
     ServiceFlags nServices;
-    bool fRelayTxes;
     int64_t nLastSend;
     int64_t nLastRecv;
     int64_t nTimeConnected;
@@ -591,7 +590,6 @@ public:
     NetPermissionFlags m_permissionFlags;
     bool m_legacyWhitelisted;
     int64_t m_min_ping_usec;
-    CAmount minFeeFilter;
     // Our address, as reported by the peer
     std::string addrLocal;
     // Address of this peer
@@ -788,36 +786,6 @@ public:
     //* Whether this peer is a block-relay-only peer. Used only in initialization */
     bool m_block_relay_only;
 
-    struct TxRelay {
-        mutable RecursiveMutex cs_filter;
-        // We use fRelayTxes for two purposes -
-        // a) it allows us to not relay tx invs before receiving the peer's version message
-        // b) the peer may tell us in its version message that we should not relay tx invs
-        //    unless it loads a bloom filter.
-        bool fRelayTxes GUARDED_BY(cs_filter){false};
-        std::unique_ptr<CBloomFilter> pfilter PT_GUARDED_BY(cs_filter) GUARDED_BY(cs_filter){nullptr};
-
-        mutable RecursiveMutex cs_tx_inventory;
-        CRollingBloomFilter filterInventoryKnown GUARDED_BY(cs_tx_inventory){50000, 0.000001};
-        // Set of transaction ids we still have to announce.
-        // They are sorted by the mempool before relay, so the order is not important.
-        std::set<uint256> setInventoryTxToSend;
-        // Used for BIP35 mempool sending
-        bool fSendMempool GUARDED_BY(cs_tx_inventory){false};
-        // Last time a "MEMPOOL" request was serviced.
-        std::atomic<std::chrono::seconds> m_last_mempool_req{std::chrono::seconds{0}};
-        std::chrono::microseconds nNextInvSend{0};
-
-        RecursiveMutex cs_feeFilter;
-        // Minimum fee rate with which to filter inv's to this node
-        CAmount minFeeFilter GUARDED_BY(cs_feeFilter){0};
-        CAmount lastSentFeeFilter{0};
-        int64_t nextSendTimeFeeFilter{0};
-    };
-
-    // m_tx_relay == nullptr if we're not relaying transactions with this peer
-    std::unique_ptr<TxRelay> m_tx_relay;
-
     // Block and TXN accept times
     std::atomic<int64_t> nLastBlockTime{0};
     std::atomic<int64_t> nLastTXTime{0};
@@ -910,23 +878,6 @@ public:
     void Release()
     {
         nRefCount--;
-    }
-
-    void AddInventoryKnown(const CInv& inv)
-    {
-        if (m_tx_relay != nullptr) {
-            LOCK(m_tx_relay->cs_tx_inventory);
-            m_tx_relay->filterInventoryKnown.insert(inv.hash);
-        }
-    }
-
-    void PushTxInventory(const uint256& hash)
-    {
-        if (m_tx_relay == nullptr) return;
-        LOCK(m_tx_relay->cs_tx_inventory);
-        if (!m_tx_relay->filterInventoryKnown.contains(hash)) {
-            m_tx_relay->setInventoryTxToSend.insert(hash);
-        }
     }
 
     void CloseSocketDisconnect();

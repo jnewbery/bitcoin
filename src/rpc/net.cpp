@@ -164,7 +164,6 @@ static UniValue getpeerinfo(const JSONRPCRequest& request)
         }
         obj.pushKV("services", strprintf("%016x", stats.nServices));
         obj.pushKV("servicesnames", GetServicesNames(stats.nServices));
-        obj.pushKV("relaytxes", stats.fRelayTxes);
         obj.pushKV("lastsend", stats.nLastSend);
         obj.pushKV("lastrecv", stats.nLastRecv);
         obj.pushKV("bytessent", stats.nSendBytes);
@@ -197,6 +196,8 @@ static UniValue getpeerinfo(const JSONRPCRequest& request)
             if (statestats.m_ping_wait_usec > 0) {
                 obj.pushKV("pingwait", ((double)statestats.m_ping_wait_usec) / 1e6);
             }
+            obj.pushKV("relaytxes", statestats.fRelayTxes);
+            obj.pushKV("minfeefilter", ValueFromAmount(statestats.minFeeFilter));
         }
         obj.pushKV("whitelisted", stats.m_legacyWhitelisted);
         UniValue permissions(UniValue::VARR);
@@ -204,7 +205,6 @@ static UniValue getpeerinfo(const JSONRPCRequest& request)
             permissions.push_back(permission);
         }
         obj.pushKV("permissions", permissions);
-        obj.pushKV("minfeefilter", ValueFromAmount(stats.minFeeFilter));
 
         UniValue sendPerMsgCmd(UniValue::VOBJ);
         for (const auto& i : stats.mapSendBytesPerMsgCmd) {

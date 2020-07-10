@@ -97,6 +97,8 @@ struct CNodeStateStats {
     int64_t m_ping_usec;
     int64_t m_ping_wait_usec;
     std::vector<int> vHeightInFlight;
+    bool fRelayTxes;
+    CAmount minFeeFilter;
 };
 
 /** Get statistics from node state */

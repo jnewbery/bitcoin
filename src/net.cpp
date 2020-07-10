@@ -517,12 +517,6 @@ void CNode::copyStats(CNodeStats &stats, const std::vector<bool> &m_asmap)
     X(addr);
     X(addrBind);
     stats.m_mapped_as = addr.GetMappedAS(m_asmap);
-    if (m_tx_relay != nullptr) {
-        LOCK(m_tx_relay->cs_filter);
-        stats.fRelayTxes = m_tx_relay->fRelayTxes;
-    } else {
-        stats.fRelayTxes = false;
-    }
     X(nLastSend);
     X(nLastRecv);
     X(nTimeConnected);
@@ -547,12 +541,6 @@ void CNode::copyStats(CNodeStats &stats, const std::vector<bool> &m_asmap)
     }
     X(m_legacyWhitelisted);
     X(m_permissionFlags);
-    if (m_tx_relay != nullptr) {
-        LOCK(m_tx_relay->cs_feeFilter);
-        stats.minFeeFilter = m_tx_relay->minFeeFilter;
-    } else {
-        stats.minFeeFilter = 0;
-    }
 
     stats.m_min_ping_usec  = nMinPingUsecTime;
 
@@ -1813,7 +1801,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
                     // also have the added issue that they're attacker controlled and could be used
                     // to prevent us from connecting to particular hosts if we used them here.
                     setConnected.insert(pnode->addr.GetGroup(addrman.m_asmap));
-                    if (pnode->m_tx_relay == nullptr) {
+                    if (pnode->m_block_relay_only) {
                         nOutboundBlockRelay++;
                     } else if (!pnode->fFeeler) {
                         nOutboundFullRelay++;
@@ -2722,6 +2710,7 @@ CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn
     addrBind(addrBindIn),
     fInbound(fInboundIn),
     nKeyedNetGroup(nKeyedNetGroupIn),
+    m_block_relay_only(block_relay_only),
     // Don't relay addr messages to peers that we connect to as block-relay-only
     // peers (to prevent adversaries from inferring these links from addr
     // traffic).
@@ -2732,9 +2721,6 @@ CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn
 {
     hSocket = hSocketIn;
     addrName = addrNameIn == "" ? addr.ToStringIPPort() : addrNameIn;
-    if (!block_relay_only) {
-        m_tx_relay = MakeUnique<TxRelay>();
-    }
 
     for (const std::string &msg : getAllNetMessageTypes())
         mapRecvBytesPerMsgCmd[msg] = 0;
