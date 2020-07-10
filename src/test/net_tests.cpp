@@ -798,7 +798,6 @@ std::vector<NodeEvictionCandidate> GetRandomNodeEvictionCandidates(const int n_c
             /* nLastTXTime */ static_cast<int64_t>(random_context.randrange(100)),
             /* fRelevantServices */ random_context.randbool(),
             /* fRelayTxes */ random_context.randbool(),
-            /* fBloomFilter */ random_context.randbool(),
             /* nKeyedNetGroup */ random_context.randrange(100),
             /* prefer_evict */ random_context.randbool(),
             /* m_is_local */ random_context.randbool(),

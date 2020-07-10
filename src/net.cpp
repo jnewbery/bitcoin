@@ -850,7 +850,6 @@ static bool CompareNodeTXTime(const NodeEvictionCandidate &a, const NodeEviction
     // There is a fall-through here because it is common for a node to have more than a few peers that have not yet relayed txn.
     if (a.nLastTXTime != b.nLastTXTime) return a.nLastTXTime < b.nLastTXTime;
     if (a.fRelayTxes != b.fRelayTxes) return b.fRelayTxes;
-    if (a.fBloomFilter != b.fBloomFilter) return a.fBloomFilter;
     return a.nTimeConnected > b.nTimeConnected;
 }
 
@@ -968,15 +967,10 @@ bool CConnman::AttemptToEvictConnection()
             if (node->fDisconnect)
                 continue;
             bool peer_relay_txes = node->m_relays_txs.load();
-            bool peer_filter_not_null = false;
-            if (node->m_tx_relay != nullptr) {
-                LOCK(node->m_tx_relay->cs_filter);
-                peer_filter_not_null = node->m_tx_relay->pfilter != nullptr;
-            }
             NodeEvictionCandidate candidate = {node->GetId(), node->nTimeConnected, node->m_min_ping_time,
                                                node->nLastBlockTime, node->nLastTXTime,
                                                HasAllDesirableServiceFlags(node->nServices),
-                                               peer_relay_txes, peer_filter_not_null, node->nKeyedNetGroup,
+                                               peer_relay_txes, node->nKeyedNetGroup,
                                                node->m_prefer_evict, node->addr.IsLocal()};
             vEvictionCandidates.push_back(candidate);
         }
