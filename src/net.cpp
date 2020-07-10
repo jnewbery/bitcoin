@@ -2824,10 +2824,6 @@ CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, SOCKET hSocketIn, const
         m_tx_relay = MakeUnique<TxRelay>();
     }
 
-    if (RelayAddrsWithConn()) {
-        m_addr_known = MakeUnique<CRollingBloomFilter>(5000, 0.001);
-    }
-
     for (const std::string &msg : getAllNetMessageTypes())
         mapRecvBytesPerMsgCmd[msg] = 0;
     mapRecvBytesPerMsgCmd[NET_MESSAGE_COMMAND_OTHER] = 0;

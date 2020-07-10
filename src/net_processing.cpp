@@ -147,6 +147,8 @@ static constexpr uint32_t MAX_GETCFILTERS_SIZE = 1000;
 static constexpr uint32_t MAX_GETCFHEADERS_SIZE = 2000;
 /** the maximum percentage of addresses from our addrman to return in response to a getaddr message. */
 static constexpr size_t MAX_PCT_ADDR_TO_SEND = 23;
+/** The maximum number of new addresses to relay to a peer in an ADDR message. */
+static constexpr size_t MAX_ADDR_TO_SEND = 1000;
 
 struct COrphanTx {
     // When modifying, adapt the copy of this definition in tests/DoS_tests.
@@ -218,6 +220,21 @@ struct Peer {
     /** Whether a ping has been requested by the user */
     std::atomic<bool> m_ping_queued{false};
 
+    /** A vector of addresses to send to the peer, limited to MAX_ADDR_TO_SEND */
+    std::vector<CAddress> m_addr_to_send;
+    /** Probabilistic filter of addresses that this peer already knows. Don't relay
+     *  the same addresses to this peer again. */
+    const std::unique_ptr<CRollingBloomFilter> m_addr_known;
+    /** time point to send the next ADDR message to this peer */
+    std::chrono::microseconds m_next_addr_send{0};
+    /** time point to possibly re-announce our local address to this peer */
+    std::chrono::microseconds m_next_local_addr_send{0};
+    /**
+     * Whether the peer has signaled support for receiving ADDRv2 (BIP155)
+     * messages, implying a preference to receive ADDRv2 instead of ADDR ones.
+     */
+    std::atomic_bool m_wants_addrv2{false};
+
     /** Set of txids to reconsider once their parent transactions have been accepted **/
     std::set<uint256> m_orphan_work_set GUARDED_BY(g_cs_orphans);
 
@@ -226,7 +243,8 @@ struct Peer {
     /** Work queue of items requested by this peer **/
     std::deque<CInv> m_getdata_requests GUARDED_BY(m_getdata_requests_mutex);
 
-    explicit Peer(NodeId id) : m_id(id) {}
+    explicit Peer(NodeId id, bool addr_relay)
+        : m_id(id), m_addr_known{addr_relay ? nullptr : MakeUnique<CRollingBloomFilter>(5000, 0.001)} {}
 };
 
 using PeerRef = std::shared_ptr<Peer>;
@@ -328,7 +346,22 @@ private:
     void MaybeSendPing(CNode& node_to, Peer& peer);
 
     /** Send `addr` messages on a regular schedule*/
-    void MaybeSendAddr(CNode& pto);
+    void MaybeSendAddr(CNode& pto, Peer& peer);
+
+    /** Relay (gossip) an address to a few randomly chosen nodes.
+     *
+     * We choose the same nodes within a given 24h window (if the list of connected
+     * nodes does not change) and we don't relay to nodes that already know an
+     * address. So within 24h we will likely relay a given address once. This is to
+     * prevent a peer from unjustly giving their address better propagation by sending
+     * it to us repeatedly.
+     * @param[in] originator The id of the peer that sent us the address. We don't want to relay it back.
+     * @param[in] addr Address to relay.
+     * @param[in] fReachable Whether the address' network is reachable. We relay unreachable
+     * addresses less.
+     * @param[in] connman Connection manager to choose nodes to relay to.
+     */
+    void RelayAddress(const NodeId originator, const CAddress& addr, bool fReachable, const CConnman& connman);
 
     const CChainParams& m_chainparams;
     CConnman& m_connman;
@@ -613,6 +646,39 @@ static CNodeState *State(NodeId pnode) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
     if (it == mapNodeState.end())
         return nullptr;
     return &it->second;
+}
+
+static bool RelayAddrsWithConn(const Peer& peer) { return peer.m_addr_known != nullptr; }
+
+/**
+ * Whether the peer supports the address. For example, a peer that does not
+ * implement BIP155 cannot receive Tor v3 addresses because it requires
+ * ADDRv2 (BIP155) encoding.
+ */
+static bool IsAddrCompatible(const Peer& peer, const CAddress& addr)
+{
+    return peer.m_wants_addrv2 || addr.IsAddrV1Compatible();
+}
+
+static void AddAddressKnown(Peer& peer, const CAddress& addr)
+{
+    assert(peer.m_addr_known);
+    peer.m_addr_known->insert(addr.GetKey());
+}
+
+static void PushAddress(Peer& peer, const CAddress& addr, FastRandomContext &insecure_rand)
+{
+    // Known checking here is only to save space from duplicates.
+    // SendMessages will filter it again for knowns that were added
+    // after addresses were pushed.
+    assert(peer.m_addr_known);
+    if (addr.IsValid() && !peer.m_addr_known->contains(addr.GetKey())) {
+        if (peer.m_addr_to_send.size() >= MAX_ADDR_TO_SEND) {
+            peer.m_addr_to_send[insecure_rand.randrange(peer.m_addr_to_send.size())] = addr;
+        } else {
+            peer.m_addr_to_send.push_back(addr);
+        }
+    }
 }
 
 static void UpdatePreferredDownload(const CNode& node, CNodeState* state) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
@@ -953,7 +1019,7 @@ void PeerManagerImpl::InitializeNode(CNode *pnode)
         assert(m_txrequest.Count(nodeid) == 0);
     }
     {
-        PeerRef peer = std::make_shared<Peer>(nodeid);
+        PeerRef peer = std::make_shared<Peer>(nodeid, pnode->IsBlockOnlyConn());
         LOCK(m_peer_mutex);
         m_peer_map.emplace_hint(m_peer_map.end(), nodeid, std::move(peer));
     }
@@ -1660,10 +1726,10 @@ void RelayTransaction(const uint256& txid, const uint256& wtxid, const CConnman&
  * addresses less.
  * @param[in] connman Connection manager to choose nodes to relay to.
  */
-static void RelayAddress(const NodeId originator,
-                         const CAddress& addr,
-                         bool fReachable,
-                         const CConnman& connman)
+void PeerManagerImpl::RelayAddress(const NodeId originator,
+                                   const CAddress& addr,
+                                   bool fReachable,
+                                   const CConnman& connman)
 {
     if (!fReachable && !addr.IsRelayable()) return;
 
@@ -1677,29 +1743,28 @@ static void RelayAddress(const NodeId originator,
     // Relay reachable addresses to 2 peers. Unreachable addresses are relayed randomly to 1 or 2 peers.
     unsigned int nRelayNodes = (fReachable || (hasher.Finalize() & 1)) ? 2 : 1;
 
-    std::array<std::pair<uint64_t, CNode*>,2> best{{{0, nullptr}, {0, nullptr}}};
+    std::array<std::pair<uint64_t, Peer*>,2> best{{{0, nullptr}, {0, nullptr}}};
     assert(nRelayNodes <= best.size());
 
-    auto sortfunc = [&best, &hasher, nRelayNodes, originator, &addr](CNode* pnode) {
-        if (pnode->RelayAddrsWithConn() && pnode->GetId() != originator && pnode->IsAddrCompatible(addr)) {
-            uint64_t hashKey = CSipHasher(hasher).Write(pnode->GetId()).Finalize();
+    LOCK(m_peer_mutex);
+
+    for (auto peer_it : m_peer_map) {
+        Peer* peer = peer_it.second.get();
+        if (RelayAddrsWithConn(*peer) && peer->m_id != originator && IsAddrCompatible(*peer, addr)) {
+            uint64_t hashKey = CSipHasher(hasher).Write(peer->m_id).Finalize();
             for (unsigned int i = 0; i < nRelayNodes; i++) {
                  if (hashKey > best[i].first) {
                      std::copy(best.begin() + i, best.begin() + nRelayNodes - 1, best.begin() + i + 1);
-                     best[i] = std::make_pair(hashKey, pnode);
+                     best[i] = std::make_pair(hashKey, peer);
                      break;
                  }
             }
         }
     };
 
-    auto pushfunc = [&addr, &best, nRelayNodes, &insecure_rand] {
-        for (unsigned int i = 0; i < nRelayNodes && best[i].first != 0; i++) {
-            best[i].second->PushAddress(addr, insecure_rand);
-        }
-    };
-
-    connman.ForEachNodeThen(std::move(sortfunc), std::move(pushfunc));
+    for (unsigned int i = 0; i < nRelayNodes && best[i].first != 0; i++) {
+        PushAddress(*best[i].second, addr, insecure_rand);
+    }
 }
 
 void static ProcessGetBlockData(CNode& pfrom, Peer& peer, const CChainParams& chainparams, const CInv& inv, CConnman& connman)
@@ -2641,11 +2706,11 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 if (addr.IsRoutable())
                 {
                     LogPrint(BCLog::NET, "ProcessMessages: advertising address %s\n", addr.ToString());
-                    pfrom.PushAddress(addr, insecure_rand);
+                    PushAddress(*peer, addr, insecure_rand);
                 } else if (IsPeerAddrLocalGood(&pfrom)) {
                     addr.SetIP(addrMe);
                     LogPrint(BCLog::NET, "ProcessMessages: advertising address %s\n", addr.ToString());
-                    pfrom.PushAddress(addr, insecure_rand);
+                    PushAddress(*peer, addr, insecure_rand);
                 }
             }
 
@@ -2809,7 +2874,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             pfrom.fDisconnect = true;
             return;
         }
-        pfrom.m_wants_addrv2 = true;
+        peer->m_wants_addrv2 = true;
         return;
     }
 
@@ -2831,7 +2896,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
         s >> vAddr;
 
-        if (!pfrom.RelayAddrsWithConn()) {
+        if (!pfrom.RelayAddrsWithConn(*peer)) {
             LogPrint(BCLog::NET, "ignoring %s message from %s peer=%d\n", msg_type, pfrom.ConnectionTypeAsString(), pfrom.GetId());
             return;
         }
@@ -2858,7 +2923,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
             if (addr.nTime <= 100000000 || addr.nTime > nNow + 10 * 60)
                 addr.nTime = nNow - 5 * 24 * 60 * 60;
-            pfrom.AddAddressKnown(addr);
+            AddAddressKnown(*peer, addr);
             if (m_banman && (m_banman->IsDiscouraged(addr) || m_banman->IsBanned(addr))) {
                 // Do not process banned/discouraged addresses beyond remembering we received them
                 continue;
@@ -3751,7 +3816,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         // to users' AddrMan and later request them by sending getaddr messages.
         // Making nodes which are behind NAT and can only make outgoing connections ignore
         // the getaddr message mitigates the attack.
-        if (!pfrom.IsInboundConn()) {
+        if (!RelayAddrsWithConn(*peer)) {
             LogPrint(BCLog::NET, "Ignoring \"getaddr\" from %s connection. peer=%d\n", pfrom.ConnectionTypeAsString(), pfrom.GetId());
             return;
         }
@@ -3764,7 +3829,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         }
         pfrom.fSentAddr = true;
 
-        pfrom.vAddrToSend.clear();
+        peer->m_addr_to_send.clear();
         std::vector<CAddress> vAddr;
         if (pfrom.HasPermission(PF_ADDR)) {
             vAddr = m_connman.GetAddresses(MAX_ADDR_TO_SEND, MAX_PCT_ADDR_TO_SEND);
@@ -3773,7 +3838,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         }
         FastRandomContext insecure_rand;
         for (const CAddress &addr : vAddr) {
-            pfrom.PushAddress(addr, insecure_rand);
+            PushAddress(*peer, addr, insecure_rand);
         }
         return;
     }
@@ -4360,67 +4425,67 @@ void PeerManagerImpl::MaybeSendPing(CNode& node_to, Peer& peer)
     }
 }
 
-void PeerManagerImpl::MaybeSendAddr(CNode& pto)
+void PeerManagerImpl::MaybeSendAddr(CNode& pto, Peer& peer)
 {
     // Nothing to do for non-address-relay peers
-    if (!pto.RelayAddrsWithConn()) return;
+    if (!RelayAddrsWithConn(peer)) return;
 
     auto current_time = GetTime<std::chrono::microseconds>();
 
     // Periodically advertise our local address to the peer.
     if (fListen && !::ChainstateActive().IsInitialBlockDownload() &&
-        pto.m_next_local_addr_send < current_time) {
+        peer.m_next_local_addr_send < current_time) {
         // If we've sent before, clear the bloom filter for the peer, so that our
         // self-announcement will actually go out.
         // This might be unnecessary if the bloom filter has already rolled
         // over since our last self-announcement, but there is only a small
         // bandwidth cost that we can incur by doing this (which happens
         // once a day on average).
-        if (pto.m_next_local_addr_send != 0us) {
-            pto.m_addr_known->reset();
+        if (peer.m_next_local_addr_send != 0us) {
+            peer.m_addr_known->reset();
         }
         Optional<CAddress> local_addr = GetPeerLocalAddr(&pto);
         if (local_addr) {
             FastRandomContext insecure_rand;
-            pto.PushAddress(*local_addr, insecure_rand);
+            PushAddress(peer, *local_addr, insecure_rand);
         }
-        pto.m_next_local_addr_send = PoissonNextSend(current_time, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
+        peer.m_next_local_addr_send = PoissonNextSend(current_time, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
     }
 
     // We sent an `addr` message to this peer recently. Nothing more to do.
-    if (pto.m_next_addr_send >= current_time) return;
-    pto.m_next_addr_send = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
+    if (peer.m_next_addr_send >= current_time) return;
+    peer.m_next_addr_send = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
 
-    assert(pto.m_addr_known);
-    assert(pto.vAddrToSend.size() <= MAX_ADDR_TO_SEND);
+    assert(peer.m_addr_known);
+    assert(peer.m_addr_to_send.size() <= MAX_ADDR_TO_SEND);
 
     // Remove addr records that the peer already knows about
-    pto.vAddrToSend.erase(std::remove_if(pto.vAddrToSend.begin(), pto.vAddrToSend.end(),
-                              [&pto](const CAddress& addr){return pto.m_addr_known->contains(addr.GetKey());}),pto.vAddrToSend.end());
+    peer.m_addr_to_send.erase(std::remove_if(peer.m_addr_to_send.begin(), peer.m_addr_to_send.end(),
+                              [&peer](const CAddress& addr){return peer.m_addr_known->contains(addr.GetKey());}), peer.m_addr_to_send.end());
 
     // No addr messages to send
-    if (pto.vAddrToSend.empty()) return;
+    if (peer.m_addr_to_send.empty()) return;
 
-    for (const CAddress& addr : pto.vAddrToSend) {
-        pto.m_addr_known->insert(addr.GetKey());
+    for (const CAddress& addr : peer.m_addr_to_send) {
+        peer.m_addr_known->insert(addr.GetKey());
     }
 
     const CNetMsgMaker msgMaker(pto.GetCommonVersion());
     const char* msg_type;
     int make_flags;
-    if (pto.m_wants_addrv2) {
+    if (peer.m_wants_addrv2) {
         msg_type = NetMsgType::ADDRV2;
         make_flags = ADDRV2_FORMAT;
     } else {
         msg_type = NetMsgType::ADDR;
         make_flags = 0;
     }
-    m_connman.PushMessage(&pto, msgMaker.Make(make_flags, msg_type, pto.vAddrToSend));
-    pto.vAddrToSend.clear();
+    m_connman.PushMessage(&pto, msgMaker.Make(make_flags, msg_type, peer.m_addr_to_send));
+    peer.m_addr_to_send.clear();
 
     // Only send the big addr message once
-    if (pto.vAddrToSend.capacity() > 40) {
-        pto.vAddrToSend.shrink_to_fit();
+    if (peer.m_addr_to_send.capacity() > 40) {
+        peer.m_addr_to_send.shrink_to_fit();
     }
 }
 
@@ -4441,7 +4506,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
     // MaybeSendPing may have marked peer for disconnection
     if (pto->fDisconnect) return true;
 
-    MaybeSendAddr(*pto);
+    MaybeSendAddr(*pto, *peer);
 
     // If we get here, the outgoing message serialization version is set and can't change.
     const CNetMsgMaker msgMaker(pto->GetCommonVersion());
