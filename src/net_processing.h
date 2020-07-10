@@ -33,6 +33,8 @@ struct CNodeStateStats {
     int m_starting_height = -1;
     int64_t m_ping_wait_usec;
     std::vector<int> vHeightInFlight;
+    bool fRelayTxes;
+    CAmount minFeeFilter;
 };
 
 class PeerManager : public CValidationInterface, public NetEventsInterface
