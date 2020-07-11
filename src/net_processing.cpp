@@ -461,13 +461,13 @@ struct Peer {
     uint256 m_hash_continue;
 
     /** Random nonce included in last ping sent to this peer */
-    std::atomic<uint64_t> nPingNonceSent{0};
+    std::atomic<uint64_t> m_ping_nonce_sent{0};
     /** Time (in usec) the last ping was sent, or 0 if no ping was ever sent */
-    std::atomic<int64_t> nPingUsecStart{0};
+    std::atomic<int64_t> m_ping_sent_time{0};
     /** Last measured ping round-trip time */
-    std::atomic<int64_t> nPingUsecTime{0};
+    std::atomic<int64_t> m_ping_roundtrip_time{0};
     /** Whether a pong response is currently outstanding */
-    std::atomic<bool> fPingQueued{false};
+    std::atomic<bool> m_ping_queued{false};
 
     Peer(NodeId id) : m_id(id) {}
 };
@@ -975,12 +975,12 @@ bool GetNodeStateStats(NodeId nodeid, CNodeStateStats &stats) {
         // So, if a ping is taking an unusually long time in flight,
         // the caller can immediately detect that this is happening.
         int64_t nPingUsecWait = 0;
-        if ((0 != peer->nPingNonceSent) && (0 != peer->nPingUsecStart)) {
-            nPingUsecWait = GetTimeMicros() - peer->nPingUsecStart;
+        if ((0 != peer->m_ping_nonce_sent) && (0 != peer->m_ping_sent_time)) {
+            nPingUsecWait = GetTimeMicros() - peer->m_ping_sent_time;
         }
 
         // Raw ping time is in microseconds, but show it to user as whole seconds (Bitcoin users should be well used to small numbers with many decimal places by now :)
-        stats.m_ping_usec = peer->nPingUsecTime;
+        stats.m_ping_usec = peer->m_ping_roundtrip_time;
         stats.m_ping_wait_usec = nPingUsecWait;
     }
 
@@ -1513,7 +1513,7 @@ bool static AlreadyHave(const CInv& inv, const CTxMemPool& mempool) EXCLUSIVE_LO
 void PeerLogicValidation::SendPings()
 {
     ForEachPeer([](const PeerRef& peer) {
-        peer->fPingQueued = true;
+        peer->m_ping_queued = true;
     });
 }
 
@@ -3492,14 +3492,14 @@ void ProcessMessage(
             vRecv >> nonce;
 
             // Only process pong message if there is an outstanding ping (old ping without nonce should never pong)
-            if (peer->nPingNonceSent != 0) {
-                if (nonce == peer->nPingNonceSent) {
+            if (peer->m_ping_nonce_sent != 0) {
+                if (nonce == peer->m_ping_nonce_sent) {
                     // Matching pong received, this ping is no longer outstanding
                     bPingFinished = true;
-                    int64_t pingUsecTime = pingUsecEnd - peer->nPingUsecStart;
+                    int64_t pingUsecTime = pingUsecEnd - peer->m_ping_sent_time;
                     if (pingUsecTime > 0) {
                         // Successful ping time measurement, replace previous
-                        peer->nPingUsecTime = pingUsecTime;
+                        peer->m_ping_roundtrip_time = pingUsecTime;
                         pfrom.nMinPingUsecTime = std::min(pfrom.nMinPingUsecTime.load(), pingUsecTime);
                     } else {
                         // This should never happen
@@ -3527,12 +3527,12 @@ void ProcessMessage(
             LogPrint(BCLog::NET, "pong peer=%d: %s, %x expected, %x received, %u bytes\n",
                 pfrom.GetId(),
                 sProblem,
-                peer->nPingNonceSent,
+                peer->m_ping_nonce_sent,
                 nonce,
                 nAvail);
         }
         if (bPingFinished) {
-            peer->nPingNonceSent = 0;
+            peer->m_ping_nonce_sent = 0;
         }
         return;
     }
@@ -3956,10 +3956,10 @@ bool MaybeSendPing(CNode& pto, CConnman& connman)
     PeerRef peer = GetPeer(pto.GetId());
     const CNetMsgMaker msgMaker(pto.GetSendVersion());
     bool pingSend = false;
-    if (peer->nPingUsecStart + PING_INTERVAL * 1000000 < GetTimeMicros()) {
-        if (peer->nPingNonceSent) {
+    if (peer->m_ping_sent_time + PING_INTERVAL * 1000000 < GetTimeMicros()) {
+        if (peer->m_ping_nonce_sent) {
             // Ping has timed out. Disconnect peer.
-            LogPrint(BCLog::NET, "ping timeout: %fs, peer=%s\n", 0.000001 * (GetTimeMicros() - peer->nPingUsecStart), pto.GetId());
+            LogPrint(BCLog::NET, "ping timeout: %fs, peer=%s\n", 0.000001 * (GetTimeMicros() - peer->m_ping_sent_time), pto.GetId());
             pto.fDisconnect = true;
             return true;
         } else {
@@ -3967,7 +3967,7 @@ bool MaybeSendPing(CNode& pto, CConnman& connman)
             pingSend = true;
         }
     }
-    if (peer->fPingQueued) {
+    if (peer->m_ping_queued) {
         // RPC ping request by user
         pingSend = true;
     }
@@ -3976,14 +3976,14 @@ bool MaybeSendPing(CNode& pto, CConnman& connman)
         while (nonce == 0) {
             GetRandBytes((unsigned char*)&nonce, sizeof(nonce));
         }
-        peer->fPingQueued = false;
-        peer->nPingUsecStart = GetTimeMicros();
+        peer->m_ping_queued = false;
+        peer->m_ping_sent_time = GetTimeMicros();
         if (pto.nVersion > BIP0031_VERSION) {
-            peer->nPingNonceSent = nonce;
+            peer->m_ping_nonce_sent = nonce;
             connman.PushMessage(&pto, msgMaker.Make(NetMsgType::PING, nonce));
         } else {
             // Peer is too old to support ping command with nonce, pong will never arrive.
-            peer->nPingNonceSent = 0;
+            peer->m_ping_nonce_sent = 0;
             connman.PushMessage(&pto, msgMaker.Make(NetMsgType::PING));
         }
     }
