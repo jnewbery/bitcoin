@@ -482,29 +482,37 @@ struct Peer {
     std::chrono::microseconds m_next_local_addr_send{0};
 
     struct TxRelay {
-        mutable RecursiveMutex m_bloom_filter_mutex;
-        // We use m_relay_txs for two purposes -
-        // a) it allows us to not relay tx invs before receiving the peer's version message
-        // b) the peer may tell us in its version message that we should not relay tx invs
-        //    unless it loads a bloom filter.
+        /** Protects bloom filter data members */
+        RecursiveMutex m_bloom_filter_mutex;
+        /** We use m_relay_txs for two purposes:
+         * a) it allows us to not relay tx invs before receiving the peer's version message
+         * b) the peer may tell us in its version message that we should not relay tx invs
+         *    unless it loads a bloom filter. */
         bool m_relay_txs GUARDED_BY(m_bloom_filter_mutex){false};
+        /** Bloom filter for this peer */
         std::unique_ptr<CBloomFilter> m_bloom_filter PT_GUARDED_BY(m_bloom_filter_mutex) GUARDED_BY(m_bloom_filter_mutex){nullptr};
 
-        mutable RecursiveMutex m_tx_inventory_mutex;
+        /** Protects tx inventory data members */
+        RecursiveMutex m_tx_inventory_mutex;
+        /** Probabilistic filter of transactions that this peer already knows about */
         CRollingBloomFilter m_tx_inventory_known_filter GUARDED_BY(m_tx_inventory_mutex){50000, 0.000001};
-        // Set of transaction ids we still have to announce.
-        // They are sorted by the mempool before relay, so the order is not important.
+        /** Set of transaction ids we still have to announce.
+          * They are sorted by the mempool before relay, so the order is not important. */
         std::set<uint256> m_tx_inventory_to_send;
-        // Used for BIP35 mempool sending
+        /** Whether this peer has an outstanding MEMPOOL request to us */
         bool m_send_mempool GUARDED_BY(m_tx_inventory_mutex){false};
-        // Last time a "MEMPOOL" request was serviced.
+        /** Last time we serviced a  MEMPOOL request from this peer */
         std::atomic<std::chrono::seconds> m_last_mempool_req{std::chrono::seconds{0}};
+        /** Next time we should send an INV to this peer */
         std::chrono::microseconds m_next_inv_send_time{0};
 
+        /** Protects fee filter data members */
         RecursiveMutex m_fee_filter_mutex;
-        // Minimum fee rate with which to filter inv's to this node
+        /** Peer has requested that we don't send transactions with feerate below this */
         CAmount m_fee_filter_theirs GUARDED_BY(m_fee_filter_mutex){0};
+        /** We have requested that the peer not send transactions with feerate below this */
         CAmount m_fee_filter_ours{0};
+        /** Next time to send a FEEFILTER message to this peer */
         int64_t m_fee_filter_next_send{0};
     };
 
