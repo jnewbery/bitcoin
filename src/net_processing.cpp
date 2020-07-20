@@ -628,12 +628,18 @@ void AddInventoryKnown(PeerRef& peer, const CInv& inv)
     }
 }
 
+/** Whether this peer can serve us blocks. */
+static bool CanServeBlocks(const Peer& peer)
+{
+    return peer.m_their_services & (NODE_NETWORK | NODE_NETWORK_LIMITED);
+}
+
 static void UpdatePreferredDownload(const CNode& node, Peer& peer)
 {
     nPreferredDownload -= peer.m_preferred_download;
 
     // Whether this node should be marked as a preferred download node.
-    peer.m_preferred_download = (!node.fInbound || node.HasPermission(PF_NOBAN)) && !node.fOneShot && !node.fClient;
+    peer.m_preferred_download = (!node.fInbound || node.HasPermission(PF_NOBAN)) && !node.fOneShot && CanServeBlocks(peer);
 
     nPreferredDownload += peer.m_preferred_download;
 }
@@ -2538,9 +2544,6 @@ void ProcessMessage(
         WITH_LOCK(peer->m_subversion_mutex, peer->m_clean_subversion = cleanSubVer);
         peer->m_starting_height = m_starting_height;
 
-        // set nodes not relaying blocks and tx and not serving (parts) of the historical blockchain as "clients"
-        pfrom.fClient = (!(nServices & NODE_NETWORK) && !(nServices & NODE_NETWORK_LIMITED));
-
         // set nodes not capable of serving the complete blockchain history as "limited nodes"
         pfrom.m_limited_node = (!(nServices & NODE_NETWORK) && (nServices & NODE_NETWORK_LIMITED));
 
@@ -4203,8 +4206,8 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         // Start block sync
         if (pindexBestHeader == nullptr)
             pindexBestHeader = ::ChainActive().Tip();
-        bool fFetch = peer->m_preferred_download || (nPreferredDownload == 0 && !pto->fClient && !pto->fOneShot); // Download if this is a nice peer, or we have no nice peers and this one might do.
-        if (!state.fSyncStarted && !pto->fClient && !fImporting && !fReindex) {
+        bool fFetch = peer->m_preferred_download || (nPreferredDownload == 0 && CanServeBlocks(*peer) && !pto->fOneShot); // Download if this is a nice peer, or we have no nice peers and this one might do.
+        if (!state.fSyncStarted && CanServeBlocks(*peer) && !fImporting && !fReindex) {
             // Only actively request headers from a single peer, unless we're close to today.
             if ((nSyncStarted == 0 && fFetch) || pindexBestHeader->GetBlockTime() > GetAdjustedTime() - 24 * 60 * 60) {
                 state.fSyncStarted = true;
@@ -4574,7 +4577,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         // Message: getdata (blocks)
         //
         std::vector<CInv> vGetData;
-        if (!pto->fClient && ((fFetch && !pto->m_limited_node) || !::ChainstateActive().IsInitialBlockDownload()) && state.nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
+        if (CanServeBlocks(*peer) && ((fFetch && !pto->m_limited_node) || !::ChainstateActive().IsInitialBlockDownload()) && state.nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
             std::vector<const CBlockIndex*> vToDownload;
             NodeId staller = -1;
             FindNextBlocksToDownload(pto->GetId(), MAX_BLOCKS_IN_TRANSIT_PER_PEER - state.nBlocksInFlight, vToDownload, staller, consensusParams);

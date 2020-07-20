@@ -67,6 +67,15 @@ void UpdateLastBlockAnnounceTime(NodeId node, int64_t time_in_seconds);
 
 BOOST_FIXTURE_TEST_SUITE(denialofservice_tests, TestingSetup)
 
+static void SendVersionAndVerack(CNode& node)
+{
+    // Do stuff to send a version message
+    //
+    // The current tests do not send a VERSION or VERACK message to the nodes,
+    // meaning that they're initialized incorrectly. Fix that by constructing
+    // a VERSION message and sending it to the node.
+}
+
 // Test eviction of an outbound peer whose chain never advances
 // Mock a node connection, and use mocktime to simulate a peer
 // which never sends any headers messages.  PeerLogic should
@@ -82,12 +91,15 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
 
     // Mock an outbound peer
     CAddress addr1(ip(0xa0b0c001), NODE_NONE);
-    CNode dummyNode1(id++, ServiceFlags(NODE_NETWORK|NODE_WITNESS), 0, INVALID_SOCKET, addr1, 0, 0, CAddress(), "", /*fInboundIn=*/ false);
+    CNode dummyNode1(++id, ServiceFlags(NODE_NETWORK|NODE_WITNESS), 0, INVALID_SOCKET, addr1, 0, 0, CAddress(), "", /*fInboundIn=*/ false);
     dummyNode1.SetSendVersion(PROTOCOL_VERSION);
 
     peerLogic->InitializeNode(&dummyNode1, ServiceFlags(NODE_NETWORK|NODE_WITNESS));
     dummyNode1.nVersion = 1;
     dummyNode1.fSuccessfullyConnected = true;
+
+    PeerRef peer = GetPeer(id);
+    peer->m_their_services = ServiceFlags(NODE_NETWORK|NODE_WITNESS);
 
     // This test requires that we have a chain with non-zero work.
     {
