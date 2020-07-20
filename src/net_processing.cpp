@@ -634,6 +634,14 @@ static bool CanServeBlocks(const Peer& peer)
     return peer.m_their_services & (NODE_NETWORK | NODE_NETWORK_LIMITED);
 }
 
+/** Whether this peer can only serve limited recent blocks (e.g. because
+ *  it prunes old blocks) */
+static bool IsLimitedPeer(const Peer& peer)
+{
+    return (!(peer.m_their_services & NODE_NETWORK) &&
+             (peer.m_their_services & NODE_NETWORK_LIMITED));
+}
+
 static void UpdatePreferredDownload(const CNode& node, Peer& peer)
 {
     nPreferredDownload -= peer.m_preferred_download;
@@ -2543,9 +2551,6 @@ void ProcessMessage(
         pfrom.SetAddrLocal(addrMe);
         WITH_LOCK(peer->m_subversion_mutex, peer->m_clean_subversion = cleanSubVer);
         peer->m_starting_height = m_starting_height;
-
-        // set nodes not capable of serving the complete blockchain history as "limited nodes"
-        pfrom.m_limited_node = (!(nServices & NODE_NETWORK) && (nServices & NODE_NETWORK_LIMITED));
 
         if (peer->m_tx_relay != nullptr) {
             LOCK(peer->m_tx_relay->m_bloom_filter_mutex);
@@ -4577,7 +4582,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         // Message: getdata (blocks)
         //
         std::vector<CInv> vGetData;
-        if (CanServeBlocks(*peer) && ((fFetch && !pto->m_limited_node) || !::ChainstateActive().IsInitialBlockDownload()) && state.nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
+        if (CanServeBlocks(*peer) && ((fFetch && !IsLimitedPeer(*peer)) || !::ChainstateActive().IsInitialBlockDownload()) && state.nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
             std::vector<const CBlockIndex*> vToDownload;
             NodeId staller = -1;
             FindNextBlocksToDownload(pto->GetId(), MAX_BLOCKS_IN_TRANSIT_PER_PEER - state.nBlocksInFlight, vToDownload, staller, consensusParams);

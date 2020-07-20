@@ -754,7 +754,6 @@ public:
     bool fFeeler{false}; // If true this node is being used as a short lived feeler.
     bool fOneShot{false};
     bool m_manual_connection{false};
-    bool m_limited_node{false}; //after BIP159, set by version message
     const bool fInbound;
     std::atomic_bool fSuccessfullyConnected{false};
     // Setting fDisconnect to true will cause the node to be disconnected the
