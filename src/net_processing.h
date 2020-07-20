@@ -99,6 +99,7 @@ struct CNodeStateStats {
     std::vector<int> vHeightInFlight;
     bool m_relay_txs;
     CAmount m_fee_filter_theirs;
+    std::string m_clean_subversion;
 };
 
 /** Get statistics from node state */

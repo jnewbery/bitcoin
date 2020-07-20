@@ -30,7 +30,7 @@ bool NodeLessThan::operator()(const CNodeCombinedStats &left, const CNodeCombine
     case PeerTableModel::Address:
         return pLeft->addrName.compare(pRight->addrName) < 0;
     case PeerTableModel::Subversion:
-        return pLeft->cleanSubVer.compare(pRight->cleanSubVer) < 0;
+        return left.nodeStateStats.m_clean_subversion.compare(right.nodeStateStats.m_clean_subversion) < 0;
     case PeerTableModel::Ping:
         return pLeft->m_min_ping_usec < pRight->m_min_ping_usec;
     case PeerTableModel::Sent:
@@ -159,7 +159,7 @@ QVariant PeerTableModel::data(const QModelIndex &index, int role) const
             // prepend to peer address down-arrow symbol for inbound connection and up-arrow for outbound connection
             return QString(rec->nodeStats.fInbound ? "↓ " : "↑ ") + QString::fromStdString(rec->nodeStats.addrName);
         case Subversion:
-            return QString::fromStdString(rec->nodeStats.cleanSubVer);
+            return QString::fromStdString(rec->nodeStateStats.m_clean_subversion);
         case Ping:
             return GUIUtil::formatPingTime(rec->nodeStats.m_min_ping_usec);
         case Sent:

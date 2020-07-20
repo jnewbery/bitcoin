@@ -579,7 +579,6 @@ public:
     int64_t nTimeOffset;
     std::string addrName;
     int nVersion;
-    std::string cleanSubVer;
     bool fInbound;
     bool m_manual_connection;
     int m_starting_height;
@@ -746,12 +745,6 @@ public:
     // Bind address of our side of the connection
     const CAddress addrBind;
     std::atomic<int> nVersion{0};
-    RecursiveMutex cs_SubVer;
-    /**
-     * cleanSubVer is a sanitized string of the user agent byte array we read
-     * from the wire. This cleaned string can safely be logged or displayed.
-     */
-    std::string cleanSubVer GUARDED_BY(cs_SubVer){};
     bool m_prefer_evict{false}; // This peer is preferred for eviction.
     bool HasPermission(NetPermissionFlags permission) const {
         return NetPermissions::HasFlag(m_permissionFlags, permission);

@@ -177,7 +177,6 @@ static UniValue getpeerinfo(const JSONRPCRequest& request)
         // Use the sanitized form of subver here, to avoid tricksy remote peers from
         // corrupting or modifying the JSON output by putting special characters in
         // their ver message.
-        obj.pushKV("subver", stats.cleanSubVer);
         obj.pushKV("inbound", stats.fInbound);
         obj.pushKV("addnode", stats.m_manual_connection);
         if (fStateStats) {
@@ -198,6 +197,7 @@ static UniValue getpeerinfo(const JSONRPCRequest& request)
             }
             obj.pushKV("relaytxes", statestats.m_relay_txs);
             obj.pushKV("minfeefilter", ValueFromAmount(statestats.m_fee_filter_theirs));
+            obj.pushKV("subver", statestats.m_clean_subversion);
         }
         obj.pushKV("whitelisted", stats.m_legacyWhitelisted);
         UniValue permissions(UniValue::VARR);
