@@ -126,7 +126,7 @@ QVariant PeerTableModel::data(const QModelIndex &index, int role) const
         case Received:
             return GUIUtil::formatBytes(rec->nodeStats.nRecvBytes);
         case Subversion:
-            return QString::fromStdString(rec->nodeStats.cleanSubVer);
+            return QString::fromStdString(rec->nodeStateStats.m_clean_subversion);
         } // no default case, so the compiler can warn about missing cases
         assert(false);
     } else if (role == Qt::TextAlignmentRole) {

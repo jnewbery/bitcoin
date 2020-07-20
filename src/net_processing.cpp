@@ -185,6 +185,12 @@ struct Peer {
      *  annotations. Don't lock the mutex through this handle.*/
     Mutex& m_mutex_message_handling;
 
+    /** Protects subversion data member */
+    RecursiveMutex m_subversion_mutex;
+    /** A sanitized string of the user agent byte array we read from the wire.
+     *  This cleaned string can safely be logged or displayed.  */
+    std::string m_clean_subversion GUARDED_BY(m_subversion_mutex){};
+
     /** Protects misbehavior data members */
     Mutex m_misbehavior_mutex;
     /** Accumulated misbehavior score for this peer */
@@ -1276,6 +1282,7 @@ bool PeerManagerImpl::GetPeerStats(NodeId nodeid, PeerStats& stats) const
         stats.m_fee_filter_theirs = 0;
     }
 
+    stats.m_clean_subversion = WITH_LOCK(peer->m_subversion_mutex, return peer->m_clean_subversion);
     stats.m_ping_wait = ping_wait;
 
     return true;
@@ -2574,10 +2581,7 @@ void PeerManagerImpl::_ProcessMessage(CNode& pfrom, const std::string& msg_type,
 
         pfrom.nServices = nServices;
         pfrom.SetAddrLocal(addrMe);
-        {
-            LOCK(pfrom.cs_SubVer);
-            pfrom.cleanSubVer = cleanSubVer;
-        }
+        WITH_LOCK(peer->m_subversion_mutex, peer->m_clean_subversion = cleanSubVer);
         peer->m_starting_height = starting_height;
 
         // set nodes not relaying blocks and tx and not serving (parts) of the historical blockchain as "clients"

@@ -31,6 +31,7 @@ struct PeerStats {
     std::vector<int> vHeightInFlight;
     bool m_relay_txs;
     CAmount m_fee_filter_theirs;
+    std::string m_clean_subversion;
 };
 
 class PeerManager : public CValidationInterface, public NetEventsInterface
