@@ -100,6 +100,7 @@ struct CNodeStateStats {
     bool m_relay_txs;
     CAmount m_fee_filter_theirs;
     std::string m_clean_subversion;
+    ServiceFlags m_their_services;
 };
 
 /** Get statistics from node state */

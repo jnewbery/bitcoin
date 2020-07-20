@@ -162,8 +162,6 @@ static UniValue getpeerinfo(const JSONRPCRequest& request)
         if (stats.m_mapped_as != 0) {
             obj.pushKV("mapped_as", uint64_t(stats.m_mapped_as));
         }
-        obj.pushKV("services", strprintf("%016x", stats.nServices));
-        obj.pushKV("servicesnames", GetServicesNames(stats.nServices));
         obj.pushKV("lastsend", stats.nLastSend);
         obj.pushKV("lastrecv", stats.nLastRecv);
         obj.pushKV("bytessent", stats.nSendBytes);
@@ -180,6 +178,8 @@ static UniValue getpeerinfo(const JSONRPCRequest& request)
         obj.pushKV("inbound", stats.fInbound);
         obj.pushKV("addnode", stats.m_manual_connection);
         if (fStateStats) {
+            obj.pushKV("services", strprintf("%016x", statestats.m_their_services));
+            obj.pushKV("servicesnames", GetServicesNames(statestats.m_their_services));
             obj.pushKV("banscore", statestats.m_misbehavior_score);
             obj.pushKV("synced_headers", statestats.nSyncHeight);
             obj.pushKV("synced_blocks", statestats.nCommonHeight);

@@ -513,7 +513,6 @@ void CNode::SetAddrLocal(const CService& addrLocalIn) {
 void CNode::copyStats(CNodeStats &stats, const std::vector<bool> &m_asmap)
 {
     stats.nodeid = this->GetId();
-    X(nServices);
     X(addr);
     X(addrBind);
     stats.m_mapped_as = addr.GetMappedAS(m_asmap);
@@ -839,7 +838,7 @@ bool CConnman::AttemptToEvictConnection()
             if (node->fDisconnect) continue;
             NodeEvictionCandidate candidate = {node->GetId(), node->nTimeConnected, node->nMinPingUsecTime,
                                                node->nLastBlockTime, node->nLastTXTime,
-                                               HasAllDesirableServiceFlags(node->nServices),
+                                               node->m_has_all_wanted_services,
                                                node->addr, node->nKeyedNetGroup,
                                                node->m_prefer_evict};
             vEvictionCandidates.push_back(candidate);

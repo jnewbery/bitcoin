@@ -572,7 +572,6 @@ class CNodeStats
 {
 public:
     NodeId nodeid;
-    ServiceFlags nServices;
     int64_t nLastSend;
     int64_t nLastRecv;
     int64_t nTimeConnected;
@@ -716,8 +715,6 @@ public:
     std::unique_ptr<TransportDeserializer> m_deserializer;
     std::unique_ptr<TransportSerializer> m_serializer;
 
-    // socket
-    std::atomic<ServiceFlags> nServices{NODE_NONE};
     SOCKET hSocket GUARDED_BY(cs_hSocket);
     size_t nSendSize{0}; // total size of all vSendMsg entries
     size_t nSendOffset{0}; // offset inside the first vSendMsg already sent
@@ -736,6 +733,8 @@ public:
     uint64_t nRecvBytes GUARDED_BY(cs_vRecv){0};
     std::atomic<int> nRecvVersion{INIT_PROTO_VERSION};
 
+    /** Whether this peer provides all services that we want. Used for eviction decisions */
+    std::atomic_bool m_has_all_wanted_services{false};
     std::atomic<int64_t> nLastSend{0};
     std::atomic<int64_t> nLastRecv{0};
     const int64_t nTimeConnected;

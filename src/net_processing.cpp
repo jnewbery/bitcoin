@@ -455,9 +455,7 @@ struct Peer {
      *
      *  TODO: remove redundant CNode::nLocalServices*/
     const ServiceFlags m_our_services;
-    /** Services this peer offered to us.
-     *
-     * TODO: remove redundant CNode::nServices */
+    /** Services this peer offered to us. */
     std::atomic<ServiceFlags> m_their_services{NODE_NONE};
     /** Whether we consider this a preferred download peer. */
     bool m_preferred_download{false};
@@ -1104,6 +1102,7 @@ bool GetNodeStateStats(NodeId nodeid, CNodeStateStats &stats) {
     {
         PeerRef peer = GetPeer(nodeid);
         if (peer == nullptr) return false;
+        stats.m_their_services = peer->m_their_services;
         stats.m_misbehavior_score = WITH_LOCK(peer->m_misbehavior_mutex, return peer->m_misbehavior_score);
         stats.m_starting_height = peer->m_starting_height;
         // It is common for nodes with good ping times to suddenly become lagged,
@@ -2550,7 +2549,7 @@ void ProcessMessage(
 
         connman->PushMessage(&pfrom, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::VERACK));
 
-        pfrom.nServices = nServices;
+        pfrom.m_has_all_wanted_services = HasAllDesirableServiceFlags(nServices);
         peer->m_their_services = nServices;
         pfrom.SetAddrLocal(addrMe);
         WITH_LOCK(peer->m_subversion_mutex, peer->m_clean_subversion = cleanSubVer);
