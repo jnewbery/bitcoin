@@ -207,9 +207,7 @@ struct Peer {
      *
      *  TODO: remove redundant CNode::nLocalServices*/
     const ServiceFlags m_our_services;
-    /** Services this peer offered to us.
-     *
-     * TODO: remove redundant CNode::nServices */
+    /** Services this peer offered to us. */
     std::atomic<ServiceFlags> m_their_services{NODE_NONE};
 
     /** Whether we consider this a preferred download peer. */
@@ -1302,6 +1300,7 @@ bool PeerManagerImpl::GetPeerStats(NodeId nodeid, PeerStats& stats) const
 
     PeerRef peer = GetPeerRef(nodeid);
     if (peer == nullptr) return false;
+    stats.m_their_services = peer->m_their_services;
     stats.m_starting_height = peer->m_starting_height;
     // It is common for nodes with good ping times to suddenly become lagged,
     // due to a new block arriving or other large transfer.
@@ -2620,7 +2619,7 @@ void PeerManagerImpl::_ProcessMessage(CNode& pfrom, const std::string& msg_type,
 
         m_connman.PushMessage(&pfrom, msg_maker.Make(NetMsgType::VERACK));
 
-        pfrom.nServices = nServices;
+        pfrom.m_has_all_wanted_services = HasAllDesirableServiceFlags(nServices);
         peer->m_their_services = nServices;
         pfrom.SetAddrLocal(addrMe);
         WITH_LOCK(peer->m_subversion_mutex, peer->m_clean_subversion = cleanSubVer);

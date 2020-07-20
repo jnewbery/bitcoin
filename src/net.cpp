@@ -567,7 +567,6 @@ Network CNode::ConnectedThroughNetwork() const
 void CNode::copyStats(CNodeStats &stats, const std::vector<bool> &m_asmap)
 {
     stats.nodeid = this->GetId();
-    X(nServices);
     X(addr);
     X(addrBind);
     stats.m_network = ConnectedThroughNetwork();
@@ -999,7 +998,7 @@ bool CConnman::AttemptToEvictConnection()
                 continue;
             NodeEvictionCandidate candidate = {node->GetId(), node->nTimeConnected, node->m_min_ping_time,
                                                node->nLastBlockTime, node->nLastTXTime,
-                                               HasAllDesirableServiceFlags(node->nServices),
+                                               node->m_has_all_wanted_services,
                                                node->m_relays_txs.load(), node->m_bloom_filter_loaded.load(),
                                                node->nKeyedNetGroup, node->m_prefer_evict, node->addr.IsLocal(),
                                                node->m_inbound_onion};

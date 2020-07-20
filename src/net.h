@@ -240,7 +240,6 @@ class CNodeStats
 {
 public:
     NodeId nodeid;
-    ServiceFlags nServices;
     int64_t nLastSend;
     int64_t nLastRecv;
     int64_t nLastTXTime;
@@ -398,7 +397,6 @@ public:
     std::unique_ptr<TransportSerializer> m_serializer;
 
     NetPermissionFlags m_permissionFlags{NetPermissionFlags::None};
-    std::atomic<ServiceFlags> nServices{NODE_NONE};
     SOCKET hSocket GUARDED_BY(cs_hSocket);
     /** Total size of all vSendMsg entries */
     size_t nSendSize GUARDED_BY(cs_vSend){0};
@@ -418,6 +416,8 @@ public:
 
     uint64_t nRecvBytes GUARDED_BY(cs_vRecv){0};
 
+    /** Whether this peer provides all services that we want. Used for eviction decisions */
+    std::atomic_bool m_has_all_wanted_services{false};
     std::atomic<int64_t> nLastSend{0};
     std::atomic<int64_t> nLastRecv{0};
     //! Unix epoch time at peer connection, in seconds.
