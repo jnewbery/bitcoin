@@ -85,7 +85,7 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
     CNode dummyNode1(id++, ServiceFlags(NODE_NETWORK|NODE_WITNESS), 0, INVALID_SOCKET, addr1, 0, 0, CAddress(), "", /*fInboundIn=*/ false);
     dummyNode1.SetSendVersion(PROTOCOL_VERSION);
 
-    peerLogic->InitializeNode(&dummyNode1);
+    peerLogic->InitializeNode(&dummyNode1, ServiceFlags(NODE_NETWORK|NODE_WITNESS));
     dummyNode1.nVersion = 1;
     dummyNode1.fSuccessfullyConnected = true;
 
@@ -138,7 +138,7 @@ static void AddRandomOutboundPeer(std::vector<CNode *> &vNodes, PeerLogicValidat
     CNode &node = *vNodes.back();
     node.SetSendVersion(PROTOCOL_VERSION);
 
-    peerLogic.InitializeNode(&node);
+    peerLogic.InitializeNode(&node, ServiceFlags(NODE_NETWORK|NODE_WITNESS));
     node.nVersion = 1;
     node.fSuccessfullyConnected = true;
 
@@ -227,7 +227,7 @@ BOOST_AUTO_TEST_CASE(DoS_banning)
     CAddress addr1(ip(0xa0b0c001), NODE_NONE);
     CNode dummyNode1(id++, NODE_NETWORK, 0, INVALID_SOCKET, addr1, 0, 0, CAddress(), "", true);
     dummyNode1.SetSendVersion(PROTOCOL_VERSION);
-    peerLogic->InitializeNode(&dummyNode1);
+    peerLogic->InitializeNode(&dummyNode1, NODE_NETWORK);
     dummyNode1.nVersion = 1;
     dummyNode1.fSuccessfullyConnected = true;
     {
@@ -244,7 +244,7 @@ BOOST_AUTO_TEST_CASE(DoS_banning)
     CAddress addr2(ip(0xa0b0c002), NODE_NONE);
     CNode dummyNode2(id++, NODE_NETWORK, 0, INVALID_SOCKET, addr2, 1, 1, CAddress(), "", true);
     dummyNode2.SetSendVersion(PROTOCOL_VERSION);
-    peerLogic->InitializeNode(&dummyNode2);
+    peerLogic->InitializeNode(&dummyNode2, NODE_NETWORK);
     dummyNode2.nVersion = 1;
     dummyNode2.fSuccessfullyConnected = true;
     {
@@ -283,7 +283,7 @@ BOOST_AUTO_TEST_CASE(DoS_banscore)
     CAddress addr1(ip(0xa0b0c001), NODE_NONE);
     CNode dummyNode1(id++, NODE_NETWORK, 0, INVALID_SOCKET, addr1, 3, 1, CAddress(), "", true);
     dummyNode1.SetSendVersion(PROTOCOL_VERSION);
-    peerLogic->InitializeNode(&dummyNode1);
+    peerLogic->InitializeNode(&dummyNode1, NODE_NETWORK);
     dummyNode1.nVersion = 1;
     dummyNode1.fSuccessfullyConnected = true;
     {
@@ -332,7 +332,7 @@ BOOST_AUTO_TEST_CASE(DoS_bantime)
     CAddress addr(ip(0xa0b0c001), NODE_NONE);
     CNode dummyNode(id++, NODE_NETWORK, 0, INVALID_SOCKET, addr, 4, 4, CAddress(), "", true);
     dummyNode.SetSendVersion(PROTOCOL_VERSION);
-    peerLogic->InitializeNode(&dummyNode);
+    peerLogic->InitializeNode(&dummyNode, NODE_NETWORK);
     dummyNode.nVersion = 1;
     dummyNode.fSuccessfullyConnected = true;
 

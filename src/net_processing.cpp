@@ -445,6 +445,27 @@ struct Peer {
      *  This cleaned string can safely be logged or displayed.  */
     std::string m_clean_subversion GUARDED_BY(m_subversion_mutex){};
 
+    /** Services we offered to this peer.
+     *
+     *  This is supplied by CConnman during peer initialization. It's const
+     *  because there is no protocol defined for renegotiating services
+     *  initially offered to a peer. The set of local services we offer should
+     *  not change after initialization.
+     *
+     *  An interesting example of this is NODE_NETWORK and initial block
+     *  download: a node which starts up from scratch doesn't have any blocks
+     *  to serve, but still advertises NODE_NETWORK because it will eventually
+     *  fulfill this role after IBD completes. P2P code is written in such a
+     *  way that it can gracefully handle peers who don't make good on their
+     *  service advertisements.
+     *
+     *  TODO: remove redundant CNode::nLocalServices*/
+    const ServiceFlags m_our_services;
+    /** Services this peer offered to us.
+     *
+     * TODO: remove redundant CNode::nServices */
+    std::atomic<ServiceFlags> m_their_services{NODE_NONE};
+
     /** Protects misbehavior data members */
     Mutex m_misbehavior_mutex;
     /** Accumulated misbehavior score for this peer */
@@ -532,8 +553,9 @@ struct Peer {
     /** Work queue of items requested by this peer */
     std::deque<CInv> m_inventory_requested;
 
-    Peer(NodeId id, bool tx_relay, bool addr_relay)
+    Peer(NodeId id, ServiceFlags our_services, bool tx_relay, bool addr_relay)
         : m_id(id),
+          m_our_services(our_services),
           m_addr_known(addr_relay ? MakeUnique<CRollingBloomFilter>(5000, 0.001) : nullptr),
           m_tx_relay(tx_relay ? MakeUnique<TxRelay>() : nullptr)
     {}
@@ -971,7 +993,7 @@ static bool IsOutboundDisconnectionCandidate(const CNode& node)
     return !(node.fInbound || node.m_manual_connection || node.fFeeler || node.fOneShot);
 }
 
-void PeerLogicValidation::InitializeNode(CNode *pnode) {
+void PeerLogicValidation::InitializeNode(CNode *pnode, ServiceFlags our_services) {
     CAddress addr = pnode->addr;
     std::string addrName = pnode->GetAddrName();
     NodeId nodeid = pnode->GetId();
@@ -980,7 +1002,7 @@ void PeerLogicValidation::InitializeNode(CNode *pnode) {
         mapNodeState.emplace_hint(mapNodeState.end(), std::piecewise_construct, std::forward_as_tuple(nodeid), std::forward_as_tuple(addr, pnode->fInbound, pnode->m_manual_connection));
     }
     {
-        PeerRef peer = std::make_shared<Peer>(nodeid, !pnode->m_block_relay_only, !pnode->m_block_relay_only);
+        PeerRef peer = std::make_shared<Peer>(nodeid, our_services, !pnode->m_block_relay_only, !pnode->m_block_relay_only);
         LOCK(g_peer_mutex);
         g_peer_map.insert(std::make_pair(nodeid, peer));
     }
@@ -2512,6 +2534,7 @@ void ProcessMessage(
         connman->PushMessage(&pfrom, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::VERACK));
 
         pfrom.nServices = nServices;
+        peer->m_their_services = nServices;
         pfrom.SetAddrLocal(addrMe);
         WITH_LOCK(peer->m_subversion_mutex, peer->m_clean_subversion = cleanSubVer);
         peer->m_starting_height = m_starting_height;

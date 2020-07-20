@@ -55,7 +55,7 @@ public:
     void NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock>& pblock) override;
 
     /** Initialize a peer by adding it to mapNodeState and pushing a message requesting its version */
-    void InitializeNode(CNode* pnode) override;
+    void InitializeNode(CNode* pnode, ServiceFlags our_services) override;
     /** Handle removal of a peer by updating various state and removing it from mapNodeState */
     void FinalizeNode(NodeId nodeid, bool& fUpdateConnectionTime) override;
     /**

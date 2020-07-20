@@ -1008,7 +1008,7 @@ void CConnman::AcceptConnection(const ListenSocket& hListenSocket) {
     // If this flag is present, the user probably expect that RPC and QT report it as whitelisted (backward compatibility)
     pnode->m_legacyWhitelisted = legacyWhitelisted;
     pnode->m_prefer_evict = discouraged;
-    m_msgproc->InitializeNode(pnode);
+    m_msgproc->InitializeNode(pnode, nodeServices);
 
     LogPrint(BCLog::NET, "connection from %s accepted\n", addr.ToString());
 
@@ -2020,7 +2020,7 @@ void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFai
     if (manual_connection)
         pnode->m_manual_connection = true;
 
-    m_msgproc->InitializeNode(pnode);
+    m_msgproc->InitializeNode(pnode, nLocalServices);
     {
         LOCK(cs_vNodes);
         vNodes.push_back(pnode);
