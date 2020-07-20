@@ -415,16 +415,14 @@ private:
     unsigned int nPrevNodeCount{0};
 
     /**
-     * Services this instance offers.
+     * Services this node offers.
      *
-     * This data is replicated in each CNode instance we create during peer
-     * connection (in ConnectNode()) under a member also called
-     * nLocalServices.
+     * This data is replicated in each Peer instance we create.
      *
      * This data is not marked const, but after being set it should not
-     * change. See the note in CNode::nLocalServices documentation.
+     * change.
      *
-     * \sa CNode::nLocalServices
+     * \sa Peer::m_our_services
      */
     ServiceFlags nLocalServices;
 
@@ -529,7 +527,7 @@ enum
 
 bool IsPeerAddrLocalGood(CNode *pnode);
 /** Returns a local address that we should advertise to this peer */
-Optional<CAddress> GetPeerLocalAddr(CNode *pnode);
+Optional<CAddress> GetPeerLocalAddr(CNode *pnode, ServiceFlags our_services);
 
 /**
  * Mark a network as reachable or unreachable (no automatic connects to it)
@@ -782,7 +780,9 @@ public:
     /** Best measured ping round-trip time. Used in eviction decisions */
     std::atomic<int64_t> nMinPingUsecTime{std::numeric_limits<int64_t>::max()};
 
-    CNode(NodeId id, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn, SOCKET hSocketIn, const CAddress &addrIn, uint64_t nKeyedNetGroupIn, uint64_t nLocalHostNonceIn, const CAddress &addrBindIn, const std::string &addrNameIn = "", bool fInboundIn = false, bool block_relay_only = false);
+    CNode(NodeId id, int nMyStartingHeightIn, SOCKET hSocketIn, const CAddress &addrIn,
+          uint64_t nKeyedNetGroupIn, uint64_t nLocalHostNonceIn, const CAddress &addrBindIn,
+          const std::string &addrNameIn = "", bool fInboundIn = false, bool block_relay_only = false);
     ~CNode();
     CNode(const CNode&) = delete;
     CNode& operator=(const CNode&) = delete;
@@ -790,10 +790,6 @@ public:
 private:
     const NodeId id;
     const uint64_t nLocalHostNonce;
-
-    //! Services offered to this peer.
-    //!
-    const ServiceFlags nLocalServices;
 
     const int nMyStartingHeight;
     int nSendVersion{0};
@@ -857,11 +853,6 @@ public:
     void CloseSocketDisconnect();
 
     void copyStats(CNodeStats &stats, const std::vector<bool> &m_asmap);
-
-    ServiceFlags GetLocalServices() const
-    {
-        return nLocalServices;
-    }
 
     std::string GetAddrName() const;
     //! Sets the addrName only if it was not previously set
