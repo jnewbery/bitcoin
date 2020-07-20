@@ -277,8 +277,6 @@ struct CNodeState {
       * but is used as a flag to "lock in" the version of compact blocks (fWantsCmpctWitness) we send.
       */
     bool fProvidesHeaderAndIDs;
-    //! Whether this peer can give us witnesses
-    bool fHaveWitness;
     //! Whether this peer wants witnesses in cmpctblocks/blocktxns
     bool fWantsCmpctWitness;
     /**
@@ -404,7 +402,6 @@ struct CNodeState {
         fPreferHeaders = false;
         fPreferHeaderAndIDs = false;
         fProvidesHeaderAndIDs = false;
-        fHaveWitness = false;
         fWantsCmpctWitness = false;
         fSupportsDesiredCmpctVersion = false;
         m_chain_sync = { 0, nullptr, false, false };
@@ -642,6 +639,12 @@ static bool IsLimitedPeer(const Peer& peer)
              (peer.m_their_services & NODE_NETWORK_LIMITED));
 }
 
+/** Whether this peer can serve us witness data */
+static bool CanServeWitnesses(const Peer& peer)
+{
+    return peer.m_their_services & NODE_WITNESS;
+}
+
 static void UpdatePreferredDownload(const CNode& node, Peer& peer)
 {
     nPreferredDownload -= peer.m_preferred_download;
@@ -846,6 +849,7 @@ static void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vec
 
     vBlocks.reserve(vBlocks.size() + count);
     CNodeState *state = State(nodeid);
+    PeerRef peer = GetPeer(nodeid);
     assert(state != nullptr);
 
     // Make sure pindexBestKnownBlock is up to date, we'll need it.
@@ -897,7 +901,7 @@ static void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vec
                 // We consider the chain that this peer is on invalid.
                 return;
             }
-            if (!State(nodeid)->fHaveWitness && IsWitnessEnabled(pindex->pprev, consensusParams)) {
+            if (!CanServeWitnesses(*peer) && IsWitnessEnabled(pindex->pprev, consensusParams)) {
                 // We wouldn't download this block or its descendants from this peer.
                 return;
             }
@@ -1969,9 +1973,9 @@ void static ProcessGetData(CNode& pfrom, const CChainParams& chainparams, CConnm
     }
 }
 
-static uint32_t GetFetchFlags(const CNode& pfrom) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
+static uint32_t GetFetchFlags(const CNode& pfrom, const Peer& peer) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
     uint32_t nFetchFlags = 0;
-    if ((pfrom.GetLocalServices() & NODE_WITNESS) && State(pfrom.GetId())->fHaveWitness) {
+    if ((pfrom.GetLocalServices() & NODE_WITNESS) && CanServeWitnesses(peer)) {
         nFetchFlags |= MSG_WITNESS_FLAG;
     }
     return nFetchFlags;
@@ -2098,7 +2102,7 @@ static void ProcessHeadersMessage(CNode& pfrom, CConnman* connman, ChainstateMan
             while (pindexWalk && !::ChainActive().Contains(pindexWalk) && vToFetch.size() <= MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
                 if (!(pindexWalk->nStatus & BLOCK_HAVE_DATA) &&
                         !mapBlocksInFlight.count(pindexWalk->GetBlockHash()) &&
-                        (!IsWitnessEnabled(pindexWalk->pprev, chainparams.GetConsensus()) || State(pfrom.GetId())->fHaveWitness)) {
+                        (!IsWitnessEnabled(pindexWalk->pprev, chainparams.GetConsensus()) || CanServeWitnesses(*peer))) {
                     // We don't have this block, and it's not yet in flight.
                     vToFetch.push_back(pindexWalk);
                 }
@@ -2120,7 +2124,7 @@ static void ProcessHeadersMessage(CNode& pfrom, CConnman* connman, ChainstateMan
                         // Can't download any more from this peer
                         break;
                     }
-                    uint32_t nFetchFlags = GetFetchFlags(pfrom);
+                    uint32_t nFetchFlags = GetFetchFlags(pfrom, *peer);
                     vGetData.push_back(CInv(MSG_BLOCK | nFetchFlags, pindex->GetBlockHash()));
                     MarkBlockAsInFlight(mempool, pfrom.GetId(), pindex->GetBlockHash(), pindex);
                     LogPrint(BCLog::NET, "Requesting block %s from  peer=%d\n",
@@ -2561,12 +2565,6 @@ void ProcessMessage(
         pfrom.SetSendVersion(nSendVersion);
         pfrom.nVersion = nVersion;
 
-        if((nServices & NODE_WITNESS))
-        {
-            LOCK(cs_main);
-            State(pfrom.GetId())->fHaveWitness = true;
-        }
-
         // Potentially mark this peer as a preferred download peer.
         UpdatePreferredDownload(pfrom, *peer);
 
@@ -2775,7 +2773,7 @@ void ProcessMessage(
 
         LOCK(cs_main);
 
-        uint32_t nFetchFlags = GetFetchFlags(pfrom);
+        uint32_t nFetchFlags = GetFetchFlags(pfrom, *peer);
         const auto current_time = GetTime<std::chrono::microseconds>();
         uint256* best_block{nullptr};
 
@@ -3087,7 +3085,7 @@ void ProcessMessage(
                 }
             }
             if (!fRejectedParents) {
-                uint32_t nFetchFlags = GetFetchFlags(pfrom);
+                uint32_t nFetchFlags = GetFetchFlags(pfrom, *peer);
                 const auto current_time = GetTime<std::chrono::microseconds>();
 
                 for (const CTxIn& txin : tx.vin) {
@@ -3246,7 +3244,7 @@ void ProcessMessage(
                 // We requested this block for some reason, but our mempool will probably be useless
                 // so we just grab the block via normal getdata
                 std::vector<CInv> vInv(1);
-                vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom), cmpctblock.header.GetHash());
+                vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom, *peer), cmpctblock.header.GetHash());
                 connman->PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETDATA, vInv));
             }
             return;
@@ -3287,7 +3285,7 @@ void ProcessMessage(
                 } else if (status == READ_STATUS_FAILED) {
                     // Duplicate txindexes, the block is now in-flight, so just request it
                     std::vector<CInv> vInv(1);
-                    vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom), cmpctblock.header.GetHash());
+                    vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom, *peer), cmpctblock.header.GetHash());
                     connman->PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETDATA, vInv));
                     return;
                 }
@@ -3330,7 +3328,7 @@ void ProcessMessage(
                 // We requested this block, but its far into the future, so our
                 // mempool will probably be useless - request the block normally
                 std::vector<CInv> vInv(1);
-                vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom), cmpctblock.header.GetHash());
+                vInv[0] = CInv(MSG_BLOCK | GetFetchFlags(pfrom, *peer), cmpctblock.header.GetHash());
                 connman->PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETDATA, vInv));
                 return;
             } else {
@@ -3420,7 +3418,7 @@ void ProcessMessage(
             } else if (status == READ_STATUS_FAILED) {
                 // Might have collided, fall back to getdata now :(
                 std::vector<CInv> invs;
-                invs.push_back(CInv(MSG_BLOCK | GetFetchFlags(pfrom), resp.blockhash));
+                invs.push_back(CInv(MSG_BLOCK | GetFetchFlags(pfrom, *peer), resp.blockhash));
                 connman->PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETDATA, invs));
             } else {
                 // Block is either okay, or possibly we received
@@ -4587,7 +4585,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
             NodeId staller = -1;
             FindNextBlocksToDownload(pto->GetId(), MAX_BLOCKS_IN_TRANSIT_PER_PEER - state.nBlocksInFlight, vToDownload, staller, consensusParams);
             for (const CBlockIndex *pindex : vToDownload) {
-                uint32_t nFetchFlags = GetFetchFlags(*pto);
+                uint32_t nFetchFlags = GetFetchFlags(*pto, *peer);
                 vGetData.push_back(CInv(MSG_BLOCK | nFetchFlags, pindex->GetBlockHash()));
                 MarkBlockAsInFlight(m_mempool, pto->GetId(), pindex->GetBlockHash(), pindex);
                 LogPrint(BCLog::NET, "Requesting block %s (%d) peer=%d\n", pindex->GetBlockHash().ToString(),
@@ -4631,7 +4629,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
             // Erase this entry from tx_process_time (it may be added back for
             // processing at a later time, see below)
             tx_process_time.erase(tx_process_time.begin());
-            CInv inv(MSG_TX | GetFetchFlags(*pto), txid);
+            CInv inv(MSG_TX | GetFetchFlags(*pto, *peer), txid);
             if (!AlreadyHave(inv, m_mempool)) {
                 // If this transaction was last requested more than 1 minute ago,
                 // then request.
