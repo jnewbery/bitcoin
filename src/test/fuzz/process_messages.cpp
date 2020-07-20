@@ -49,7 +49,7 @@ FUZZ_TARGET_INIT(process_messages, initialize_process_messages)
         const bool successfully_connected{fuzzed_data_provider.ConsumeBool()};
         p2p_node.fSuccessfullyConnected = successfully_connected;
         p2p_node.fPauseSend = false;
-        g_setup->m_node.peerman->InitializeNode(&p2p_node);
+        g_setup->m_node.peerman->InitializeNode(&p2p_node, ServiceFlags(NODE_NETWORK|NODE_WITNESS));
         FillNode(fuzzed_data_provider, p2p_node, /* init_version */ successfully_connected);
 
         connman.AddTestNode(p2p_node);

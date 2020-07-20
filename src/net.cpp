@@ -1129,7 +1129,7 @@ void CConnman::CreateNodeFromAcceptedSocket(SOCKET hSocket,
     pnode->AddRef();
     pnode->m_permissionFlags = permissionFlags;
     pnode->m_prefer_evict = discouraged;
-    m_msgproc->InitializeNode(pnode);
+    m_msgproc->InitializeNode(pnode, nodeServices);
 
     LogPrint(BCLog::NET, "connection from %s accepted\n", addr.ToString());
 
@@ -2142,7 +2142,7 @@ void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFai
     if (grantOutbound)
         grantOutbound->MoveTo(pnode->grantOutbound);
 
-    m_msgproc->InitializeNode(pnode);
+    m_msgproc->InitializeNode(pnode, nLocalServices);
     {
         LOCK(cs_vNodes);
         vNodes.push_back(pnode);
