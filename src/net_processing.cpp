@@ -267,8 +267,6 @@ struct CNodeState {
     int64_t nDownloadingSince;
     int nBlocksInFlight;
     int nBlocksInFlightValidHeaders;
-    //! Whether we consider this a preferred download peer.
-    bool fPreferredDownload;
     //! Whether this peer wants invs or headers (when possible) for block announcements.
     bool fPreferHeaders;
     //! Whether this peer wants invs or cmpctblocks (when possible) for block announcements.
@@ -403,7 +401,6 @@ struct CNodeState {
         nDownloadingSince = 0;
         nBlocksInFlight = 0;
         nBlocksInFlightValidHeaders = 0;
-        fPreferredDownload = false;
         fPreferHeaders = false;
         fPreferHeaderAndIDs = false;
         fProvidesHeaderAndIDs = false;
@@ -465,6 +462,8 @@ struct Peer {
      *
      * TODO: remove redundant CNode::nServices */
     std::atomic<ServiceFlags> m_their_services{NODE_NONE};
+    /** Whether we consider this a preferred download peer. */
+    bool m_preferred_download{false};
 
     /** Protects misbehavior data members */
     Mutex m_misbehavior_mutex;
@@ -629,14 +628,14 @@ void AddInventoryKnown(PeerRef& peer, const CInv& inv)
     }
 }
 
-static void UpdatePreferredDownload(const CNode& node, CNodeState* state) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+static void UpdatePreferredDownload(const CNode& node, Peer& peer)
 {
-    nPreferredDownload -= state->fPreferredDownload;
+    nPreferredDownload -= peer.m_preferred_download;
 
     // Whether this node should be marked as a preferred download node.
-    state->fPreferredDownload = (!node.fInbound || node.HasPermission(PF_NOBAN)) && !node.fOneShot && !node.fClient;
+    peer.m_preferred_download = (!node.fInbound || node.HasPermission(PF_NOBAN)) && !node.fOneShot && !node.fClient;
 
-    nPreferredDownload += state->fPreferredDownload;
+    nPreferredDownload += peer.m_preferred_download;
 }
 
 static void PushNodeVersion(CNode& pnode, CConnman* connman, int64_t nTime)
@@ -956,7 +955,7 @@ std::chrono::microseconds CalculateTxGetDataTime(const uint256& txid, std::chron
     return process_time;
 }
 
-void RequestTx(CNodeState* state, const uint256& txid, std::chrono::microseconds current_time) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+void RequestTx(CNodeState* state, Peer& peer, const uint256& txid, std::chrono::microseconds current_time) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     CNodeState::TxDownloadState& peer_download_state = state->m_tx_download;
     if (peer_download_state.m_tx_announced.size() >= MAX_PEER_TX_ANNOUNCEMENTS ||
@@ -969,8 +968,8 @@ void RequestTx(CNodeState* state, const uint256& txid, std::chrono::microseconds
     peer_download_state.m_tx_announced.insert(txid);
 
     // Calculate the time to try requesting this transaction. Use
-    // fPreferredDownload as a proxy for outbound peers.
-    const auto process_time = CalculateTxGetDataTime(txid, current_time, !state->fPreferredDownload);
+    // m_preferred_download as a proxy for outbound peers.
+    const auto process_time = CalculateTxGetDataTime(txid, current_time, !peer.m_preferred_download);
 
     peer_download_state.m_tx_process_time.emplace(process_time, txid);
 }
@@ -1034,6 +1033,7 @@ void PeerLogicValidation::FinalizeNode(NodeId nodeid, bool& fUpdateConnectionTim
     {
         PeerRef peer = GetPeer(nodeid);
         misbehavior = WITH_LOCK(peer->m_misbehavior_mutex, return peer->m_misbehavior_score);
+        nPreferredDownload -= peer->m_preferred_download;
         LOCK(g_peer_mutex);
         g_peer_map.erase(nodeid);
     }
@@ -1053,7 +1053,6 @@ void PeerLogicValidation::FinalizeNode(NodeId nodeid, bool& fUpdateConnectionTim
         mapBlocksInFlight.erase(entry.hash);
     }
     EraseOrphansFor(nodeid);
-    nPreferredDownload -= state->fPreferredDownload;
     nPeersWithValidatedDownloads -= (state->nBlocksInFlightValidHeaders != 0);
     assert(nPeersWithValidatedDownloads >= 0);
     g_outbound_peers_with_protect_from_disconnect -= state->m_chain_sync.m_protect;
@@ -2561,10 +2560,7 @@ void ProcessMessage(
         }
 
         // Potentially mark this peer as a preferred download peer.
-        {
-        LOCK(cs_main);
-        UpdatePreferredDownload(pfrom, State(pfrom.GetId()));
-        }
+        UpdatePreferredDownload(pfrom, *peer);
 
         if (!pfrom.fInbound && IsAddrRelayPeer(*peer))
         {
@@ -2804,7 +2800,7 @@ void ProcessMessage(
                     pfrom.fDisconnect = true;
                     return;
                 } else if (!fAlreadyHave && !chainman.ActiveChainstate().IsInitialBlockDownload()) {
-                    RequestTx(State(pfrom.GetId()), inv.hash, current_time);
+                    RequestTx(State(pfrom.GetId()), *peer, inv.hash, current_time);
                 }
             }
         }
@@ -3089,7 +3085,7 @@ void ProcessMessage(
                 for (const CTxIn& txin : tx.vin) {
                     CInv _inv(MSG_TX | nFetchFlags, txin.prevout.hash);
                     AddInventoryKnown(peer, _inv);
-                    if (!AlreadyHave(_inv, mempool)) RequestTx(State(pfrom.GetId()), _inv.hash, current_time);
+                    if (!AlreadyHave(_inv, mempool)) RequestTx(State(pfrom.GetId()), *peer, _inv.hash, current_time);
                 }
                 AddOrphanTx(ptx, pfrom.GetId());
 
@@ -4207,7 +4203,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         // Start block sync
         if (pindexBestHeader == nullptr)
             pindexBestHeader = ::ChainActive().Tip();
-        bool fFetch = state.fPreferredDownload || (nPreferredDownload == 0 && !pto->fClient && !pto->fOneShot); // Download if this is a nice peer, or we have no nice peers and this one might do.
+        bool fFetch = peer->m_preferred_download || (nPreferredDownload == 0 && !pto->fClient && !pto->fOneShot); // Download if this is a nice peer, or we have no nice peers and this one might do.
         if (!state.fSyncStarted && !pto->fClient && !fImporting && !fReindex) {
             // Only actively request headers from a single peer, unless we're close to today.
             if ((nSyncStarted == 0 && fFetch) || pindexBestHeader->GetBlockTime() > GetAdjustedTime() - 24 * 60 * 60) {
@@ -4541,7 +4537,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
         if (state.fSyncStarted && state.nHeadersSyncTimeout < std::numeric_limits<int64_t>::max()) {
             // Detect whether this is a stalling initial-headers-sync peer
             if (pindexBestHeader->GetBlockTime() <= GetAdjustedTime() - 24*60*60) {
-                if (nNow > state.nHeadersSyncTimeout && nSyncStarted == 1 && (nPreferredDownload - state.fPreferredDownload >= 1)) {
+                if (nNow > state.nHeadersSyncTimeout && nSyncStarted == 1 && (nPreferredDownload - peer->m_preferred_download >= 1)) {
                     // Disconnect a (non-whitelisted) peer if it is our only sync peer,
                     // and we have others we could be using instead.
                     // Note: If all our peers are inbound, then we won't
@@ -4646,7 +4642,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto)
                     // up processing to happen after the download times out
                     // (with a slight delay for inbound peers, to prefer
                     // requests to outbound peers).
-                    const auto next_process_time = CalculateTxGetDataTime(txid, current_time, !state.fPreferredDownload);
+                    const auto next_process_time = CalculateTxGetDataTime(txid, current_time, !peer->m_preferred_download);
                     tx_process_time.emplace(next_process_time, txid);
                 }
             } else {
