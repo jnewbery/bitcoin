@@ -16,6 +16,7 @@
 #include <net.h>
 #include <net_processing.h>
 #include <noui.h>
+#include <policy/fees.h>
 #include <pow.h>
 #include <rpc/blockchain.h>
 #include <rpc/register.h>
@@ -141,7 +142,9 @@ TestingSetup::TestingSetup(const std::string& chainName, const std::vector<const
 
     pblocktree.reset(new CBlockTreeDB(1 << 20, true));
 
-    m_node.mempool = MakeUnique<CTxMemPool>(&::feeEstimator);
+    m_node.fee_estimator = MakeUnique<CBlockPolicyEstimator>();
+
+    m_node.mempool = MakeUnique<CTxMemPool>(m_node.fee_estimator.get());
     m_node.mempool->setSanityCheck(1.0);
 
     m_node.chainman = &::g_chainman;

@@ -207,8 +207,9 @@ public:
     bool getNetworkActive() override { return m_context->connman && m_context->connman->GetNetworkActive(); }
     CFeeRate estimateSmartFee(int num_blocks, bool conservative, int* returned_target = nullptr) override
     {
+        if (!m_context->fee_estimator) return {};
         FeeCalculation fee_calc;
-        CFeeRate result = ::feeEstimator.estimateSmartFee(num_blocks, &fee_calc, conservative);
+        CFeeRate result = m_context->fee_estimator->estimateSmartFee(num_blocks, &fee_calc, conservative);
         if (returned_target) {
             *returned_target = fee_calc.returnedTarget;
         }
