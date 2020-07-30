@@ -1454,7 +1454,7 @@ bool static AlreadyHaveTx(const CInv& inv, const CTxMemPool& mempool) EXCLUSIVE_
     return recentRejects->contains(inv.hash) || mempool.exists(ToGenTxid(inv));
 }
 
-bool static AlreadyHaveBlock(const CInv& inv, const CTxMemPool& mempool) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+bool static AlreadyHaveBlock(const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     return LookupBlockIndex(inv.hash) != nullptr;
 }
@@ -2657,7 +2657,7 @@ void ProcessMessage(
             }
 
             if (inv.type == MSG_BLOCK) {
-                bool fAlreadyHave = AlreadyHaveBlock(inv, mempool);
+                bool fAlreadyHave = AlreadyHaveBlock(inv);
                 LogPrint(BCLog::NET, "got inv: %s  %s peer=%d\n", inv.ToString(), fAlreadyHave ? "have" : "new", pfrom.GetId());
 
                 UpdateBlockAvailability(pfrom.GetId(), inv.hash);
@@ -2669,7 +2669,7 @@ void ProcessMessage(
                     // then fetch the blocks we need to catch up.
                     best_block = &inv.hash;
                 }
-            } else {
+            } else if (inv.type == MSG_TX || inv.type == MSG_WITNESS_TX || inv.type == MSG_WTX) {
                 bool fAlreadyHave = AlreadyHaveTx(inv, mempool);
                 LogPrint(BCLog::NET, "got inv: %s  %s peer=%d\n", inv.ToString(), fAlreadyHave ? "have" : "new", pfrom.GetId());
 
