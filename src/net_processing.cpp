@@ -2395,6 +2395,12 @@ void ProcessTx(CNode& pfrom, CDataStream& vRecv, CConnman& connman)
 
         // Recursively process any orphan transactions that depended on this one
         ProcessOrphanTx(connman, mempool, pfrom.orphan_work_set, lRemovedTxn);
+
+        for (const CTransactionRef& removedTx : lRemovedTxn) {
+            AddToCompactExtraTransactions(removedTx);
+        }
+        return;
+
     }
     else if (state.GetResult() == TxValidationResult::TX_MISSING_INPUTS)
     {
@@ -2484,9 +2490,6 @@ void ProcessTx(CNode& pfrom, CDataStream& vRecv, CConnman& connman)
             AddToCompactExtraTransactions(ptx);
         }
     }
-
-    for (const CTransactionRef& removedTx : lRemovedTxn)
-        AddToCompactExtraTransactions(removedTx);
 
     // If a tx has been detected by recentRejects, we will have reached
     // this point and the tx will have been ignored. Because we haven't run
