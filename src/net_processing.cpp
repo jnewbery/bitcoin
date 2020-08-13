@@ -2400,10 +2400,9 @@ void ProcessTx(CNode& pfrom, CDataStream& vRecv, CConnman& connman)
             AddToCompactExtraTransactions(removedTx);
         }
         return;
-
     }
-    else if (state.GetResult() == TxValidationResult::TX_MISSING_INPUTS)
-    {
+    
+    if (state.GetResult() == TxValidationResult::TX_MISSING_INPUTS) {
         bool fRejectedParents = false; // It may be the case that the orphans parents have all been rejected
 
         // Deduplicate parent txids, so that we don't have to loop over
