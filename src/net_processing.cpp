@@ -2508,10 +2508,12 @@ void ProcessTx(CNode& pfrom, CDataStream& vRecv, CConnman& connman)
             recentRejects->insert(tx.GetHash());
         }
         if (RecursiveDynamicUsage(*ptx) < 100000) {
+            // Transaction may have been rejected for standardness
+            // or local mempool conditions (eg conflicts or minimum
+            // fee not met. Save tx to help with compact block
+            // reconstruction (but only if it's not too large).
             AddToCompactExtraTransactions(ptx);
         }
-    } else if (tx.HasWitness() && RecursiveDynamicUsage(*ptx) < 100000) {
-        AddToCompactExtraTransactions(ptx);
     }
 }
 
