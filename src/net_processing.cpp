@@ -2477,40 +2477,41 @@ void ProcessTx(CNode& pfrom, CDataStream& vRecv, CConnman& connman)
             recentRejects->insert(tx.GetHash());
             recentRejects->insert(tx.GetWitnessHash());
         }
-    } else {
-        if (state.GetResult() != TxValidationResult::TX_WITNESS_STRIPPED) {
-            // We can add the wtxid of this transaction to our reject filter.
-            // Do not add txids of witness transactions or witness-stripped
-            // transactions to the filter, as they can have been malleated;
-            // adding such txids to the reject filter would potentially
-            // interfere with relay of valid transactions from peers that
-            // do not support wtxid-based relay. See
-            // https://github.com/bitcoin/bitcoin/issues/8279 for details.
-            // We can remove this restriction (and always add wtxids to
-            // the filter even for witness stripped transactions) once
-            // wtxid-based relay is broadly deployed.
-            // See also comments in https://github.com/bitcoin/bitcoin/pull/18044#discussion_r443419034
-            // for concerns around weakening security of unupgraded nodes
-            // if we start doing this too early.
-            assert(recentRejects);
-            recentRejects->insert(tx.GetWitnessHash());
-            // If the transaction failed for TX_INPUTS_NOT_STANDARD,
-            // then we know that the witness was irrelevant to the policy
-            // failure, since this check depends only on the txid
-            // (the scriptPubKey being spent is covered by the txid).
-            // Add the txid to the reject filter to prevent repeated
-            // processing of this transaction in the event that child
-            // transactions are later received (resulting in
-            // parent-fetching by txid via the orphan-handling logic).
-            if (state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD && tx.GetWitnessHash() != tx.GetHash()) {
-                recentRejects->insert(tx.GetHash());
-            }
-            if (RecursiveDynamicUsage(*ptx) < 100000) {
-                AddToCompactExtraTransactions(ptx);
-            }
-        } else if (tx.HasWitness() && RecursiveDynamicUsage(*ptx) < 100000) {
+        return;
+    }
+
+    if (state.GetResult() != TxValidationResult::TX_WITNESS_STRIPPED) {
+        // We can add the wtxid of this transaction to our reject filter.
+        // Do not add txids of witness transactions or witness-stripped
+        // transactions to the filter, as they can have been malleated;
+        // adding such txids to the reject filter would potentially
+        // interfere with relay of valid transactions from peers that
+        // do not support wtxid-based relay. See
+        // https://github.com/bitcoin/bitcoin/issues/8279 for details.
+        // We can remove this restriction (and always add wtxids to
+        // the filter even for witness stripped transactions) once
+        // wtxid-based relay is broadly deployed.
+        // See also comments in https://github.com/bitcoin/bitcoin/pull/18044#discussion_r443419034
+        // for concerns around weakening security of unupgraded nodes
+        // if we start doing this too early.
+        assert(recentRejects);
+        recentRejects->insert(tx.GetWitnessHash());
+        // If the transaction failed for TX_INPUTS_NOT_STANDARD,
+        // then we know that the witness was irrelevant to the policy
+        // failure, since this check depends only on the txid
+        // (the scriptPubKey being spent is covered by the txid).
+        // Add the txid to the reject filter to prevent repeated
+        // processing of this transaction in the event that child
+        // transactions are later received (resulting in
+        // parent-fetching by txid via the orphan-handling logic).
+        if (state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD && tx.GetWitnessHash() != tx.GetHash()) {
+            recentRejects->insert(tx.GetHash());
+        }
+        if (RecursiveDynamicUsage(*ptx) < 100000) {
             AddToCompactExtraTransactions(ptx);
         }
+    } else if (tx.HasWitness() && RecursiveDynamicUsage(*ptx) < 100000) {
+        AddToCompactExtraTransactions(ptx);
     }
 }
 
