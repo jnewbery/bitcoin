@@ -8,6 +8,7 @@
 
 #include <consensus/params.h>
 #include <net.h>
+#include <netmessagemaker.h>
 #include <sync.h>
 #include <validationinterface.h>
 
@@ -31,7 +32,32 @@ static const bool DEFAULT_PEERBLOCKFILTERS = false;
 /** Threshold for marking a node to be discouraged, e.g. disconnected and added to the discouragement filter. */
 static const int DISCOURAGEMENT_THRESHOLD{100};
 
+<<<<<<< HEAD
 class PeerManager final : public CValidationInterface, public NetEventsInterface {
+||||||| parent of 6a8d021c6e... [net processing] Store CNetMessageMaker in PeerLogicValidation
+class PeerLogicValidation final : public CValidationInterface, public NetEventsInterface {
+private:
+    CConnman& m_connman;
+    /** Pointer to this node's banman. May be nullptr - check existence before dereferencing. */
+    BanMan* const m_banman;
+    ChainstateManager& m_chainman;
+    CTxMemPool& m_mempool;
+
+    bool MaybeDiscourageAndDisconnect(CNode& pnode);
+
+=======
+class PeerLogicValidation final : public CValidationInterface, public NetEventsInterface {
+private:
+    CConnman& m_connman;
+    /** Pointer to this node's banman. May be nullptr - check existence before dereferencing. */
+    BanMan* const m_banman;
+    ChainstateManager& m_chainman;
+    CTxMemPool& m_mempool;
+    CNetMsgMaker m_msg_maker;
+
+    bool MaybeDiscourageAndDisconnect(CNode& pnode);
+
+>>>>>>> 6a8d021c6e... [net processing] Store CNetMessageMaker in PeerLogicValidation
 public:
     PeerManager(const CChainParams& chainparams, CConnman& connman, BanMan* banman,
                 CScheduler& scheduler, ChainstateManager& chainman, CTxMemPool& pool);
