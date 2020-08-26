@@ -29,8 +29,10 @@ public:
         return Make(0, std::move(msg_type), std::forward<Args>(args)...);
     }
 
+    void SetVersion(int version) {nVersion = version;}
+
 private:
-    const int nVersion;
+    int nVersion;
 };
 
 #endif // BITCOIN_NETMESSAGEMAKER_H
