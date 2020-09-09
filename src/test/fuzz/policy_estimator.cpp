@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <fs.h>
 #include <policy/fees.h>
 #include <primitives/transaction.h>
 #include <test/fuzz/FuzzedDataProvider.h>
@@ -22,7 +23,8 @@ void initialize()
 void test_one_input(const std::vector<uint8_t>& buffer)
 {
     FuzzedDataProvider fuzzed_data_provider(buffer.data(), buffer.size());
-    CBlockPolicyEstimator block_policy_estimator;
+    fs::path empty_est_filepath;
+    CBlockPolicyEstimator block_policy_estimator(empty_est_filepath);
     while (fuzzed_data_provider.ConsumeBool()) {
         switch (fuzzed_data_provider.ConsumeIntegralInRange<int>(0, 3)) {
         case 0: {

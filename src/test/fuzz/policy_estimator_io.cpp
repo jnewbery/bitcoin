@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <fs.h>
 #include <policy/fees.h>
 #include <test/fuzz/FuzzedDataProvider.h>
 #include <test/fuzz/fuzz.h>
@@ -21,7 +22,8 @@ void test_one_input(const std::vector<uint8_t>& buffer)
     FuzzedAutoFileProvider fuzzed_auto_file_provider = ConsumeAutoFile(fuzzed_data_provider);
     CAutoFile fuzzed_auto_file = fuzzed_auto_file_provider.open();
     // Re-using block_policy_estimator across runs to avoid costly creation of CBlockPolicyEstimator object.
-    static CBlockPolicyEstimator block_policy_estimator;
+    static fs::path empty_est_filepath;
+    static CBlockPolicyEstimator block_policy_estimator(empty_est_filepath);
     if (block_policy_estimator.Read(fuzzed_auto_file)) {
         block_policy_estimator.Write(fuzzed_auto_file);
     }
