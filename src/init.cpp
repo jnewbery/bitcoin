@@ -97,8 +97,6 @@ static const bool DEFAULT_STOPAFTERBLOCKIMPORT = false;
 #define MIN_CORE_FILEDESCRIPTORS 150
 #endif
 
-static const char* FEE_ESTIMATES_FILENAME="fee_estimates.dat";
-
 static const char* DEFAULT_ASMAP_FILENAME="ip_asn.map";
 
 /**
@@ -235,7 +233,7 @@ void Shutdown(NodeContext& node)
     }
 
     // Our fee estimates won't change anymore.
-    if (node.fee_estimator) node.fee_estimator->FlushUnconfirmed();
+    if (node.fee_estimator) node.fee_estimator->flush();
 
     // FlushStateToDisk generates a ChainStateFlushed callback, which we should avoid missing
     if (node.chainman) {
@@ -1360,8 +1358,7 @@ bool AppInitMain(const util::Ref& context, NodeContext& node, interfaces::BlockA
     // Don't initialize fee estimation with old data if we don't relay transactions,
     // as they would never get updated.
     if (g_relay_txes) {
-        fs::path est_path = GetDataDir() / FEE_ESTIMATES_FILENAME;
-        node.fee_estimator = MakeUnique<CBlockPolicyEstimator>(est_path);
+        node.fee_estimator = MakeUnique<CBlockPolicyEstimator>();
     }
 
     // Make mempool generally available in the node context. For example the connection manager, wallet, or RPC threads,

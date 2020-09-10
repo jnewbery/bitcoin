@@ -10,7 +10,6 @@
 #include <consensus/params.h>
 #include <consensus/validation.h>
 #include <crypto/sha256.h>
-#include <fs.h>
 #include <init.h>
 #include <interfaces/chain.h>
 #include <miner.h>
@@ -143,8 +142,7 @@ TestingSetup::TestingSetup(const std::string& chainName, const std::vector<const
 
     pblocktree.reset(new CBlockTreeDB(1 << 20, true));
 
-    fs::path empty_est_filepath;
-    m_node.fee_estimator = MakeUnique<CBlockPolicyEstimator>(empty_est_filepath);
+    m_node.fee_estimator = MakeUnique<CBlockPolicyEstimator>();
 
     m_node.mempool = MakeUnique<CTxMemPool>(m_node.fee_estimator.get());
     m_node.mempool->setSanityCheck(1.0);

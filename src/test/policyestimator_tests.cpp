@@ -16,8 +16,7 @@ BOOST_FIXTURE_TEST_SUITE(policyestimator_tests, BasicTestingSetup)
 
 BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
 {
-    fs::path empty_est_filepath;
-    CBlockPolicyEstimator feeEst(empty_est_filepath);
+    CBlockPolicyEstimator feeEst;
     CTxMemPool mpool(&feeEst);
     LOCK2(cs_main, mpool.cs);
     TestMemPoolEntryHelper entry;

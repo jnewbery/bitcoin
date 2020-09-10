@@ -6,7 +6,6 @@
 #define BITCOIN_POLICY_FEES_H
 
 #include <amount.h>
-#include <fs.h>
 #include <policy/feerate.h>
 #include <uint256.h>
 #include <random.h>
@@ -175,7 +174,7 @@ private:
 
 public:
     /** Create new BlockPolicyEstimator and initialize stats tracking classes with default values */
-    CBlockPolicyEstimator(fs::path fee_est_filepath);
+    CBlockPolicyEstimator();
     ~CBlockPolicyEstimator();
 
     /** Process all the transactions that have been included in a block */
@@ -204,17 +203,20 @@ public:
      */
     CFeeRate estimateRawFee(int confTarget, double successThreshold, FeeEstimateHorizon horizon, EstimationResult *result = nullptr) const;
 
-    /** Calculation of highest target that estimates are tracked for */
-    unsigned int HighestTargetTracked(FeeEstimateHorizon horizon) const;
+    /** Write estimation data to a file */
+    bool Write(CAutoFile& fileout) const;
+
+    /** Read estimation data from a file */
+    bool Read(CAutoFile& filein);
 
     /** Empty mempool transactions on shutdown to record failure to confirm for txs still in mempool */
     void FlushUnconfirmed();
 
-    /** Internal routines to read and write to our fee estimation file, made
-     * public for fuzz targets. */
-    bool Read(CAutoFile &filein);
-    bool Write(CAutoFile &fileout) const;
+    /** Calculation of highest target that estimates are tracked for */
+    unsigned int HighestTargetTracked(FeeEstimateHorizon horizon) const;
 
+    /** Flush mempool txs and write fee estimator data to file */
+    void flush();
 private:
     mutable RecursiveMutex m_cs_fee_estimator;
 
@@ -241,9 +243,6 @@ private:
     unsigned int trackedTxs GUARDED_BY(m_cs_fee_estimator);
     unsigned int untrackedTxs GUARDED_BY(m_cs_fee_estimator);
 
-    /** The path to our fee estimation file. */
-    const fs::path est_filepath;
-
     std::vector<double> buckets GUARDED_BY(m_cs_fee_estimator); // The upper-bound of the range for the bucket (inclusive)
     std::map<double, unsigned int> bucketMap GUARDED_BY(m_cs_fee_estimator); // Map of bucket upper-bound to index into all vectors by bucket
 
@@ -260,12 +259,6 @@ private:
     unsigned int HistoricalBlockSpan() const EXCLUSIVE_LOCKS_REQUIRED(m_cs_fee_estimator);
     /** Calculation of highest target that reasonable estimate can be provided for */
     unsigned int MaxUsableEstimate() const EXCLUSIVE_LOCKS_REQUIRED(m_cs_fee_estimator);
-
-    /** Write estimation data to our fee estimation file. */
-    bool WriteEstFile() const;
-
-    /** Read estimation data from our fee estimation file. */
-    bool ReadEstFile();
 };
 
 class FeeFilterRounder
