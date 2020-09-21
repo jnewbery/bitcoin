@@ -208,6 +208,15 @@ public:
 
     /** Access to the internal PriorityComputer (for testing) */
     const PriorityComputer& GetPriorityComputer() const;
+
+    /** Run internal consistency check (testing only). */
+    void SanityCheck() const;
+
+    /** Run a time-dependent internal consistency check (testing only).
+     *
+     * This can only be called immediately after GetRequestable, with the same 'now' parameter.
+     */
+    void PostGetRequestableSanityCheck(std::chrono::microseconds now) const;
 };
 
 #endif // BITCOIN_TXREQUEST_H
