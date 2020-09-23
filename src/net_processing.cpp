@@ -1198,6 +1198,13 @@ void PeerManager::BlockConnected(const std::shared_ptr<const CBlock>& pblock, co
             }
         }
     }
+    {
+        LOCK(cs_main);
+        for (const auto& ptx : pblock->vtx) {
+            m_txrequest.ForgetTx(GenTxid{false, ptx->GetHash()});
+            m_txrequest.ForgetTx(GenTxid{true, ptx->GetWitnessHash()});
+        }
+    }
 }
 
 void PeerManager::BlockDisconnected(const std::shared_ptr<const CBlock> &block, const CBlockIndex* pindex)
@@ -2869,8 +2876,15 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
 
         TxValidationState state;
 
+        if (wtxid != txid) {
+            // Regardless of whether the transaction we received is valid and acceptable or not,
+            // we don't need the version with this exact witness anymore.
+            m_txrequest.ForgetTx(GenTxid{true, wtxid});
+        }
+        // Mark the by-txid (if any) request this was in response to as completed. Note that
+        // we can't call ForgetTx with the txid unless we're sure we won't need any other
+        // versions of the same transaction either (see below).
         m_txrequest.ReceivedResponse(pfrom.GetId(), GenTxid{false, txid});
-        m_txrequest.ReceivedResponse(pfrom.GetId(), GenTxid{true, wtxid});
 
         std::list<CTransactionRef> lRemovedTxn;
 
@@ -2889,6 +2903,9 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         if (!AlreadyHaveTx(GenTxid(/* is_wtxid=*/true, wtxid), m_mempool) &&
             AcceptToMemoryPool(m_mempool, state, ptx, &lRemovedTxn, false /* bypass_limits */, 0 /* nAbsurdFee */)) {
             m_mempool.check(&::ChainstateActive().CoinsTip());
+            // As this version of the transaction was acceptable, we can forget about any
+            // requests for it. The wtxid version was already forgotten about above.
+            m_txrequest.ForgetTx(GenTxid{false, txid});
             RelayTransaction(tx.GetHash(), tx.GetWitnessHash(), m_connman);
             for (unsigned int i = 0; i < tx.vout.size(); i++) {
                 auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(txid, i));
@@ -2944,6 +2961,10 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
                 }
                 AddOrphanTx(ptx, pfrom.GetId());
 
+                // Once added to the orphan pool, a tx is considered AlreadyHave, and we shouldn't request it anymore.
+                // The wtxid version was already forgotten about above.
+                m_txrequest.ForgetTx(GenTxid{false, txid});
+
                 // DoS prevention: do not allow mapOrphanTransactions to grow unbounded (see CVE-2012-3789)
                 unsigned int nMaxOrphanTx = (unsigned int)std::max((int64_t)0, gArgs.GetArg("-maxorphantx", DEFAULT_MAX_ORPHAN_TRANSACTIONS));
                 unsigned int nEvicted = LimitOrphanTxSize(nMaxOrphanTx);
@@ -2960,6 +2981,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
                 // from any of our non-wtxidrelay peers.
                 recentRejects->insert(tx.GetHash());
                 recentRejects->insert(tx.GetWitnessHash());
+                m_txrequest.ForgetTx(GenTxid{false, txid});
             }
         } else {
             if (state.GetResult() != TxValidationResult::TX_WITNESS_STRIPPED) {
@@ -2988,6 +3010,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
                 // parent-fetching by txid via the orphan-handling logic).
                 if (state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD && tx.GetWitnessHash() != tx.GetHash()) {
                     recentRejects->insert(tx.GetHash());
+                    m_txrequest.ForgetTx(GenTxid{false, txid});
                 }
                 if (RecursiveDynamicUsage(*ptx) < 100000) {
                     AddToCompactExtraTransactions(ptx);
