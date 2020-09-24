@@ -25,7 +25,6 @@
 #include <scheduler.h>
 #include <tinyformat.h>
 #include <txmempool.h>
-#include <txrequest.h>
 #include <util/check.h> // For NDEBUG compile time check
 #include <util/strencodings.h>
 #include <util/system.h>
@@ -388,8 +387,6 @@ struct CNodeState {
     }
 };
 
-static TxRequestTracker g_txrequest GUARDED_BY(cs_main);
-
 /** Map maintaining per-node state. */
 static std::map<NodeId, CNodeState> mapNodeState GUARDED_BY(cs_main);
 
@@ -726,10 +723,12 @@ static void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vec
     }
 }
 
-void RequestTx(const CNode& node, const GenTxid& gtxid, std::chrono::microseconds current_time) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+} // namespace
+
+void PeerManager::RequestTx(const CNode& node, const GenTxid& gtxid, std::chrono::microseconds current_time)
 {
     NodeId nodeid = node.GetId();
-    if (g_txrequest.CountTracked(nodeid) >= MAX_PEER_TX_ANNOUNCEMENTS) {
+    if (m_txrequest.CountTracked(nodeid) >= MAX_PEER_TX_ANNOUNCEMENTS) {
         // Too many queued announcements from this peer
         return;
     }
@@ -744,15 +743,13 @@ void RequestTx(const CNode& node, const GenTxid& gtxid, std::chrono::microsecond
     //   - OVERLOADED_PEER_TX_DELAY for announcements from overloaded peers
     auto delay = std::chrono::microseconds{0};
     bool preferred = state->fPreferredDownload;
-    bool overloaded = g_txrequest.CountInFlight(nodeid) >= MAX_PEER_TX_IN_FLIGHT;
+    bool overloaded = m_txrequest.CountInFlight(nodeid) >= MAX_PEER_TX_IN_FLIGHT;
     if (!preferred) delay += INBOUND_PEER_TX_DELAY;
     if (!state->m_wtxid_relay && g_wtxid_relay_peers > 0) delay += TXID_RELAY_DELAY;
     if (overloaded) delay += OVERLOADED_PEER_TX_DELAY;
     auto reqtime = delay.count() ? current_time + delay : std::chrono::microseconds::min();
-    g_txrequest.ReceivedInv(nodeid, gtxid, preferred, overloaded, reqtime);
+    m_txrequest.ReceivedInv(nodeid, gtxid, preferred, overloaded, reqtime);
 }
-
-} // namespace
 
 // This function is used for testing the stale tip eviction logic, see
 // denialofservice_tests.cpp
@@ -827,7 +824,7 @@ void PeerManager::FinalizeNode(NodeId nodeid, bool& fUpdateConnectionTime) {
         mapBlocksInFlight.erase(entry.hash);
     }
     EraseOrphansFor(nodeid);
-    g_txrequest.DeletedPeer(nodeid);
+    m_txrequest.DeletedPeer(nodeid);
     nPreferredDownload -= state->fPreferredDownload;
     nPeersWithValidatedDownloads -= (state->nBlocksInFlightValidHeaders != 0);
     assert(nPeersWithValidatedDownloads >= 0);
@@ -2872,8 +2869,8 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
 
         TxValidationState state;
 
-        g_txrequest.ReceivedResponse(pfrom.GetId(), GenTxid{false, txid});
-        g_txrequest.ReceivedResponse(pfrom.GetId(), GenTxid{true, wtxid});
+        m_txrequest.ReceivedResponse(pfrom.GetId(), GenTxid{false, txid});
+        m_txrequest.ReceivedResponse(pfrom.GetId(), GenTxid{true, wtxid});
 
         std::list<CTransactionRef> lRemovedTxn;
 
@@ -3647,7 +3644,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
                 if (inv.IsGenTxMsg()) {
                     // If we receive a NOTFOUND message for a txid we requested, erase
                     // it from our data structures for this peer.
-                    g_txrequest.ReceivedResponse(pfrom.GetId(), ToGenTxid(inv));
+                    m_txrequest.ReceivedResponse(pfrom.GetId(), ToGenTxid(inv));
                 }
             }
         }
@@ -4449,7 +4446,7 @@ bool PeerManager::SendMessages(CNode* pto)
         //
         // Message: getdata (non-blocks)
         //
-        for (const GenTxid& gtxid : g_txrequest.GetRequestable(pto->GetId(), current_time)) {
+        for (const GenTxid& gtxid : m_txrequest.GetRequestable(pto->GetId(), current_time)) {
             CInv inv(gtxid.IsWtxid() ? MSG_WTX : (MSG_TX | GetFetchFlags(*pto)), gtxid.GetHash());
             if (!AlreadyHaveTx(ToGenTxid(inv), m_mempool)) {
                 LogPrint(BCLog::NET, "Requesting %s peer=%d\n", inv.ToString(), pto->GetId());
@@ -4458,10 +4455,10 @@ bool PeerManager::SendMessages(CNode* pto)
                     m_connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETDATA, vGetData));
                     vGetData.clear();
                 }
-                g_txrequest.RequestedTx(pto->GetId(), gtxid, current_time + GETDATA_TX_INTERVAL);
+                m_txrequest.RequestedTx(pto->GetId(), gtxid, current_time + GETDATA_TX_INTERVAL);
             } else {
                 // We have already seen this transaction, no need to download.
-                g_txrequest.ForgetTx(gtxid);
+                m_txrequest.ForgetTx(gtxid);
             }
         }
 
