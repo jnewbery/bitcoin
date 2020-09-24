@@ -74,7 +74,7 @@ static const unsigned int MAX_INV_SZ = 50000;
 /** Maximum number of in-flight transactions from a peer */
 static constexpr int32_t MAX_PEER_TX_IN_FLIGHT = 100;
 /** Maximum number of announced transactions from a peer */
-static constexpr int32_t MAX_PEER_TX_ANNOUNCEMENTS = 2 * MAX_INV_SZ;
+static constexpr int32_t MAX_PEER_TX_ANNOUNCEMENTS = 5000;
 /** How many microseconds to delay requesting transactions via txids, if we have wtxid-relaying peers */
 static constexpr std::chrono::microseconds TXID_RELAY_DELAY{std::chrono::seconds{2}};
 /** How many microseconds to delay requesting transactions from inbound peers */
@@ -728,7 +728,7 @@ static void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vec
 void PeerManager::RequestTx(const CNode& node, const GenTxid& gtxid, std::chrono::microseconds current_time)
 {
     NodeId nodeid = node.GetId();
-    if (m_txrequest.CountTracked(nodeid) >= MAX_PEER_TX_ANNOUNCEMENTS) {
+    if (!node.HasPermission(PF_RELAY) && m_txrequest.CountTracked(nodeid) >= MAX_PEER_TX_ANNOUNCEMENTS) {
         // Too many queued announcements from this peer
         return;
     }
