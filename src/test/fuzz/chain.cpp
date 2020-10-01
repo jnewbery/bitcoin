@@ -48,7 +48,6 @@ void test_one_input(const std::vector<uint8_t>& buffer)
             BlockStatus::BLOCK_HAVE_UNDO,
             BlockStatus::BLOCK_HAVE_MASK,
             BlockStatus::BLOCK_FAILED_VALID,
-            BlockStatus::BLOCK_FAILED_MASK,
             BlockStatus::BLOCK_OPT_WITNESS,
         });
         if (block_status & ~BLOCK_VALID_MASK) {
