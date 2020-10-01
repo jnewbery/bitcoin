@@ -1598,6 +1598,7 @@ void static ProcessGetBlockData(CNode& pfrom, const CChainParams& chainparams, c
             LogPrint(BCLog::NET, "%s: ignoring request from peer=%i for old block that isn't in the main chain\n", __func__, pfrom.GetId());
         }
     }
+
     const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
     // disconnect node in case we have reached the outbound limit for serving historical blocks
     if (send &&
@@ -1611,6 +1612,7 @@ void static ProcessGetBlockData(CNode& pfrom, const CChainParams& chainparams, c
         pfrom.fDisconnect = true;
         send = false;
     }
+
     // Avoid leaking prune-height by never sending blocks below the NODE_NETWORK_LIMITED threshold
     if (send && !pfrom.HasPermission(PF_NOBAN) && (
             (((pfrom.GetLocalServices() & NODE_NETWORK_LIMITED) == NODE_NETWORK_LIMITED) && ((pfrom.GetLocalServices() & NODE_NETWORK) != NODE_NETWORK) && (::ChainActive().Tip()->nHeight - pindex->nHeight > (int)NODE_NETWORK_LIMITED_MIN_BLOCKS + 2 /* add two blocks buffer extension for possible races */) )
@@ -1621,6 +1623,7 @@ void static ProcessGetBlockData(CNode& pfrom, const CChainParams& chainparams, c
         pfrom.fDisconnect = true;
         send = false;
     }
+
     // Pruned nodes may have deleted the block, so check whether
     // it's available before trying to send.
     if (send && (pindex->nStatus & BLOCK_HAVE_DATA))
