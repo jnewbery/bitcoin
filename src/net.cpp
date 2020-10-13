@@ -167,10 +167,6 @@ static std::vector<CAddress> convertSeed6(const std::vector<SeedSpec6> &vSeedsIn
     return vSeedsOut;
 }
 
-// get best local address for a particular peer as a CAddress
-// Otherwise, return the unroutable 0.0.0.0 but filled in with
-// the normal parameters, since the IP may be changed to a useful
-// one by discovery.
 CAddress GetLocalAddress(const CNetAddr& paddrPeer, ServiceFlags nLocalServices)
 {
     CAddress ret(CService(CNetAddr(),GetListenPort()), nLocalServices);
@@ -190,7 +186,6 @@ static int GetnScore(const CService& addr)
     return mapLocalHost[addr].nScore;
 }
 
-// Is our peer's addrLocal potentially useful as an external IP source?
 bool IsPeerAddrLocalGood(CNode& pnode)
 {
     CService addrLocal = pnode.GetAddrLocal();
@@ -198,7 +193,6 @@ bool IsPeerAddrLocalGood(CNode& pnode)
            IsReachable(addrLocal.GetNetwork());
 }
 
-// pushes our own address to a peer
 void AdvertiseLocal(CNode& pnode)
 {
     if (fListen && pnode.fSuccessfullyConnected)
@@ -225,7 +219,6 @@ void AdvertiseLocal(CNode& pnode)
     }
 }
 
-// learn a new local address
 bool AddLocal(const CService& addr, int nScore)
 {
     if (!addr.IsRoutable())
@@ -283,7 +276,6 @@ bool IsReachable(const CNetAddr &addr)
     return IsReachable(addr.GetNetwork());
 }
 
-/** vote for a local address */
 bool SeenLocal(const CService& addr)
 {
     {
@@ -295,8 +287,6 @@ bool SeenLocal(const CService& addr)
     return true;
 }
 
-
-/** check whether a given address is potentially local */
 bool IsLocal(const CService& addr)
 {
     LOCK(cs_mapLocalHost);
