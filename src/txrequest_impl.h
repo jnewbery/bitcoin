@@ -211,10 +211,15 @@ struct PeerInfo {
     size_t m_total = 0; //!< Total number of announcements for this peer.
     size_t m_completed = 0; //!< Number of COMPLETED announcements for this peer.
     size_t m_requested = 0; //!< Number of REQUESTED announcements for this peer.
-};
+    
+    /** Compare two PeerInfo objects. Only used for testing. */
+    friend bool operator==(const PeerInfo& a, const PeerInfo& b)
+    {
+        return std::tie(a.m_total, a.m_completed, a.m_requested) ==
+               std::tie(b.m_total, b.m_completed, b.m_requested);
+    }
 
-/** Compare two PeerInfo objects. Only used for sanity checking. */
-bool operator==(const PeerInfo& a, const PeerInfo& b);
+};
 
 /** Implementation class for TxRequestTracker's data structure. All members are public
  *  for testing. This file isn't included from anything than txrequest.cpp and the test
@@ -226,19 +231,10 @@ public:
     SequenceNumber m_current_sequence{0};
     //! This tracker's priority computer.
     const PriorityComputer m_computer;
-    //! This tracker's main data structure. See SanityCheck() for the invariants that apply to it.
+    //! This tracker's main data structure.
     Index m_index;
     //! Map with this tracker's per-peer statistics.
     std::unordered_map<NodeId, PeerInfo> m_peerinfo;
-
-    /** Run internal consistency check (testing only). */
-    void SanityCheck() const;
-
-    /** Run a time-dependent internal consistency check (testing only).
-     *
-     * This can only be called immediately after GetRequestable, with the same 'now' parameter.
-     */
-    void PostGetRequestableSanityCheck(std::chrono::microseconds now) const;
 
     //! Wrapper around Index::...::erase that keeps m_peerinfo up to date.
     template<typename Tag>
@@ -306,8 +302,6 @@ public:
 
     //! Count how many announcements are being tracked in total across all peers and transactions.
     size_t Size() const;
-
-    uint64_t ComputePriority(const uint256& txhash, NodeId peer, bool preferred) const;
 
 };
 #endif // BITCOIN_TXREQUEST_IMPL_H

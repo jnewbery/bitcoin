@@ -16,132 +16,16 @@
 
 #include <assert.h>
 
-namespace {
-
-/** Per-txhash statistics object. Only used for sanity checking. */
-struct TxHashInfo
-{
-    //! Number of CANDIDATE_DELAYED announcements for this txhash.
-    size_t m_candidate_delayed = 0;
-    //! Number of CANDIDATE_READY announcements for this txhash.
-    size_t m_candidate_ready = 0;
-    //! Number of CANDIDATE_BEST announcements for this txhash (at most one).
-    size_t m_candidate_best = 0;
-    //! Number of REQUESTED announcements for this txhash (at most one; mutually exclusive with CANDIDATE_BEST).
-    size_t m_requested = 0;
-    //! The priority of the CANDIDATE_BEST announcement if one exists, or max() otherwise.
-    Priority m_priority_candidate_best = std::numeric_limits<Priority>::max();
-    //! The highest priority of all CANDIDATE_READY announcements (or min() if none exist).
-    Priority m_priority_best_candidate_ready = std::numeric_limits<Priority>::min();
-    //! All peers we have an announcement for this txhash for.
-    std::vector<NodeId> m_peers;
-};
-
-/** (Re)compute the PeerInfo map from the index. Only used for sanity checking. */
-std::unordered_map<NodeId, PeerInfo> RecomputePeerInfo(const Index& index)
-{
-    std::unordered_map<NodeId, PeerInfo> ret;
-    for (const Announcement& ann : index) {
-        PeerInfo& info = ret[ann.m_peer];
-        ++info.m_total;
-        info.m_requested += (ann.m_state == State::REQUESTED);
-        info.m_completed += (ann.m_state == State::COMPLETED);
-    }
-    return ret;
-}
-
-/** Compute the TxHashInfo map. Only used for sanity checking. */
-std::map<uint256, TxHashInfo> ComputeTxHashInfo(const Index& index, const PriorityComputer& computer)
-{
-    std::map<uint256, TxHashInfo> ret;
-    for (const Announcement& ann : index) {
-        TxHashInfo& info = ret[ann.m_txhash];
-        // Classify how many announcements of each state we have for this txhash.
-        info.m_candidate_delayed += (ann.m_state == State::CANDIDATE_DELAYED);
-        info.m_candidate_ready += (ann.m_state == State::CANDIDATE_READY);
-        info.m_candidate_best += (ann.m_state == State::CANDIDATE_BEST);
-        info.m_requested += (ann.m_state == State::REQUESTED);
-        // And track the priority of the best CANDIDATE_READY/CANDIDATE_BEST announcements.
-        if (ann.m_state == State::CANDIDATE_BEST) {
-            info.m_priority_candidate_best = computer(ann);
-        }
-        if (ann.m_state == State::CANDIDATE_READY) {
-            info.m_priority_best_candidate_ready = std::max(info.m_priority_best_candidate_ready, computer(ann));
-        }
-        // Also keep track of which peers this txhash has an announcement for (so we can detect duplicates).
-        info.m_peers.push_back(ann.m_peer);
-    }
-    return ret;
-}
-
-GenTxid ToGenTxid(const Announcement& ann)
+static GenTxid ToGenTxid(const Announcement& ann)
 {
     return {ann.m_is_wtxid, ann.m_txhash};
 }
-
-}  // namespace
 
 WaitState GetWaitState(const Announcement& ann)
 {
     if (ann.IsWaiting()) return WaitState::FUTURE_EVENT;
     if (ann.IsSelectable()) return WaitState::PAST_EVENT;
     return WaitState::NO_EVENT;
-}
-
-bool operator==(const PeerInfo& a, const PeerInfo& b)
-{
-    return std::tie(a.m_total, a.m_completed, a.m_requested) ==
-           std::tie(b.m_total, b.m_completed, b.m_requested);
-}
-
-/** Actual implementation for TxRequestTracker's data structure. */
-void TxRequestTrackerImpl::SanityCheck() const
-{
-    // Recompute m_peerdata from m_index. This verifies the data in it as it should just be caching statistics
-    // on m_index. It also verifies the invariant that no PeerInfo announcements with m_total==0 exist.
-    assert(m_peerinfo == RecomputePeerInfo(m_index));
-
-    // Calculate per-txhash statistics from m_index, and validate invariants.
-    for (auto& item : ComputeTxHashInfo(m_index, m_computer)) {
-        TxHashInfo& info = item.second;
-
-        // Cannot have only COMPLETED peer (txhash should have been forgotten already)
-        assert(info.m_candidate_delayed + info.m_candidate_ready + info.m_candidate_best + info.m_requested > 0);
-
-        // Can have at most 1 CANDIDATE_BEST/REQUESTED peer
-        assert(info.m_candidate_best + info.m_requested <= 1);
-
-        // If there are any CANDIDATE_READY announcements, there must be exactly one CANDIDATE_BEST or REQUESTED
-        // announcement.
-        if (info.m_candidate_ready > 0) {
-            assert(info.m_candidate_best + info.m_requested == 1);
-        }
-
-        // If there is both a CANDIDATE_READY and a CANDIDATE_BEST announcement, the CANDIDATE_BEST one must be
-        // at least as good (equal or higher priority) as the best CANDIDATE_READY.
-        if (info.m_candidate_ready && info.m_candidate_best) {
-            assert(info.m_priority_candidate_best >= info.m_priority_best_candidate_ready);
-        }
-
-        // No txhash can have been announced by the same peer twice.
-        std::sort(info.m_peers.begin(), info.m_peers.end());
-        assert(std::adjacent_find(info.m_peers.begin(), info.m_peers.end()) == info.m_peers.end());
-    }
-}
-
-void TxRequestTrackerImpl::PostGetRequestableSanityCheck(std::chrono::microseconds now) const
-{
-    for (const Announcement& ann : m_index) {
-        if (ann.IsWaiting()) {
-            // REQUESTED and CANDIDATE_DELAYED must have a time in the future (they should have been converted
-            // to COMPLETED/CANDIDATE_READY respectively).
-            assert(ann.m_time > now);
-        } else if (ann.IsSelectable()) {
-            // CANDIDATE_READY and CANDIDATE_BEST cannot have a time in the future (they should have remained
-            // CANDIDATE_DELAYED, or should have been converted back to it if time went backwards).
-            assert(ann.m_time <= now);
-        }
-    }
 }
 
 //! Wrapper around Index::...::erase that keeps m_peerinfo up to date.
@@ -443,13 +327,6 @@ size_t TxRequestTrackerImpl::CountInFlight(NodeId peer) const
     return 0;
 }
 
-size_t TxRequestTrackerImpl::CountCandidates(NodeId peer) const
-{
-    auto it = m_peerinfo.find(peer);
-    if (it != m_peerinfo.end()) return it->second.m_total - it->second.m_requested - it->second.m_completed;
-    return 0;
-}
-
 size_t TxRequestTrackerImpl::Count(NodeId peer) const
 {
     auto it = m_peerinfo.find(peer);
@@ -459,12 +336,6 @@ size_t TxRequestTrackerImpl::Count(NodeId peer) const
 
 //! Count how many announcements are being tracked in total across all peers and transactions.
 size_t TxRequestTrackerImpl::Size() const { return m_index.size(); }
-
-uint64_t TxRequestTrackerImpl::ComputePriority(const uint256& txhash, NodeId peer, bool preferred) const
-{
-    // Return Priority as a uint64_t as Priority is internal.
-    return uint64_t{m_computer(txhash, peer, preferred)};
-}
 
 TxRequestTracker::TxRequestTracker(bool deterministic) :
     m_impl{MakeUnique<TxRequestTrackerImpl>(deterministic)} {}
