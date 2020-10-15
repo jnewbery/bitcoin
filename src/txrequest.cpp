@@ -474,15 +474,8 @@ TxRequestTracker::~TxRequestTracker() = default;
 void TxRequestTracker::ForgetTxHash(const uint256& txhash) { m_impl->ForgetTxHash(txhash); }
 void TxRequestTracker::DisconnectedPeer(NodeId peer) { m_impl->DisconnectedPeer(peer); }
 size_t TxRequestTracker::CountInFlight(NodeId peer) const { return m_impl->CountInFlight(peer); }
-size_t TxRequestTracker::CountCandidates(NodeId peer) const { return m_impl->CountCandidates(peer); }
 size_t TxRequestTracker::Count(NodeId peer) const { return m_impl->Count(peer); }
 size_t TxRequestTracker::Size() const { return m_impl->Size(); }
-void TxRequestTracker::SanityCheck() const { m_impl->SanityCheck(); }
-
-void TxRequestTracker::PostGetRequestableSanityCheck(std::chrono::microseconds now) const
-{
-    m_impl->PostGetRequestableSanityCheck(now);
-}
 
 void TxRequestTracker::ReceivedInv(NodeId peer, const GenTxid& gtxid, bool preferred,
     std::chrono::microseconds reqtime)
@@ -504,9 +497,4 @@ std::vector<GenTxid> TxRequestTracker::GetRequestable(NodeId peer, std::chrono::
     std::vector<std::pair<NodeId, GenTxid>>* expired)
 {
     return m_impl->GetRequestable(peer, now, expired);
-}
-
-uint64_t TxRequestTracker::ComputePriority(const uint256& txhash, NodeId peer, bool preferred) const
-{
-    return m_impl->ComputePriority(txhash, peer, preferred);
 }
