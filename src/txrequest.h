@@ -14,6 +14,8 @@
 
 #include <stdint.h>
 
+class TxRequestTrackerImpl;
+
 /** Data structure to keep track of, and schedule, transaction downloads from peers.
  *
  * === Specification ===
@@ -95,8 +97,7 @@
  */
 class TxRequestTracker {
     // Avoid littering this header file with implementation details.
-    class Impl;
-    const std::unique_ptr<Impl> m_impl;
+    const std::unique_ptr<TxRequestTrackerImpl> m_impl;
 
 public:
     //! Construct a TxRequestTracker.
