@@ -21,13 +21,6 @@ static GenTxid ToGenTxid(const Announcement& ann)
     return {ann.m_is_wtxid, ann.m_txhash};
 }
 
-WaitState GetWaitState(const Announcement& ann)
-{
-    if (ann.IsWaiting()) return WaitState::FUTURE_EVENT;
-    if (ann.IsSelectable()) return WaitState::PAST_EVENT;
-    return WaitState::NO_EVENT;
-}
-
 //! Wrapper around Index::...::erase that keeps m_peerinfo up to date.
 template<typename Tag>
 Iter<Tag> TxRequestTrackerImpl::Erase(Iter<Tag> it)

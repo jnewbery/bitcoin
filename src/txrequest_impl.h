@@ -47,6 +47,15 @@ enum class State : uint8_t {
     COMPLETED,
 };
 
+enum class WaitState {
+    //! Used for announcements that need efficient testing of "is their timestamp in the future?".
+    FUTURE_EVENT,
+    //! Used for announcements whose timestamp is not relevant.
+    NO_EVENT,
+    //! Used for announcements that need efficient testing of "is their timestamp in the past?".
+    PAST_EVENT,
+};
+
 /** An announcement. This is the data we track for each txid or wtxid that is announced to us by each peer. */
 struct Announcement {
     /** Txid or wtxid that was announced. */
@@ -81,6 +90,13 @@ struct Announcement {
     bool IsSelectable() const
     {
         return m_state == State::CANDIDATE_READY || m_state == State::CANDIDATE_BEST;
+    }
+
+    WaitState GetWaitState() const
+    {
+        if (IsWaiting()) return WaitState::FUTURE_EVENT;
+        if (IsSelectable()) return WaitState::PAST_EVENT;
+        return WaitState::NO_EVENT;
     }
 
     /** Construct a new announcement from scratch, initially in CANDIDATE_DELAYED state. */
@@ -161,17 +177,6 @@ public:
     }
 };
 
-enum class WaitState {
-    //! Used for announcements that need efficient testing of "is their timestamp in the future?".
-    FUTURE_EVENT,
-    //! Used for announcements whose timestamp is not relevant.
-    NO_EVENT,
-    //! Used for announcements that need efficient testing of "is their timestamp in the past?".
-    PAST_EVENT,
-};
-
-WaitState GetWaitState(const Announcement& ann);
-
 // The ByTime index is sorted by (wait_state, time).
 //
 // All announcements with a timestamp in the future can be found by iterating the index forward from the beginning.
@@ -188,7 +193,7 @@ struct ByTimeViewExtractor
     using result_type = ByTimeView;
     result_type operator()(const Announcement& ann) const
     {
-        return ByTimeView{GetWaitState(ann), ann.m_time};
+        return ByTimeView{ann.GetWaitState(), ann.m_time};
     }
 };
 
