@@ -231,6 +231,45 @@ struct PeerInfo {
  *  files. */
 class TxRequestTrackerImpl {
 public:
+    TxRequestTrackerImpl(bool deterministic = false) :
+        m_computer(deterministic),
+        // Explicitly initialize m_index as we need to pass a reference to m_computer to ByTxHashViewExtractor.
+        m_index(boost::make_tuple(
+            boost::make_tuple(ByPeerViewExtractor(), std::less<ByPeerView>()),
+            boost::make_tuple(ByTxHashViewExtractor(m_computer), std::less<ByTxHashView>()),
+            boost::make_tuple(ByTimeViewExtractor(), std::less<ByTimeView>())
+        )) {}
+
+    // Disable copying and assigning (a default copy won't work due the stateful ByTxHashViewExtractor).
+    TxRequestTrackerImpl(const TxRequestTrackerImpl&) = delete;
+    TxRequestTrackerImpl& operator=(const TxRequestTrackerImpl&) = delete;
+
+    // Public interface functions.
+
+    //* Part of public interface. See TxRequestTracker::DisconnectPeer() */
+    void DisconnectedPeer(NodeId peer);
+    //* Part of public interface. See TxRequestTracker::ForgetTxHash() */
+    void ForgetTxHash(const uint256& txhash);
+    //* Part of public interface. See TxRequestTracker::ReceivedInv() */
+    void ReceivedInv(NodeId peer, const GenTxid& gtxid, bool preferred, std::chrono::microseconds reqtime);
+    //* Part of public interface. See TxRequestTracker::GetRequestable() */
+    std::vector<GenTxid> GetRequestable(NodeId peer, std::chrono::microseconds now,
+        std::vector<std::pair<NodeId, GenTxid>>* expired);
+    //* Part of public interface. See TxRequestTracker::RequestedTx() */
+    void RequestedTx(NodeId peer, const uint256& txhash, std::chrono::microseconds expiry);
+    //* Part of public interface. See TxRequestTracker::ReceivedResponse() */
+    void ReceivedResponse(NodeId peer, const uint256& txhash);
+    //* Part of public interface. See TxRequestTracker::CountInFlight() */
+    size_t CountInFlight(NodeId peer) const;
+    //* Part of public interface. See TxRequestTracker::CountCandidates()() */
+    size_t CountCandidates(NodeId peer) const;
+    //* Part of public interface. See TxRequestTracker::Count() */
+    size_t Count(NodeId peer) const;
+    //* Part of public interface. See TxRequestTracker::Size() */
+    size_t Size() const;
+
+    // Data members
+
     //! The current sequence number. Increases for every announcement. This is used to sort txhashes returned by
     //! GetRequestable in announcement order.
     SequenceNumber m_current_sequence{0};
@@ -240,6 +279,8 @@ public:
     Index m_index;
     //! Map with this tracker's per-peer statistics.
     std::unordered_map<NodeId, PeerInfo> m_peerinfo;
+
+    // 'Private' implementation functions
 
     //! Wrapper around Index::...::erase that keeps m_peerinfo up to date.
     template<typename Tag>
@@ -271,42 +312,5 @@ public:
     //! - CANDIDATE_DELAYED announcements with reqtime <= now are turned into CANDIDATE_{READY,BEST}.
     //! - CANDIDATE_{READY,BEST} announcements with reqtime > now are turned into CANDIDATE_DELAYED.
     void SetTimePoint(std::chrono::microseconds now, std::vector<std::pair<NodeId, GenTxid>>* expired);
-
-    TxRequestTrackerImpl(bool deterministic = false) :
-        m_computer(deterministic),
-        // Explicitly initialize m_index as we need to pass a reference to m_computer to ByTxHashViewExtractor.
-        m_index(boost::make_tuple(
-            boost::make_tuple(ByPeerViewExtractor(), std::less<ByPeerView>()),
-            boost::make_tuple(ByTxHashViewExtractor(m_computer), std::less<ByTxHashView>()),
-            boost::make_tuple(ByTimeViewExtractor(), std::less<ByTimeView>())
-        )) {}
-
-    // Disable copying and assigning (a default copy won't work due the stateful ByTxHashViewExtractor).
-    TxRequestTrackerImpl(const TxRequestTrackerImpl&) = delete;
-    TxRequestTrackerImpl& operator=(const TxRequestTrackerImpl&) = delete;
-
-    void DisconnectedPeer(NodeId peer);
-
-    void ForgetTxHash(const uint256& txhash);
-
-    void ReceivedInv(NodeId peer, const GenTxid& gtxid, bool preferred, std::chrono::microseconds reqtime);
-
-    //! Find the GenTxids to request now from peer.
-    std::vector<GenTxid> GetRequestable(NodeId peer, std::chrono::microseconds now,
-        std::vector<std::pair<NodeId, GenTxid>>* expired);
-
-    void RequestedTx(NodeId peer, const uint256& txhash, std::chrono::microseconds expiry);
-
-    void ReceivedResponse(NodeId peer, const uint256& txhash);
-
-    size_t CountInFlight(NodeId peer) const;
-
-    size_t CountCandidates(NodeId peer) const;
-
-    size_t Count(NodeId peer) const;
-
-    //! Count how many announcements are being tracked in total across all peers and transactions.
-    size_t Size() const;
-
 };
 #endif // BITCOIN_TXREQUEST_IMPL_H

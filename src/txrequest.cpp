@@ -21,7 +21,39 @@ static GenTxid ToGenTxid(const Announcement& ann)
     return {ann.m_is_wtxid, ann.m_txhash};
 }
 
-//! Wrapper around Index::...::erase that keeps m_peerinfo up to date.
+TxRequestTracker::TxRequestTracker(bool deterministic) :
+    m_impl{MakeUnique<TxRequestTrackerImpl>(deterministic)} {}
+
+TxRequestTracker::~TxRequestTracker() = default;
+
+void TxRequestTracker::ForgetTxHash(const uint256& txhash) { m_impl->ForgetTxHash(txhash); }
+void TxRequestTracker::DisconnectedPeer(NodeId peer) { m_impl->DisconnectedPeer(peer); }
+size_t TxRequestTracker::CountInFlight(NodeId peer) const { return m_impl->CountInFlight(peer); }
+size_t TxRequestTracker::Count(NodeId peer) const { return m_impl->Count(peer); }
+size_t TxRequestTracker::Size() const { return m_impl->Size(); }
+
+void TxRequestTracker::ReceivedInv(NodeId peer, const GenTxid& gtxid, bool preferred,
+    std::chrono::microseconds reqtime)
+{
+    m_impl->ReceivedInv(peer, gtxid, preferred, reqtime);
+}
+
+void TxRequestTracker::RequestedTx(NodeId peer, const uint256& txhash, std::chrono::microseconds expiry)
+{
+    m_impl->RequestedTx(peer, txhash, expiry);
+}
+
+void TxRequestTracker::ReceivedResponse(NodeId peer, const uint256& txhash)
+{
+    m_impl->ReceivedResponse(peer, txhash);
+}
+
+std::vector<GenTxid> TxRequestTracker::GetRequestable(NodeId peer, std::chrono::microseconds now,
+    std::vector<std::pair<NodeId, GenTxid>>* expired)
+{
+    return m_impl->GetRequestable(peer, now, expired);
+}
+
 template<typename Tag>
 Iter<Tag> TxRequestTrackerImpl::Erase(Iter<Tag> it)
 {
@@ -32,7 +64,6 @@ Iter<Tag> TxRequestTrackerImpl::Erase(Iter<Tag> it)
     return m_index.get<Tag>().erase(it);
 }
 
-//! Wrapper around Index::...::modify that keeps m_peerinfo up to date.
 template<typename Tag, typename Modifier>
 void TxRequestTrackerImpl::Modify(Iter<Tag> it, Modifier modifier)
 {
@@ -44,9 +75,6 @@ void TxRequestTrackerImpl::Modify(Iter<Tag> it, Modifier modifier)
     peerit->second.m_requested += it->m_state == State::REQUESTED;
 }
 
-//! Convert a CANDIDATE_DELAYED announcement into a CANDIDATE_READY. If this makes it the new best
-//! CANDIDATE_READY (and no REQUESTED exists) and better than the CANDIDATE_BEST (if any), it becomes the new
-//! CANDIDATE_BEST.
 void TxRequestTrackerImpl::PromoteCandidateReady(Iter<ByTxHash> it)
 {
     assert(it != m_index.get<ByTxHash>().end());
@@ -74,8 +102,6 @@ void TxRequestTrackerImpl::PromoteCandidateReady(Iter<ByTxHash> it)
     }
 }
 
-//! Change the state of an announcement to something non-IsSelected(). If it was IsSelected(), the next best
-//! announcement will be marked CANDIDATE_BEST.
 void TxRequestTrackerImpl::ChangeAndReselect(Iter<ByTxHash> it, State new_state)
 {
     assert(new_state == State::COMPLETED || new_state == State::CANDIDATE_DELAYED);
@@ -92,7 +118,6 @@ void TxRequestTrackerImpl::ChangeAndReselect(Iter<ByTxHash> it, State new_state)
     Modify<ByTxHash>(it, [new_state](Announcement& ann){ ann.m_state = new_state; });
 }
 
-//! Check if 'it' is the only announcement for a given txhash that isn't COMPLETED.
 bool TxRequestTrackerImpl::IsOnlyNonCompleted(Iter<ByTxHash> it)
 {
     assert(it != m_index.get<ByTxHash>().end());
@@ -109,9 +134,6 @@ bool TxRequestTrackerImpl::IsOnlyNonCompleted(Iter<ByTxHash> it)
     return true;
 }
 
-/** Convert any announcement to a COMPLETED one. If there are no non-COMPLETED announcements left for this
- *  txhash, they are deleted. If this was a REQUESTED announcement, and there are other CANDIDATEs left, the
- *  best one is made CANDIDATE_BEST. Returns whether the announcement still exists. */
 bool TxRequestTrackerImpl::MakeCompleted(Iter<ByTxHash> it)
 {
     assert(it != m_index.get<ByTxHash>().end());
@@ -135,10 +157,6 @@ bool TxRequestTrackerImpl::MakeCompleted(Iter<ByTxHash> it)
     return true;
 }
 
-//! Make the data structure consistent with a given point in time:
-//! - REQUESTED annoucements with expiry <= now are turned into COMPLETED.
-//! - CANDIDATE_DELAYED announcements with reqtime <= now are turned into CANDIDATE_{READY,BEST}.
-//! - CANDIDATE_{READY,BEST} announcements with reqtime > now are turned into CANDIDATE_DELAYED.
 void TxRequestTrackerImpl::SetTimePoint(std::chrono::microseconds now, std::vector<std::pair<NodeId, GenTxid>>* expired)
 {
     if (expired) expired->clear();
@@ -228,7 +246,6 @@ void TxRequestTrackerImpl::ReceivedInv(NodeId peer, const GenTxid& gtxid, bool p
     ++m_current_sequence;
 }
 
-//! Find the GenTxids to request now from peer.
 std::vector<GenTxid> TxRequestTrackerImpl::GetRequestable(NodeId peer, std::chrono::microseconds now,
     std::vector<std::pair<NodeId, GenTxid>>* expired)
 {
@@ -327,38 +344,4 @@ size_t TxRequestTrackerImpl::Count(NodeId peer) const
     return 0;
 }
 
-//! Count how many announcements are being tracked in total across all peers and transactions.
 size_t TxRequestTrackerImpl::Size() const { return m_index.size(); }
-
-TxRequestTracker::TxRequestTracker(bool deterministic) :
-    m_impl{MakeUnique<TxRequestTrackerImpl>(deterministic)} {}
-
-TxRequestTracker::~TxRequestTracker() = default;
-
-void TxRequestTracker::ForgetTxHash(const uint256& txhash) { m_impl->ForgetTxHash(txhash); }
-void TxRequestTracker::DisconnectedPeer(NodeId peer) { m_impl->DisconnectedPeer(peer); }
-size_t TxRequestTracker::CountInFlight(NodeId peer) const { return m_impl->CountInFlight(peer); }
-size_t TxRequestTracker::Count(NodeId peer) const { return m_impl->Count(peer); }
-size_t TxRequestTracker::Size() const { return m_impl->Size(); }
-
-void TxRequestTracker::ReceivedInv(NodeId peer, const GenTxid& gtxid, bool preferred,
-    std::chrono::microseconds reqtime)
-{
-    m_impl->ReceivedInv(peer, gtxid, preferred, reqtime);
-}
-
-void TxRequestTracker::RequestedTx(NodeId peer, const uint256& txhash, std::chrono::microseconds expiry)
-{
-    m_impl->RequestedTx(peer, txhash, expiry);
-}
-
-void TxRequestTracker::ReceivedResponse(NodeId peer, const uint256& txhash)
-{
-    m_impl->ReceivedResponse(peer, txhash);
-}
-
-std::vector<GenTxid> TxRequestTracker::GetRequestable(NodeId peer, std::chrono::microseconds now,
-    std::vector<std::pair<NodeId, GenTxid>>* expired)
-{
-    return m_impl->GetRequestable(peer, now, expired);
-}
