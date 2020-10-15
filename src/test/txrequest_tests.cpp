@@ -4,6 +4,7 @@
 
 
 #include <txrequest.h>
+#include <txrequest_impl.h>
 #include <uint256.h>
 
 #include <test/util/setup_common.h>
@@ -33,7 +34,7 @@ using Action = std::pair<std::chrono::microseconds, std::function<void()>>;
 struct Runner
 {
     /** The TxRequestTracker being tested. */
-    TxRequestTracker txrequest;
+    TxRequestTrackerImpl txrequest;
 
     /** List of actions to be executed (in order of increasing timestamp). */
     std::vector<Action> actions;
