@@ -4438,7 +4438,12 @@ static RPCHelpMan upgradewallet()
         {
             {"version", RPCArg::Type::NUM, /* default */ strprintf("%d", FEATURE_LATEST), "The version number to upgrade to. Default is the latest wallet version"}
         },
-        RPCResults{},
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR, "Error", "error description during upgrading wallet"}
+            },
+        },
         RPCExamples{
             HelpExampleCli("upgradewallet", "169900")
             + HelpExampleRpc("upgradewallet", "169900")
@@ -4462,7 +4467,9 @@ static RPCHelpMan upgradewallet()
     if (!pwallet->UpgradeWallet(version, error)) {
         throw JSONRPCError(RPC_WALLET_ERROR, error.original);
     }
-    return error.original;
+    UniValue obj(UniValue::VOBJ);
+    obj.pushKV("error", error.original);
+    return obj;
 },
     };
 }
