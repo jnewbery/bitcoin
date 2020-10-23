@@ -837,8 +837,8 @@ void PeerManager::ReattemptInitialBroadcast(CScheduler& scheduler) const
     scheduler.scheduleFromNow([&] { ReattemptInitialBroadcast(scheduler); }, delta);
 }
 
-void PeerManager::FinalizeNode(NodeId nodeid, bool& fUpdateConnectionTime) {
-    fUpdateConnectionTime = false;
+void PeerManager::FinalizeNode(const CNode& node) {
+    const NodeId nodeid = node.GetId();
     LOCK(cs_main);
     int misbehavior{0};
     {
@@ -855,7 +855,7 @@ void PeerManager::FinalizeNode(NodeId nodeid, bool& fUpdateConnectionTime) {
         nSyncStarted--;
 
     if (misbehavior == 0 && state->fCurrentlyConnected) {
-        fUpdateConnectionTime = true;
+        m_addrman.Connected(node.addr);
     }
 
     for (const QueuedBlock& entry : state->vBlocksInFlight) {
