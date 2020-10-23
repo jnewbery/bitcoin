@@ -2598,7 +2598,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
             if (fReachable)
                 vAddrOk.push_back(addr);
         }
-        m_connman.AddNewAddresses(vAddrOk, pfrom.addr, 2 * 60 * 60);
+        m_addrman.Add(vAddrOk, pfrom.addr, 2 * 60 * 60);
         if (vAddr.size() < 1000)
             pfrom.fGetAddr = false;
         if (pfrom.IsAddrFetchConn())
