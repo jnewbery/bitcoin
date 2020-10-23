@@ -1158,10 +1158,11 @@ static bool BlockRequestAllowed(const CBlockIndex* pindex, const Consensus::Para
         (GetBlockProofEquivalentTime(*pindexBestHeader, *pindex, *pindexBestHeader, consensusParams) < STALE_RELAY_AGE_LIMIT);
 }
 
-PeerManager::PeerManager(const CChainParams& chainparams, CConnman& connman, BanMan* banman,
+PeerManager::PeerManager(const CChainParams& chainparams, CConnman& connman, CAddrMan& addrman, BanMan* banman,
                          CScheduler& scheduler, ChainstateManager& chainman, CTxMemPool& pool)
     : m_chainparams(chainparams),
       m_connman(connman),
+      m_addrman(addrman),
       m_banman(banman),
       m_chainman(chainman),
       m_mempool(pool),

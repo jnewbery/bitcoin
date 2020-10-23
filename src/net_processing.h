@@ -14,6 +14,7 @@
 
 class BlockTransactionsRequest;
 class BlockValidationState;
+class CAddrMan;
 class CBlockHeader;
 class CChainParams;
 class CTxMemPool;
@@ -34,7 +35,7 @@ static const int DISCOURAGEMENT_THRESHOLD{100};
 
 class PeerManager final : public CValidationInterface, public NetEventsInterface {
 public:
-    PeerManager(const CChainParams& chainparams, CConnman& connman, BanMan* banman,
+    PeerManager(const CChainParams& chainparams, CConnman& connman, CAddrMan& addrman, BanMan* banman,
                 CScheduler& scheduler, ChainstateManager& chainman, CTxMemPool& pool);
 
     /**
@@ -136,6 +137,7 @@ private:
 
     const CChainParams& m_chainparams;
     CConnman& m_connman;
+    CAddrMan& m_addrman;
     /** Pointer to this node's banman. May be nullptr - check existence before dereferencing. */
     BanMan* const m_banman;
     ChainstateManager& m_chainman;
