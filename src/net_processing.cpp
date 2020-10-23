@@ -837,9 +837,8 @@ void PeerManager::ReattemptInitialBroadcast(CScheduler& scheduler) const
     scheduler.scheduleFromNow([&] { ReattemptInitialBroadcast(scheduler); }, delta);
 }
 
-void PeerManager::FinalizeNode(const CNode& node, bool& fUpdateConnectionTime) {
-    NodeId nodeid = node.GetId();
-    fUpdateConnectionTime = false;
+void PeerManager::FinalizeNode(const CNode& node) {
+    const NodeId nodeid = node.GetId();
     LOCK(cs_main);
     int misbehavior{0};
     {
@@ -857,7 +856,7 @@ void PeerManager::FinalizeNode(const CNode& node, bool& fUpdateConnectionTime) {
 
     if (misbehavior == 0 && state->fCurrentlyConnected && !node.IsBlockOnlyConn()) {
         // Note: we avoid changing visible addrman state for block-relay-only peers
-        fUpdateConnectionTime = true;
+        m_addrman.Connected(node.addr);
     }
 
     for (const QueuedBlock& entry : state->vBlocksInFlight) {
