@@ -4,6 +4,7 @@
 
 #include <test/util/setup_common.h>
 
+#include <addrman.h>
 #include <banman.h>
 #include <chainparams.h>
 #include <consensus/consensus.h>
@@ -144,6 +145,8 @@ TestingSetup::TestingSetup(const std::string& chainName, const std::vector<const
     m_node.mempool = MakeUnique<CTxMemPool>(&::feeEstimator);
     m_node.mempool->setSanityCheck(1.0);
 
+    m_node.addrman = MakeUnique<CAddrMan>();
+
     m_node.chainman = &::g_chainman;
     m_node.chainman->InitializeChainstate(*m_node.mempool);
     ::ChainstateActive().InitCoinsDB(
@@ -168,7 +171,7 @@ TestingSetup::TestingSetup(const std::string& chainName, const std::vector<const
     g_parallel_script_checks = true;
 
     m_node.banman = MakeUnique<BanMan>(GetDataDir() / "banlist.dat", nullptr, DEFAULT_MISBEHAVING_BANTIME);
-    m_node.connman = MakeUnique<CConnman>(0x1337, 0x1337); // Deterministic randomness for tests.
+    m_node.connman = MakeUnique<CConnman>(0x1337, 0x1337, *m_node.addrman); // Deterministic randomness for tests.
     m_node.peerman = MakeUnique<PeerManager>(chainparams, *m_node.connman, m_node.banman.get(), *m_node.scheduler, *m_node.chainman, *m_node.mempool);
     {
         CConnman::Options options;
