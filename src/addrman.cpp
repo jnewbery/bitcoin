@@ -9,6 +9,18 @@
 #include <logging.h>
 #include <serialize.h>
 
+namespace {
+
+//! Serialization versions.
+enum class Format : uint8_t {
+    V0_HISTORICAL = 0,    //!< historic format, before commit e6b343d88
+    V1_DETERMINISTIC = 1, //!< for pre-asmap files
+    V2_ASMAP = 2,         //!< for files including asmap version
+    V3_BIP155 = 3,        //!< same as V2_ASMAP plus addresses are in BIP155 format
+};
+
+} // unnamed namespace
+
 int CAddrInfo::GetTriedBucket(const uint256& nKey, const std::vector<bool> &asmap) const
 {
     uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << GetKey()).GetCheapHash();

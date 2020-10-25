@@ -1,110 +1,146 @@
-// Copyright (c) 2012 Pieter Wuille
 // Copyright (c) 2012-2020 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef BITCOIN_ADDRMAN_H
-#define BITCOIN_ADDRMAN_H
+#ifndef BITCOIN_ADDRMAN_IMPL_H
+#define BITCOIN_ADDRMAN_IMPL_H
 
-#include <clientversion.h>
-#include <netaddress.h>
-#include <protocol.h>
-#include <random.h>
-#include <sync.h>
-#include <timedata.h>
-#include <tinyformat.h>
-#include <util/system.h>
+namespace {
 
-#include <fs.h>
-#include <hash.h>
-#include <iostream>
-#include <map>
-#include <set>
-#include <stdint.h>
-#include <streams.h>
-#include <vector>
+//! Serialization versions.
+enum class Format : uint8_t {
+    V0_HISTORICAL = 0,    //!< historic format, before commit e6b343d88
+    V1_DETERMINISTIC = 1, //!< for pre-asmap files
+    V2_ASMAP = 2,         //!< for files including asmap version
+    V3_BIP155 = 3,        //!< same as V2_ASMAP plus addresses are in BIP155 format
+};
 
-/** Stochastic address manager
- *
- * Design goals:
- *  * Keep the address tables in-memory, and asynchronously dump the entire table to peers.dat.
- *  * Make sure no (localized) attacker can fill the entire table with his nodes/addresses.
- *
- * To that end:
- *  * Addresses are organized into buckets.
- *    * Addresses that have not yet been tried go into 1024 "new" buckets.
- *      * Based on the address range (/16 for IPv4) of the source of information, 64 buckets are selected at random.
- *      * The actual bucket is chosen from one of these, based on the range in which the address itself is located.
- *      * One single address can occur in up to 8 different buckets to increase selection chances for addresses that
- *        are seen frequently. The chance for increasing this multiplicity decreases exponentially.
- *      * When adding a new address to a full bucket, a randomly chosen entry (with a bias favoring less recently seen
- *        ones) is removed from it first.
- *    * Addresses of nodes that are known to be accessible go into 256 "tried" buckets.
- *      * Each address range selects at random 8 of these buckets.
- *      * The actual bucket is chosen from one of these, based on the full address.
- *      * When adding a new good address to a full bucket, a randomly chosen entry (with a bias favoring less recently
- *        tried ones) is evicted from it, back to the "new" buckets.
- *    * Bucket selection is based on cryptographic hashing, using a randomly-generated 256-bit key, which should not
- *      be observable by adversaries.
- *    * Several indexes are kept for high performance. Setting m_consistency_check will introduce frequent (and expensive)
- *      consistency checks for the entire data structure.
- */
+} // unnamed namespace
 
-//! total number of buckets for tried addresses
-#define ADDRMAN_TRIED_BUCKET_COUNT_LOG2 8
-
-//! total number of buckets for new addresses
-#define ADDRMAN_NEW_BUCKET_COUNT_LOG2 10
-
-//! maximum allowed number of entries in buckets for new and tried addresses
-#define ADDRMAN_BUCKET_SIZE_LOG2 6
-
-//! over how many buckets entries with tried addresses from a single group (/16 for IPv4) are spread
-#define ADDRMAN_TRIED_BUCKETS_PER_GROUP 8
-
-//! over how many buckets entries with new addresses originating from a single group are spread
-#define ADDRMAN_NEW_BUCKETS_PER_SOURCE_GROUP 64
-
-//! in how many buckets for entries with new addresses a single address may occur
-#define ADDRMAN_NEW_BUCKETS_PER_ADDRESS 8
-
-//! how old addresses can maximally be
-#define ADDRMAN_HORIZON_DAYS 30
-
-//! after how many failed attempts we give up on a new node
-#define ADDRMAN_RETRIES 3
-
-//! how many successive failures are allowed ...
-#define ADDRMAN_MAX_FAILURES 10
-
-//! ... in at least this many days
-#define ADDRMAN_MIN_FAIL_DAYS 7
-
-//! how recent a successful connection should be before we allow an address to be evicted from tried
-#define ADDRMAN_REPLACEMENT_HOURS 4
-
-//! Convenience
-#define ADDRMAN_TRIED_BUCKET_COUNT (1 << ADDRMAN_TRIED_BUCKET_COUNT_LOG2)
-#define ADDRMAN_NEW_BUCKET_COUNT (1 << ADDRMAN_NEW_BUCKET_COUNT_LOG2)
-#define ADDRMAN_BUCKET_SIZE (1 << ADDRMAN_BUCKET_SIZE_LOG2)
-
-//! the maximum number of tried addr collisions to store
-#define ADDRMAN_SET_TRIED_COLLISION_SIZE 10
-
-//! the maximum time we'll spend trying to resolve a tried table collision, in seconds
-static const int64_t ADDRMAN_TEST_WINDOW = 40*60; // 40 minutes
-
-/**
- * Stochastical (IP) address manager
- */
-class CAddrMan
+/** Extended statistics about a CAddress */
+class CAddrInfo : public CAddress
 {
-friend class CAddrManTest;
-protected:
+public:
+    //! last try whatsoever by us (memory only)
+    int64_t nLastTry{0};
+
+    //! last counted attempt (memory only)
+    int64_t nLastCountAttempt{0};
+
+    //! where knowledge about this address first came from
+    CNetAddr source;
+
+    //! last successful connection by us
+    int64_t nLastSuccess{0};
+
+    //! connection attempts since last successful attempt
+    int nAttempts{0};
+
+    //! reference count in new sets (memory only)
+    int nRefCount{0};
+
+    //! in tried set? (memory only)
+    bool fInTried{false};
+
+    //! position in vRandom
+    int nRandomPos{-1};
+
+    friend class CAddrMan;
+
+    SERIALIZE_METHODS(CAddrInfo, obj)
+    {
+        READWRITEAS(CAddress, obj);
+        READWRITE(obj.source, obj.nLastSuccess, obj.nAttempts);
+    }
+
+    CAddrInfo(const CAddress &addrIn, const CNetAddr &addrSource) : CAddress(addrIn), source(addrSource)
+    {
+    }
+
+    CAddrInfo() : CAddress(), source()
+    {
+    }
+
+    //! Calculate in which "tried" bucket this entry belongs
+    int GetTriedBucket(const uint256 &nKey, const std::vector<bool> &asmap) const
+    {
+        uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << GetKey()).GetCheapHash();
+        uint64_t hash2 = (CHashWriter(SER_GETHASH, 0) << nKey << GetGroup(asmap) << (hash1 % ADDRMAN_TRIED_BUCKETS_PER_GROUP)).GetCheapHash();
+        int tried_bucket = hash2 % ADDRMAN_TRIED_BUCKET_COUNT;
+        uint32_t mapped_as = GetMappedAS(asmap);
+        LogPrint(BCLog::NET, "IP %s mapped to AS%i belongs to tried bucket %i\n", ToStringIP(), mapped_as, tried_bucket);
+        return tried_bucket;
+    }
+
+    //! Calculate in which "new" bucket this entry belongs, given a certain source
+    int GetNewBucket(const uint256 &nKey, const CNetAddr& src, const std::vector<bool> &asmap) const
+    {
+        std::vector<unsigned char> vchSourceGroupKey = src.GetGroup(asmap);
+        uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << GetGroup(asmap) << vchSourceGroupKey).GetCheapHash();
+        uint64_t hash2 = (CHashWriter(SER_GETHASH, 0) << nKey << vchSourceGroupKey << (hash1 % ADDRMAN_NEW_BUCKETS_PER_SOURCE_GROUP)).GetCheapHash();
+        int new_bucket = hash2 % ADDRMAN_NEW_BUCKET_COUNT;
+        uint32_t mapped_as = GetMappedAS(asmap);
+        LogPrint(BCLog::NET, "IP %s mapped to AS%i belongs to new bucket %i\n", ToStringIP(), mapped_as, new_bucket);
+        return new_bucket;
+    }
+
+    //! Calculate in which "new" bucket this entry belongs, using its default source
+    int GetNewBucket(const uint256 &nKey, const std::vector<bool> &asmap) const
+    {
+        return GetNewBucket(nKey, source, asmap);
+    }
+
+    //! Calculate in which position of a bucket to store this entry.
+    int GetBucketPosition(const uint256 &nKey, bool fNew, int nBucket) const
+    {
+        uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << (fNew ? 'N' : 'K') << nBucket << GetKey()).GetCheapHash();
+        return hash1 % ADDRMAN_BUCKET_SIZE;
+    }
+
+    //! Determine whether the statistics about this entry are bad enough so that it can just be deleted
+    bool IsTerrible(int64_t nNow = GetAdjustedTime()) const
+    {
+        if (nLastTry && nLastTry >= nNow - 60) // never remove things tried in the last minute
+            return false;
+
+        if (nTime > nNow + 10 * 60) // came in a flying DeLorean
+            return true;
+
+        if (nTime == 0 || nNow - nTime > ADDRMAN_HORIZON_DAYS * 24 * 60 * 60) // not seen in recent history
+            return true;
+
+        if (nLastSuccess == 0 && nAttempts >= ADDRMAN_RETRIES) // tried N times and never a success
+            return true;
+
+        if (nNow - nLastSuccess > ADDRMAN_MIN_FAIL_DAYS * 24 * 60 * 60 && nAttempts >= ADDRMAN_MAX_FAILURES) // N successive failures in the last week
+            return true;
+
+        return false;
+    }
+
+    //! Calculate the relative chance this entry should be given when selecting nodes to connect to
+    double GetChance(int64_t nNow = GetAdjustedTime()) const
+    {
+        double fChance = 1.0;
+        int64_t nSinceLastTry = std::max<int64_t>(nNow - nLastTry, 0);
+
+        // deprioritize very recent attempts away
+        if (nSinceLastTry < 60 * 10)
+            fChance *= 0.01;
+
+        // deprioritize 66% after each failed attempt, but at most 1/28th to avoid the search taking forever or overly penalizing outages.
+        fChance *= pow(0.66, std::min(nAttempts, 8));
+
+        return fChance;
+    }
+};
+
+class AddrManImpl
+{
+public:
     //! critical section to protect the inner data structures
     mutable RecursiveMutex cs;
 
-private:
     //! last used nId
     int nIdCount GUARDED_BY(cs);
 
@@ -138,7 +174,6 @@ private:
     /** Whether to perform sanity checks before and after each operation. */
     const bool m_consistency_check{false};
 
-protected:
     //! secret key to randomize bucket select with
     uint256 nKey;
 
@@ -195,23 +230,6 @@ protected:
     void SetServices_(const CService &addr, ServiceFlags nServices) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
 public:
-
-    // Compressed IP->ASN mapping, loaded from a file when a node starts.
-    // Should be always empty if no file was provided.
-    // This mapping is then used for bucketing nodes in Addrman.
-    //
-    // If asmap is provided, nodes will be bucketed by
-    // AS they belong to, in order to make impossible for a node
-    // to connect to several nodes hosted in a single AS.
-    // This is done in response to Erebus attack, but also to generally
-    // diversify the connections every node creates,
-    // especially useful when a large fraction of nodes
-    // operate under a couple of cloud providers.
-    //
-    // If a new asmap was provided, the existing records
-    // would be re-bucketed accordingly.
-    std::vector<bool> m_asmap;
-
     // Read asmap from provided binary file
     static std::vector<bool> DecodeAsmap(fs::path path);
 
@@ -221,12 +239,12 @@ public:
     template <typename Stream>
     void Unserialize(Stream& s_);
 
-    CAddrMan(bool deterministic=false, bool consistency_check=false) : m_consistency_check(consistency_check)
+    AddrManImpl(bool deterministic=false, bool consistency_check=false) : m_consistency_check(consistency_check)
     {
         Clear(deterministic);
     }
 
-    ~CAddrMan()
+    ~AddrManImpl()
     {
         nKey.SetNull();
     }
@@ -350,3 +368,4 @@ public:
 };
 
 #endif // BITCOIN_ADDRMAN_H
+#endif // BITCOIN_ADDRMAN_IMPL_H
