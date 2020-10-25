@@ -526,11 +526,16 @@ public:
         ConsistencyCheck();
     }
 
-    void Clear()
+    void Clear(bool deterministic=false)
     {
         LOCK(cs);
         std::vector<int>().swap(vRandom);
-        nKey = insecure_rand.rand256();
+        if (!deterministic) {
+            nKey = insecure_rand.rand256();
+        } else {
+            nKey.SetNull();
+            insecure_rand = FastRandomContext(true);
+        }
         for (size_t bucket = 0; bucket < ADDRMAN_NEW_BUCKET_COUNT; bucket++) {
             for (size_t entry = 0; entry < ADDRMAN_BUCKET_SIZE; entry++) {
                 vvNew[bucket][entry] = -1;
@@ -550,9 +555,9 @@ public:
         mapAddr.clear();
     }
 
-    CAddrMan(bool consistency_check=false) : m_consistency_check(consistency_check)
+    CAddrMan(bool deterministic=false, bool consistency_check=false) : m_consistency_check(consistency_check)
     {
-        Clear();
+        Clear(deterministic);
     }
 
     ~CAddrMan()

@@ -21,21 +21,9 @@ private:
 public:
     explicit CAddrManTest(bool makeDeterministic = true,
         std::vector<bool> asmap = std::vector<bool>())
-        : CAddrMan(true)
+        : CAddrMan(makeDeterministic, true), deterministic(makeDeterministic)
     {
-        if (makeDeterministic) {
-            //  Set addrman addr placement to be deterministic.
-            MakeDeterministic();
-        }
-        deterministic = makeDeterministic;
         m_asmap = asmap;
-    }
-
-    //! Ensure that bucket placement is always the same for testing purposes.
-    void MakeDeterministic()
-    {
-        nKey.SetNull();
-        insecure_rand = FastRandomContext(true);
     }
 
     CAddrInfo* Find(const CNetAddr& addr, int* pnId = nullptr)
@@ -85,11 +73,7 @@ public:
 
     void Clear()
     {
-        CAddrMan::Clear();
-        if (deterministic) {
-            nKey.SetNull();
-            insecure_rand = FastRandomContext(true);
-        }
+        CAddrMan::Clear(true);
     }
 
 };
