@@ -401,7 +401,7 @@ CAddrInfo CAddrMan::Select_(bool newOnly)
     }
 }
 
-void CAddrMan::Check_()
+void CAddrMan::ConsistencyCheck()
 {
     std::set<int> setTried;
     std::map<int, int> mapNew;

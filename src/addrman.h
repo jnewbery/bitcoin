@@ -254,7 +254,7 @@ protected:
     CAddrInfo SelectTriedCollision_() EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Perform internal consistency check. Asserts if any invariant fails.
-    void Check_() EXCLUSIVE_LOCKS_REQUIRED(cs);
+    void ConsistencyCheck() EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Select several addresses at once.
     void GetAddr_(std::vector<CAddress> &vAddr, size_t max_addresses, size_t max_pct) EXCLUSIVE_LOCKS_REQUIRED(cs);
@@ -523,7 +523,7 @@ public:
             LogPrint(BCLog::ADDRMAN, "addrman lost %i new and %i tried addresses due to collisions\n", nLostUnk, nLost);
         }
 
-        Check();
+        ConsistencyCheck();
     }
 
     void Clear()
@@ -567,26 +567,16 @@ public:
         return vRandom.size();
     }
 
-    //! Consistency check
-    void Check()
-    {
-        if (!m_consistency_check) return;
-
-        LOCK(cs);
-        Check_();
-    }
-
     //! Add a single address.
     bool Add(const CAddress &addr, const CNetAddr& source, int64_t nTimePenalty = 0)
     {
         LOCK(cs);
-        bool fRet = false;
-        Check();
-        fRet |= Add_(addr, source, nTimePenalty);
-        Check();
+        if (m_consistency_check) ConsistencyCheck();
+        bool fRet = Add_(addr, source, nTimePenalty);
         if (fRet) {
             LogPrint(BCLog::ADDRMAN, "Added %s from %s: %i tried, %i new\n", addr.ToStringIPPort(), source.ToString(), nTried, nNew);
         }
+        if (m_consistency_check) ConsistencyCheck();
         return fRet;
     }
 
@@ -594,14 +584,15 @@ public:
     bool Add(const std::vector<CAddress> &vAddr, const CNetAddr& source, int64_t nTimePenalty = 0)
     {
         LOCK(cs);
+        if (m_consistency_check) ConsistencyCheck();
         int nAdd = 0;
-        Check();
-        for (std::vector<CAddress>::const_iterator it = vAddr.begin(); it != vAddr.end(); it++)
+        for (std::vector<CAddress>::const_iterator it = vAddr.begin(); it != vAddr.end(); it++) {
             nAdd += Add_(*it, source, nTimePenalty) ? 1 : 0;
-        Check();
+        }
         if (nAdd) {
             LogPrint(BCLog::ADDRMAN, "Added %i addresses from %s: %i tried, %i new\n", nAdd, source.ToString(), nTried, nNew);
         }
+        if (m_consistency_check) ConsistencyCheck();
         return nAdd > 0;
     }
 
@@ -609,39 +600,36 @@ public:
     void Good(const CService &addr, bool test_before_evict = true, int64_t nTime = GetAdjustedTime())
     {
         LOCK(cs);
-        Check();
+        if (m_consistency_check) ConsistencyCheck();
         Good_(addr, test_before_evict, nTime);
-        Check();
+        if (m_consistency_check) ConsistencyCheck();
     }
 
     //! Mark an entry as connection attempted to.
     void Attempt(const CService &addr, bool fCountFailure, int64_t nTime = GetAdjustedTime())
     {
         LOCK(cs);
-        Check();
+        if (m_consistency_check) ConsistencyCheck();
         Attempt_(addr, fCountFailure, nTime);
-        Check();
+        if (m_consistency_check) ConsistencyCheck();
     }
 
     //! See if any to-be-evicted tried table entries have been tested and if so resolve the collisions.
     void ResolveCollisions()
     {
         LOCK(cs);
-        Check();
+        if (m_consistency_check) ConsistencyCheck();
         ResolveCollisions_();
-        Check();
+        if (m_consistency_check) ConsistencyCheck();
     }
 
     //! Randomly select an address in tried that another address is attempting to evict.
     CAddrInfo SelectTriedCollision()
     {
-        CAddrInfo ret;
-        {
-            LOCK(cs);
-            Check();
-            ret = SelectTriedCollision_();
-            Check();
-        }
+        LOCK(cs);
+        if (m_consistency_check) ConsistencyCheck();
+        CAddrInfo ret = SelectTriedCollision_();
+        if (m_consistency_check) ConsistencyCheck();
         return ret;
     }
 
@@ -650,26 +638,21 @@ public:
      */
     CAddrInfo Select(bool newOnly = false)
     {
-        CAddrInfo addrRet;
-        {
-            LOCK(cs);
-            Check();
-            addrRet = Select_(newOnly);
-            Check();
-        }
+        LOCK(cs);
+        if (m_consistency_check) ConsistencyCheck();
+        CAddrInfo addrRet = Select_(newOnly);
+        if (m_consistency_check) ConsistencyCheck();
         return addrRet;
     }
 
     //! Return a bunch of addresses, selected at random.
     std::vector<CAddress> GetAddr(size_t max_addresses, size_t max_pct)
     {
-        Check();
+        LOCK(cs);
+        if (m_consistency_check) ConsistencyCheck();
         std::vector<CAddress> vAddr;
-        {
-            LOCK(cs);
-            GetAddr_(vAddr, max_addresses, max_pct);
-        }
-        Check();
+        GetAddr_(vAddr, max_addresses, max_pct);
+        if (m_consistency_check) ConsistencyCheck();
         return vAddr;
     }
 
@@ -677,17 +660,17 @@ public:
     void Connected(const CService &addr, int64_t nTime = GetAdjustedTime())
     {
         LOCK(cs);
-        Check();
+        if (m_consistency_check) ConsistencyCheck();
         Connected_(addr, nTime);
-        Check();
+        if (m_consistency_check) ConsistencyCheck();
     }
 
     void SetServices(const CService &addr, ServiceFlags nServices)
     {
         LOCK(cs);
-        Check();
+        if (m_consistency_check) ConsistencyCheck();
         SetServices_(addr, nServices);
-        Check();
+        if (m_consistency_check) ConsistencyCheck();
     }
 
 };
