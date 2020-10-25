@@ -472,8 +472,6 @@ int CAddrMan::Check_()
         return -13;
     if (mapNew.size())
         return -15;
-    if (nKey.IsNull())
-        return -16;
 
     return 0;
 }
