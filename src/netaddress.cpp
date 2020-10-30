@@ -667,9 +667,9 @@ Network CNetAddr::GetNetClass() const
     return m_net;
 }
 
-uint32_t CNetAddr::GetMappedAS(const std::vector<bool> &asmap) const {
+uint32_t CNetAddr::GetMappedAS(const std::vector<bool>& asmap) const {
     uint32_t net_class = GetNetClass();
-    if (asmap.size() == 0 || (net_class != NET_IPV4 && net_class != NET_IPV6)) {
+    if (asmap.empty() || (net_class != NET_IPV4 && net_class != NET_IPV6)) {
         return 0; // Indicates not found, safe because AS0 is reserved per RFC7607.
     }
     std::vector<bool> ip_bits(128);
@@ -708,7 +708,7 @@ uint32_t CNetAddr::GetMappedAS(const std::vector<bool> &asmap) const {
  * @note No two connections will be attempted to addresses with the same network
  *       group.
  */
-std::vector<unsigned char> CNetAddr::GetGroup(const std::vector<bool> &asmap) const
+std::vector<unsigned char> CNetAddr::GetGroup(const std::vector<bool>& asmap) const
 {
     std::vector<unsigned char> vchRet;
     uint32_t net_class = GetNetClass();

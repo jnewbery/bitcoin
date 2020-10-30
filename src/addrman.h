@@ -7,21 +7,21 @@
 #define BITCOIN_ADDRMAN_H
 
 #include <clientversion.h>
+#include <fs.h>
+#include <hash.h>
 #include <netaddress.h>
 #include <protocol.h>
 #include <random.h>
+#include <streams.h>
 #include <sync.h>
 #include <timedata.h>
 #include <tinyformat.h>
 #include <util/system.h>
 
-#include <fs.h>
-#include <hash.h>
+#include <cstdint>
 #include <iostream>
 #include <map>
 #include <set>
-#include <stdint.h>
-#include <streams.h>
 #include <vector>
 
 /**
@@ -74,13 +74,13 @@ public:
     }
 
     //! Calculate in which "tried" bucket this entry belongs
-    int GetTriedBucket(const uint256 &nKey, const std::vector<bool> &asmap) const;
+    int GetTriedBucket(const uint256& nKey, const std::vector<bool>& asmap) const;
 
     //! Calculate in which "new" bucket this entry belongs, given a certain source
-    int GetNewBucket(const uint256 &nKey, const CNetAddr& src, const std::vector<bool> &asmap) const;
+    int GetNewBucket(const uint256& nKey, const CNetAddr& src, const std::vector<bool>& asmap) const;
 
     //! Calculate in which "new" bucket this entry belongs, using its default source
-    int GetNewBucket(const uint256 &nKey, const std::vector<bool> &asmap) const
+    int GetNewBucket(const uint256& nKey, const std::vector<bool>& asmap) const
     {
         return GetNewBucket(nKey, source, asmap);
     }
@@ -289,10 +289,6 @@ public:
     // would be re-bucketed accordingly.
     std::vector<bool> m_asmap;
 
-    // Read asmap from provided binary file
-    static std::vector<bool> DecodeAsmap(fs::path path);
-
-
     /**
      * Serialized format.
      * * version byte (@see `Format`)
@@ -376,7 +372,7 @@ public:
         // Store asmap version after bucket entries so that it
         // can be ignored by older clients for backward compatibility.
         uint256 asmap_version;
-        if (m_asmap.size() != 0) {
+        if (!m_asmap.empty()) {
             asmap_version = SerializeHash(m_asmap);
         }
         s << asmap_version;
@@ -477,7 +473,7 @@ public:
         }
 
         uint256 supplied_asmap_version;
-        if (m_asmap.size() != 0) {
+        if (!m_asmap.empty()) {
             supplied_asmap_version = SerializeHash(m_asmap);
         }
         uint256 serialized_asmap_version;
@@ -694,5 +690,8 @@ public:
     }
 
 };
+
+//! Read asmap from provided binary file
+std::vector<bool> DecodeAsmap(fs::path path);
 
 #endif // BITCOIN_ADDRMAN_H

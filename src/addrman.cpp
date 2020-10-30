@@ -9,7 +9,7 @@
 #include <logging.h>
 #include <serialize.h>
 
-int CAddrInfo::GetTriedBucket(const uint256& nKey, const std::vector<bool> &asmap) const
+int CAddrInfo::GetTriedBucket(const uint256& nKey, const std::vector<bool>& asmap) const
 {
     uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << GetKey()).GetCheapHash();
     uint64_t hash2 = (CHashWriter(SER_GETHASH, 0) << nKey << GetGroup(asmap) << (hash1 % ADDRMAN_TRIED_BUCKETS_PER_GROUP)).GetCheapHash();
@@ -19,7 +19,7 @@ int CAddrInfo::GetTriedBucket(const uint256& nKey, const std::vector<bool> &asma
     return tried_bucket;
 }
 
-int CAddrInfo::GetNewBucket(const uint256& nKey, const CNetAddr& src, const std::vector<bool> &asmap) const
+int CAddrInfo::GetNewBucket(const uint256& nKey, const CNetAddr& src, const std::vector<bool>& asmap) const
 {
     std::vector<unsigned char> vchSourceGroupKey = src.GetGroup(asmap);
     uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << GetGroup(asmap) << vchSourceGroupKey).GetCheapHash();
@@ -628,7 +628,7 @@ CAddrInfo CAddrMan::SelectTriedCollision_()
     return mapInfo[id_old];
 }
 
-std::vector<bool> CAddrMan::DecodeAsmap(fs::path path)
+std::vector<bool> DecodeAsmap(fs::path path)
 {
     std::vector<bool> bits;
     FILE *filestr = fsbridge::fopen(path, "rb");

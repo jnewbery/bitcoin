@@ -5,10 +5,10 @@
 #ifndef BITCOIN_UTIL_ASMAP_H
 #define BITCOIN_UTIL_ASMAP_H
 
-#include <stdint.h>
+#include <cstdint>
 #include <vector>
 
-uint32_t Interpret(const std::vector<bool> &asmap, const std::vector<bool> &ip);
+uint32_t Interpret(const std::vector<bool>& asmap, const std::vector<bool>& ip);
 
 bool SanityCheckASMap(const std::vector<bool>& asmap, int bits);
 

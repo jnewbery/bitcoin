@@ -2,13 +2,13 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 #include <addrman.h>
+#include <hash.h>
+#include <netbase.h>
+#include <random.h>
 #include <test/data/asmap.raw.h>
 #include <test/util/setup_common.h>
 #include <util/asmap.h>
 #include <util/string.h>
-#include <hash.h>
-#include <netbase.h>
-#include <random.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -17,24 +17,18 @@
 class CAddrManTest : public CAddrMan
 {
 private:
-    bool deterministic;
+    bool m_deterministic;
 public:
-    explicit CAddrManTest(bool makeDeterministic = true,
+    explicit CAddrManTest(bool deterministic = true,
         std::vector<bool> asmap = std::vector<bool>())
+        : m_deterministic(deterministic)
     {
-        if (makeDeterministic) {
-            //  Set addrman addr placement to be deterministic.
-            MakeDeterministic();
+        if (deterministic) {
+            // Ensure that bucket placement is always the same for testing purposes.
+            nKey.SetNull();
+            insecure_rand = FastRandomContext(true);
         }
-        deterministic = makeDeterministic;
         m_asmap = asmap;
-    }
-
-    //! Ensure that bucket placement is always the same for testing purposes.
-    void MakeDeterministic()
-    {
-        nKey.SetNull();
-        insecure_rand = FastRandomContext(true);
     }
 
     CAddrInfo* Find(const CNetAddr& addr, int* pnId = nullptr)
@@ -85,7 +79,7 @@ public:
     void Clear()
     {
         CAddrMan::Clear();
-        if (deterministic) {
+        if (m_deterministic) {
             nKey.SetNull();
             insecure_rand = FastRandomContext(true);
         }

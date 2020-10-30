@@ -59,7 +59,6 @@
 #include <util/threadnames.h>
 #include <util/translation.h>
 #include <validation.h>
-
 #include <validationinterface.h>
 #include <walletinitinterface.h>
 
@@ -1511,8 +1510,8 @@ bool AppInitMain(const util::Ref& context, NodeContext& node, interfaces::BlockA
             InitError(strprintf(_("Could not find asmap file %s"), asmap_path));
             return false;
         }
-        std::vector<bool> asmap = CAddrMan::DecodeAsmap(asmap_path);
-        if (asmap.size() == 0) {
+        std::vector<bool> asmap = DecodeAsmap(asmap_path);
+        if (asmap.empty()) {
             InitError(strprintf(_("Could not parse asmap file %s"), asmap_path));
             return false;
         }

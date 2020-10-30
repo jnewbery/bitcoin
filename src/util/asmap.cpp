@@ -2,10 +2,11 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <map>
-#include <vector>
 #include <assert.h>
 #include <crypto/common.h>
+
+#include <map>
+#include <vector>
 
 namespace {
 
@@ -73,7 +74,7 @@ uint32_t DecodeJump(std::vector<bool>::const_iterator& bitpos, const std::vector
     return DecodeBits(bitpos, endpos, 17, JUMP_BIT_SIZES);
 }
 
-}
+} // unnamed namespace
 
 uint32_t Interpret(const std::vector<bool> &asmap, const std::vector<bool> &ip)
 {
