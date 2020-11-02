@@ -71,6 +71,8 @@ double CAddrInfo::GetChance(int64_t nNow) const
     return fChance;
 }
 
+constexpr CAddrMan::Format CAddrMan::FILE_FORMAT;
+
 CAddrInfo* CAddrMan::Find(const CNetAddr& addr, int* pnId)
 {
     std::map<CNetAddr, int>::iterator it = mapAddr.find(addr);
