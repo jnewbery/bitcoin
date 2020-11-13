@@ -9,33 +9,6 @@
 #include <logging.h>
 #include <serialize.h>
 
-int CAddrInfo::GetTriedBucket(const uint256& nKey, const std::vector<bool>& asmap) const
-{
-    uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << GetKey()).GetCheapHash();
-    uint64_t hash2 = (CHashWriter(SER_GETHASH, 0) << nKey << GetGroup(asmap) << (hash1 % ADDRMAN_TRIED_BUCKETS_PER_GROUP)).GetCheapHash();
-    int tried_bucket = hash2 % ADDRMAN_TRIED_BUCKET_COUNT;
-    uint32_t mapped_as = GetMappedAS(asmap);
-    LogPrint(BCLog::NET, "IP %s mapped to AS%i belongs to tried bucket %i\n", ToStringIP(), mapped_as, tried_bucket);
-    return tried_bucket;
-}
-
-int CAddrInfo::GetNewBucket(const uint256& nKey, const CNetAddr& src, const std::vector<bool>& asmap) const
-{
-    std::vector<unsigned char> vchSourceGroupKey = src.GetGroup(asmap);
-    uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << GetGroup(asmap) << vchSourceGroupKey).GetCheapHash();
-    uint64_t hash2 = (CHashWriter(SER_GETHASH, 0) << nKey << vchSourceGroupKey << (hash1 % ADDRMAN_NEW_BUCKETS_PER_SOURCE_GROUP)).GetCheapHash();
-    int new_bucket = hash2 % ADDRMAN_NEW_BUCKET_COUNT;
-    uint32_t mapped_as = GetMappedAS(asmap);
-    LogPrint(BCLog::NET, "IP %s mapped to AS%i belongs to new bucket %i\n", ToStringIP(), mapped_as, new_bucket);
-    return new_bucket;
-}
-
-int CAddrInfo::GetBucketPosition(const uint256 &nKey, bool fNew, int nBucket) const
-{
-    uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << (fNew ? 'N' : 'K') << nBucket << GetKey()).GetCheapHash();
-    return hash1 % ADDRMAN_BUCKET_SIZE;
-}
-
 bool CAddrInfo::IsTerrible(int64_t nNow) const
 {
     if (nLastTry && nLastTry >= nNow - 60) // never remove things tried in the last minute
@@ -149,7 +122,7 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
 {
     // remove the entry from all new buckets
     for (int bucket = 0; bucket < ADDRMAN_NEW_BUCKET_COUNT; bucket++) {
-        int pos = info.GetBucketPosition(nKey, true, bucket);
+        const int pos{GetBucketPosition(info, true, bucket)};
         if (vvNew[bucket][pos] == nId) {
             vvNew[bucket][pos] = -1;
             info.nRefCount--;
@@ -160,8 +133,8 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
     assert(info.nRefCount == 0);
 
     // which tried bucket to move the entry to
-    int nKBucket = info.GetTriedBucket(nKey, m_asmap);
-    int nKBucketPos = info.GetBucketPosition(nKey, false, nKBucket);
+    const int nKBucket{GetTriedBucket(info)};
+    const int nKBucketPos{GetBucketPosition(info, false, nKBucket)};
 
     // first make space to add it (the existing tried entry there is moved to new, deleting whatever is there).
     if (vvTried[nKBucket][nKBucketPos] != -1) {
@@ -176,8 +149,8 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
         nTried--;
 
         // find which new bucket it belongs to
-        int nUBucket = infoOld.GetNewBucket(nKey, m_asmap);
-        int nUBucketPos = infoOld.GetBucketPosition(nKey, true, nUBucket);
+        const int nUBucket{GetNewBucket(infoOld)};
+        const int nUBucketPos{GetBucketPosition(infoOld, true, nUBucket)};
         ClearNew(nUBucket, nUBucketPos);
         assert(vvNew[nUBucket][nUBucketPos] == -1);
 
@@ -227,7 +200,7 @@ void CAddrMan::Good_(const CService& addr, bool test_before_evict, int64_t nTime
     int nUBucket = -1;
     for (unsigned int n = 0; n < ADDRMAN_NEW_BUCKET_COUNT; n++) {
         int nB = (n + nRnd) % ADDRMAN_NEW_BUCKET_COUNT;
-        int nBpos = info.GetBucketPosition(nKey, true, nB);
+        const int nBpos{GetBucketPosition(info, true, nB)};
         if (vvNew[nB][nBpos] == nId) {
             nUBucket = nB;
             break;
@@ -240,8 +213,8 @@ void CAddrMan::Good_(const CService& addr, bool test_before_evict, int64_t nTime
         return;
 
     // which tried bucket to move the entry to
-    int tried_bucket = info.GetTriedBucket(nKey, m_asmap);
-    int tried_bucket_pos = info.GetBucketPosition(nKey, false, tried_bucket);
+    const int tried_bucket{GetTriedBucket(info)};
+    const int tried_bucket_pos{GetBucketPosition(info, false, tried_bucket)};
 
     // Will moving this address into tried evict another entry?
     if (test_before_evict && (vvTried[tried_bucket][tried_bucket_pos] != -1)) {
@@ -308,8 +281,8 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
         fNew = true;
     }
 
-    int nUBucket = pinfo->GetNewBucket(nKey, source, m_asmap);
-    int nUBucketPos = pinfo->GetBucketPosition(nKey, true, nUBucket);
+    const int nUBucket{GetNewBucket(*pinfo)};
+    const int nUBucketPos{GetBucketPosition(*pinfo, true, nUBucket)};
     if (vvNew[nUBucket][nUBucketPos] != nId) {
         bool fInsert = vvNew[nUBucket][nUBucketPos] == -1;
         if (!fInsert) {
@@ -446,9 +419,9 @@ int CAddrMan::Check_()
              if (vvTried[n][i] != -1) {
                  if (!setTried.count(vvTried[n][i]))
                      return -11;
-                 if (mapInfo[vvTried[n][i]].GetTriedBucket(nKey, m_asmap) != n)
+                 if (GetTriedBucket(mapInfo[vvTried[n][i]]) != n)
                      return -17;
-                 if (mapInfo[vvTried[n][i]].GetBucketPosition(nKey, false, n) != i)
+                 if (GetBucketPosition(mapInfo[vvTried[n][i]], false, n) != i)
                      return -18;
                  setTried.erase(vvTried[n][i]);
              }
@@ -460,7 +433,7 @@ int CAddrMan::Check_()
             if (vvNew[n][i] != -1) {
                 if (!mapNew.count(vvNew[n][i]))
                     return -12;
-                if (mapInfo[vvNew[n][i]].GetBucketPosition(nKey, true, n) != i)
+                if (GetBucketPosition(mapInfo[vvNew[n][i]], true, n) != i)
                     return -19;
                 if (--mapNew[vvNew[n][i]] == 0)
                     mapNew.erase(vvNew[n][i]);
@@ -556,8 +529,8 @@ void CAddrMan::ResolveCollisions_()
             CAddrInfo& info_new = mapInfo[id_new];
 
             // Which tried bucket to move the entry to.
-            int tried_bucket = info_new.GetTriedBucket(nKey, m_asmap);
-            int tried_bucket_pos = info_new.GetBucketPosition(nKey, false, tried_bucket);
+            const int tried_bucket{GetTriedBucket(info_new)};
+            const int tried_bucket_pos{GetBucketPosition(info_new, false, tried_bucket)};
             if (!info_new.IsValid()) { // id_new may no longer map to a valid address
                 erase_collision = true;
             } else if (vvTried[tried_bucket][tried_bucket_pos] != -1) { // The position in the tried bucket is not empty
@@ -620,12 +593,39 @@ CAddrInfo CAddrMan::SelectTriedCollision_()
     CAddrInfo& newInfo = mapInfo[id_new];
 
     // which tried bucket to move the entry to
-    int tried_bucket = newInfo.GetTriedBucket(nKey, m_asmap);
-    int tried_bucket_pos = newInfo.GetBucketPosition(nKey, false, tried_bucket);
+    const int tried_bucket{GetTriedBucket(newInfo)};
+    const int tried_bucket_pos{GetBucketPosition(newInfo, false, tried_bucket)};
 
     int id_old = vvTried[tried_bucket][tried_bucket_pos];
 
     return mapInfo[id_old];
+}
+
+int CAddrMan::GetTriedBucket(const CAddrInfo& addr) const
+{
+    uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << addr.GetKey()).GetCheapHash();
+    uint64_t hash2 = (CHashWriter(SER_GETHASH, 0) << nKey << addr.GetGroup(m_asmap) << (hash1 % ADDRMAN_TRIED_BUCKETS_PER_GROUP)).GetCheapHash();
+    int tried_bucket = hash2 % ADDRMAN_TRIED_BUCKET_COUNT;
+    uint32_t mapped_as = addr.GetMappedAS(m_asmap);
+    LogPrint(BCLog::NET, "IP %s mapped to AS%i belongs to tried bucket %i\n", addr.ToStringIP(), mapped_as, tried_bucket);
+    return tried_bucket;
+}
+
+int CAddrMan::GetNewBucket(const CAddrInfo& addr, const CNetAddr& src) const
+{
+    std::vector<unsigned char> vchSourceGroupKey = src.GetGroup(m_asmap);
+    uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << addr.GetGroup(m_asmap) << vchSourceGroupKey).GetCheapHash();
+    uint64_t hash2 = (CHashWriter(SER_GETHASH, 0) << nKey << vchSourceGroupKey << (hash1 % ADDRMAN_NEW_BUCKETS_PER_SOURCE_GROUP)).GetCheapHash();
+    int new_bucket = hash2 % ADDRMAN_NEW_BUCKET_COUNT;
+    uint32_t mapped_as = addr.GetMappedAS(m_asmap);
+    LogPrint(BCLog::NET, "IP %s mapped to AS%i belongs to new bucket %i\n", addr.ToStringIP(), mapped_as, new_bucket);
+    return new_bucket;
+}
+
+int CAddrMan::GetBucketPosition(const CAddrInfo& addr, bool fNew, int nBucket) const
+{
+    uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << (fNew ? 'N' : 'K') << nBucket << addr.GetKey()).GetCheapHash();
+    return hash1 % ADDRMAN_BUCKET_SIZE;
 }
 
 std::vector<bool> DecodeAsmap(fs::path path)

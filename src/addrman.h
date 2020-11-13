@@ -29,6 +29,8 @@
  */
 class CAddrInfo : public CAddress
 {
+    friend class CAddrMan;
+
 public:
     //! last try whatsoever by us (memory only)
     int64_t nLastTry{0};
@@ -36,7 +38,6 @@ public:
     //! last counted attempt (memory only)
     int64_t nLastCountAttempt{0};
 
-private:
     //! where knowledge about this address first came from
     CNetAddr source;
 
@@ -55,10 +56,6 @@ private:
     //! position in vRandom
     int nRandomPos{-1};
 
-    friend class CAddrMan;
-
-public:
-
     SERIALIZE_METHODS(CAddrInfo, obj)
     {
         READWRITEAS(CAddress, obj);
@@ -72,21 +69,6 @@ public:
     CAddrInfo() : CAddress(), source()
     {
     }
-
-    //! Calculate in which "tried" bucket this entry belongs
-    int GetTriedBucket(const uint256& nKey, const std::vector<bool>& asmap) const;
-
-    //! Calculate in which "new" bucket this entry belongs, given a certain source
-    int GetNewBucket(const uint256& nKey, const CNetAddr& src, const std::vector<bool>& asmap) const;
-
-    //! Calculate in which "new" bucket this entry belongs, using its default source
-    int GetNewBucket(const uint256& nKey, const std::vector<bool>& asmap) const
-    {
-        return GetNewBucket(nKey, source, asmap);
-    }
-
-    //! Calculate in which position of a bucket to store this entry.
-    int GetBucketPosition(const uint256 &nKey, bool fNew, int nBucket) const;
 
     //! Determine whether the statistics about this entry are bad enough so that it can just be deleted
     bool IsTerrible(int64_t nNow = GetAdjustedTime()) const;
@@ -263,6 +245,21 @@ protected:
 
     //! Update an entry's service bits.
     void SetServices_(const CService &addr, ServiceFlags nServices) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    //! Calculate in which "tried" bucket an entry belongs
+    int GetTriedBucket(const CAddrInfo& addr) const;
+
+    //! Calculate in which "new" bucket an entry belongs, given a certain source
+    int GetNewBucket(const CAddrInfo& addr, const CNetAddr& src) const;
+
+    //! Calculate in which "new" bucket an entry belongs, using its default source
+    int GetNewBucket(const CAddrInfo& addr) const
+    {
+        return GetNewBucket(addr, addr.source);
+    }
+
+    //! Calculate in which position of a bucket to store an entry.
+    int GetBucketPosition(const CAddrInfo& addr, bool fNew, int nBucket) const;
 
 public:
     //! Serialization versions.
@@ -441,8 +438,8 @@ public:
         for (int n = 0; n < nTried; n++) {
             CAddrInfo info;
             s >> info;
-            int nKBucket = info.GetTriedBucket(nKey, m_asmap);
-            int nKBucketPos = info.GetBucketPosition(nKey, false, nKBucket);
+            const int nKBucket{GetTriedBucket(info)};
+            const int nKBucketPos{GetBucketPosition(info, false, nKBucket)};
             if (vvTried[nKBucket][nKBucketPos] == -1) {
                 info.nRandomPos = vRandom.size();
                 info.fInTried = true;
@@ -484,7 +481,7 @@ public:
         for (int n = 0; n < nNew; n++) {
             CAddrInfo &info = mapInfo[n];
             int bucket = entryToBucket[n];
-            int nUBucketPos = info.GetBucketPosition(nKey, true, bucket);
+            int nUBucketPos{GetBucketPosition(info, true, bucket)};
             if (format >= Format::V2_ASMAP && nUBuckets == ADDRMAN_NEW_BUCKET_COUNT && vvNew[bucket][nUBucketPos] == -1 &&
                 info.nRefCount < ADDRMAN_NEW_BUCKETS_PER_ADDRESS && serialized_asmap_version == supplied_asmap_version) {
                 // Bucketing has not changed, using existing bucket positions for the new table
@@ -494,8 +491,8 @@ public:
                 // In case the new table data cannot be used (format unknown, bucket count wrong or new asmap),
                 // try to give them a reference based on their primary source address.
                 LogPrint(BCLog::ADDRMAN, "Bucketing method was updated, re-bucketing addrman entries from disk\n");
-                bucket = info.GetNewBucket(nKey, m_asmap);
-                nUBucketPos = info.GetBucketPosition(nKey, true, bucket);
+                bucket = GetNewBucket(info);
+                nUBucketPos = GetBucketPosition(info, true, bucket);
                 if (vvNew[bucket][nUBucketPos] == -1) {
                     vvNew[bucket][nUBucketPos] = n;
                     info.nRefCount++;

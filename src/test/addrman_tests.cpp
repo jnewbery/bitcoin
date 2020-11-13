@@ -31,6 +31,11 @@ public:
         m_asmap = asmap;
     }
 
+    void SetKey(uint256 key)
+    {
+        nKey = key;
+    }
+
     CAddrInfo* Find(const CNetAddr& addr, int* pnId = nullptr)
     {
         LOCK(cs);
@@ -47,6 +52,21 @@ public:
     {
         LOCK(cs);
         CAddrMan::Delete(nId);
+    }
+
+    int GetTriedBucket(const CAddrInfo& addr) const
+    {
+        return CAddrMan::GetTriedBucket(addr);
+    }
+
+    int GetNewBucket(const CAddrInfo& addr, const CNetAddr& src) const
+    {
+        return CAddrMan::GetNewBucket(addr, src);
+    }
+
+    int GetNewBucket(const CAddrInfo& addr) const
+    {
+        return GetNewBucket(addr, addr.source);
     }
 
     // Used to test deserialization
@@ -444,40 +464,35 @@ BOOST_AUTO_TEST_CASE(addrman_getaddr)
 
 BOOST_AUTO_TEST_CASE(caddrinfo_get_tried_bucket_legacy)
 {
-    CAddrManTest addrman;
+    CAddrManTest addrman1;
+    addrman1.SetKey((uint256)(CHashWriter(SER_GETHASH, 0) << 1).GetHash());
+    CAddrManTest addrman2;
+    addrman2.SetKey((uint256)(CHashWriter(SER_GETHASH, 0) << 2).GetHash());
 
     CAddress addr1 = CAddress(ResolveService("250.1.1.1", 8333), NODE_NONE);
-    CAddress addr2 = CAddress(ResolveService("250.1.1.1", 9999), NODE_NONE);
-
     CNetAddr source1 = ResolveIP("250.1.1.1");
-
-
     CAddrInfo info1 = CAddrInfo(addr1, source1);
 
-    uint256 nKey1 = (uint256)(CHashWriter(SER_GETHASH, 0) << 1).GetHash();
-    uint256 nKey2 = (uint256)(CHashWriter(SER_GETHASH, 0) << 2).GetHash();
-
-    std::vector<bool> asmap; // use /16
-
-    BOOST_CHECK_EQUAL(info1.GetTriedBucket(nKey1, asmap), 40);
+    BOOST_CHECK_EQUAL(addrman1.GetTriedBucket(info1), 40);
 
     // Test: Make sure key actually randomizes bucket placement. A fail on
     //  this test could be a security issue.
-    BOOST_CHECK(info1.GetTriedBucket(nKey1, asmap) != info1.GetTriedBucket(nKey2, asmap));
+    BOOST_CHECK(addrman1.GetTriedBucket(info1) != addrman2.GetTriedBucket(info1));
 
     // Test: Two addresses with same IP but different ports can map to
     //  different buckets because they have different keys.
+    CAddress addr2 = CAddress(ResolveService("250.1.1.1", 9999), NODE_NONE);
     CAddrInfo info2 = CAddrInfo(addr2, source1);
 
     BOOST_CHECK(info1.GetKey() != info2.GetKey());
-    BOOST_CHECK(info1.GetTriedBucket(nKey1, asmap) != info2.GetTriedBucket(nKey1, asmap));
+    BOOST_CHECK(addrman1.GetTriedBucket(info1) != addrman1.GetTriedBucket(info2));
 
     std::set<int> buckets;
     for (int i = 0; i < 255; i++) {
         CAddrInfo infoi = CAddrInfo(
             CAddress(ResolveService("250.1.1." + ToString(i)), NODE_NONE),
             ResolveIP("250.1.1." + ToString(i)));
-        int bucket = infoi.GetTriedBucket(nKey1, asmap);
+        int bucket = addrman1.GetTriedBucket(infoi);
         buckets.insert(bucket);
     }
     // Test: IP addresses in the same /16 prefix should
@@ -489,7 +504,7 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_tried_bucket_legacy)
         CAddrInfo infoj = CAddrInfo(
             CAddress(ResolveService("250." + ToString(j) + ".1.1"), NODE_NONE),
             ResolveIP("250." + ToString(j) + ".1.1"));
-        int bucket = infoj.GetTriedBucket(nKey1, asmap);
+        int bucket = addrman1.GetTriedBucket(infoj);
         buckets.insert(bucket);
     }
     // Test: IP addresses in the different /16 prefix should map to more than
@@ -499,39 +514,35 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_tried_bucket_legacy)
 
 BOOST_AUTO_TEST_CASE(caddrinfo_get_new_bucket_legacy)
 {
-    CAddrManTest addrman;
+    CAddrManTest addrman1;
+    addrman1.SetKey((uint256)(CHashWriter(SER_GETHASH, 0) << 1).GetHash());
+    CAddrManTest addrman2;
+    addrman2.SetKey((uint256)(CHashWriter(SER_GETHASH, 0) << 2).GetHash());
 
     CAddress addr1 = CAddress(ResolveService("250.1.2.1", 8333), NODE_NONE);
-    CAddress addr2 = CAddress(ResolveService("250.1.2.1", 9999), NODE_NONE);
-
     CNetAddr source1 = ResolveIP("250.1.2.1");
-
     CAddrInfo info1 = CAddrInfo(addr1, source1);
 
-    uint256 nKey1 = (uint256)(CHashWriter(SER_GETHASH, 0) << 1).GetHash();
-    uint256 nKey2 = (uint256)(CHashWriter(SER_GETHASH, 0) << 2).GetHash();
-
-    std::vector<bool> asmap; // use /16
-
     // Test: Make sure the buckets are what we expect
-    BOOST_CHECK_EQUAL(info1.GetNewBucket(nKey1, asmap), 786);
-    BOOST_CHECK_EQUAL(info1.GetNewBucket(nKey1, source1, asmap), 786);
+    BOOST_CHECK_EQUAL(addrman1.GetNewBucket(info1), 786);
+    BOOST_CHECK_EQUAL(addrman1.GetNewBucket(info1, source1), 786);
 
     // Test: Make sure key actually randomizes bucket placement. A fail on
     //  this test could be a security issue.
-    BOOST_CHECK(info1.GetNewBucket(nKey1, asmap) != info1.GetNewBucket(nKey2, asmap));
+    BOOST_CHECK(addrman1.GetNewBucket(info1) != addrman2.GetNewBucket(info1));
 
     // Test: Ports should not affect bucket placement in the addr
+    CAddress addr2 = CAddress(ResolveService("250.1.2.1", 9999), NODE_NONE);
     CAddrInfo info2 = CAddrInfo(addr2, source1);
     BOOST_CHECK(info1.GetKey() != info2.GetKey());
-    BOOST_CHECK_EQUAL(info1.GetNewBucket(nKey1, asmap), info2.GetNewBucket(nKey1, asmap));
+    BOOST_CHECK_EQUAL(addrman1.GetNewBucket(info1), addrman1.GetNewBucket(info2));
 
     std::set<int> buckets;
     for (int i = 0; i < 255; i++) {
         CAddrInfo infoi = CAddrInfo(
             CAddress(ResolveService("250.1.1." + ToString(i)), NODE_NONE),
             ResolveIP("250.1.1." + ToString(i)));
-        int bucket = infoi.GetNewBucket(nKey1, asmap);
+        int bucket = addrman1.GetNewBucket(infoi);
         buckets.insert(bucket);
     }
     // Test: IP addresses in the same group (\16 prefix for IPv4) should
@@ -544,7 +555,7 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_new_bucket_legacy)
                                         ResolveService(
                                             ToString(250 + (j / 255)) + "." + ToString(j % 256) + ".1.1"), NODE_NONE),
             ResolveIP("251.4.1.1"));
-        int bucket = infoj.GetNewBucket(nKey1, asmap);
+        int bucket = addrman1.GetNewBucket(infoj);
         buckets.insert(bucket);
     }
     // Test: IP addresses in the same source groups should map to NO MORE
@@ -556,7 +567,7 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_new_bucket_legacy)
         CAddrInfo infoj = CAddrInfo(
             CAddress(ResolveService("250.1.1.1"), NODE_NONE),
             ResolveIP("250." + ToString(p) + ".1.1"));
-        int bucket = infoj.GetNewBucket(nKey1, asmap);
+        int bucket = addrman1.GetNewBucket(infoj);
         buckets.insert(bucket);
     }
     // Test: IP addresses in the different source groups should map to MORE
@@ -577,40 +588,37 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_new_bucket_legacy)
 // 101.8.0.0/16 AS8
 BOOST_AUTO_TEST_CASE(caddrinfo_get_tried_bucket)
 {
-    CAddrManTest addrman;
-
-    CAddress addr1 = CAddress(ResolveService("250.1.1.1", 8333), NODE_NONE);
-    CAddress addr2 = CAddress(ResolveService("250.1.1.1", 9999), NODE_NONE);
-
-    CNetAddr source1 = ResolveIP("250.1.1.1");
-
-
-    CAddrInfo info1 = CAddrInfo(addr1, source1);
-
-    uint256 nKey1 = (uint256)(CHashWriter(SER_GETHASH, 0) << 1).GetHash();
-    uint256 nKey2 = (uint256)(CHashWriter(SER_GETHASH, 0) << 2).GetHash();
-
     std::vector<bool> asmap = FromBytes(asmap_raw, sizeof(asmap_raw) * 8);
 
-    BOOST_CHECK_EQUAL(info1.GetTriedBucket(nKey1, asmap), 236);
+    CAddrManTest addrman1(false, asmap);
+    addrman1.SetKey((uint256)(CHashWriter(SER_GETHASH, 0) << 1).GetHash());
+    CAddrManTest addrman2(false, asmap);
+    addrman2.SetKey((uint256)(CHashWriter(SER_GETHASH, 0) << 2).GetHash());
+
+    CAddress addr1 = CAddress(ResolveService("250.1.1.1", 8333), NODE_NONE);
+    CNetAddr source1 = ResolveIP("250.1.1.1");
+    CAddrInfo info1 = CAddrInfo(addr1, source1);
+
+    BOOST_CHECK_EQUAL(addrman1.GetTriedBucket(info1), 236);
 
     // Test: Make sure key actually randomizes bucket placement. A fail on
     //  this test could be a security issue.
-    BOOST_CHECK(info1.GetTriedBucket(nKey1, asmap) != info1.GetTriedBucket(nKey2, asmap));
+    BOOST_CHECK(addrman1.GetTriedBucket(info1) != addrman2.GetTriedBucket(info1));
 
     // Test: Two addresses with same IP but different ports can map to
     //  different buckets because they have different keys.
+    CAddress addr2 = CAddress(ResolveService("250.1.1.1", 9999), NODE_NONE);
     CAddrInfo info2 = CAddrInfo(addr2, source1);
 
     BOOST_CHECK(info1.GetKey() != info2.GetKey());
-    BOOST_CHECK(info1.GetTriedBucket(nKey1, asmap) != info2.GetTriedBucket(nKey1, asmap));
+    BOOST_CHECK(addrman1.GetTriedBucket(info1) != addrman1.GetTriedBucket(info2));
 
     std::set<int> buckets;
     for (int j = 0; j < 255; j++) {
         CAddrInfo infoj = CAddrInfo(
             CAddress(ResolveService("101." + ToString(j) + ".1.1"), NODE_NONE),
             ResolveIP("101." + ToString(j) + ".1.1"));
-        int bucket = infoj.GetTriedBucket(nKey1, asmap);
+        int bucket = addrman1.GetTriedBucket(infoj);
         buckets.insert(bucket);
     }
     // Test: IP addresses in the different /16 prefix MAY map to more than
@@ -622,7 +630,7 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_tried_bucket)
         CAddrInfo infoj = CAddrInfo(
             CAddress(ResolveService("250." + ToString(j) + ".1.1"), NODE_NONE),
             ResolveIP("250." + ToString(j) + ".1.1"));
-        int bucket = infoj.GetTriedBucket(nKey1, asmap);
+        int bucket = addrman1.GetTriedBucket(infoj);
         buckets.insert(bucket);
     }
     // Test: IP addresses in the different /16 prefix MAY NOT map to more than
@@ -632,39 +640,37 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_tried_bucket)
 
 BOOST_AUTO_TEST_CASE(caddrinfo_get_new_bucket)
 {
-    CAddrManTest addrman;
-
-    CAddress addr1 = CAddress(ResolveService("250.1.2.1", 8333), NODE_NONE);
-    CAddress addr2 = CAddress(ResolveService("250.1.2.1", 9999), NODE_NONE);
-
-    CNetAddr source1 = ResolveIP("250.1.2.1");
-
-    CAddrInfo info1 = CAddrInfo(addr1, source1);
-
-    uint256 nKey1 = (uint256)(CHashWriter(SER_GETHASH, 0) << 1).GetHash();
-    uint256 nKey2 = (uint256)(CHashWriter(SER_GETHASH, 0) << 2).GetHash();
-
     std::vector<bool> asmap = FromBytes(asmap_raw, sizeof(asmap_raw) * 8);
 
+    CAddrManTest addrman1(false, asmap);
+    addrman1.SetKey((uint256)(CHashWriter(SER_GETHASH, 0) << 1).GetHash());
+    CAddrManTest addrman2(false, asmap);
+    addrman2.SetKey((uint256)(CHashWriter(SER_GETHASH, 0) << 2).GetHash());
+
+    CAddress addr1 = CAddress(ResolveService("250.1.2.1", 8333), NODE_NONE);
+    CNetAddr source1 = ResolveIP("250.1.2.1");
+    CAddrInfo info1 = CAddrInfo(addr1, source1);
+
     // Test: Make sure the buckets are what we expect
-    BOOST_CHECK_EQUAL(info1.GetNewBucket(nKey1, asmap), 795);
-    BOOST_CHECK_EQUAL(info1.GetNewBucket(nKey1, source1, asmap), 795);
+    BOOST_CHECK_EQUAL(addrman1.GetNewBucket(info1), 795);
+    BOOST_CHECK_EQUAL(addrman1.GetNewBucket(info1, source1), 795);
 
     // Test: Make sure key actually randomizes bucket placement. A fail on
     //  this test could be a security issue.
-    BOOST_CHECK(info1.GetNewBucket(nKey1, asmap) != info1.GetNewBucket(nKey2, asmap));
+    BOOST_CHECK(addrman1.GetNewBucket(info1) != addrman2.GetNewBucket(info1));
 
     // Test: Ports should not affect bucket placement in the addr
+    CAddress addr2 = CAddress(ResolveService("250.1.2.1", 9999), NODE_NONE);
     CAddrInfo info2 = CAddrInfo(addr2, source1);
     BOOST_CHECK(info1.GetKey() != info2.GetKey());
-    BOOST_CHECK_EQUAL(info1.GetNewBucket(nKey1, asmap), info2.GetNewBucket(nKey1, asmap));
+    BOOST_CHECK_EQUAL(addrman1.GetNewBucket(info1), addrman1.GetNewBucket(info2));
 
     std::set<int> buckets;
     for (int i = 0; i < 255; i++) {
         CAddrInfo infoi = CAddrInfo(
             CAddress(ResolveService("250.1.1." + ToString(i)), NODE_NONE),
             ResolveIP("250.1.1." + ToString(i)));
-        int bucket = infoi.GetNewBucket(nKey1, asmap);
+        int bucket = addrman1.GetNewBucket(infoi);
         buckets.insert(bucket);
     }
     // Test: IP addresses in the same /16 prefix
@@ -677,7 +683,7 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_new_bucket)
                                         ResolveService(
                                             ToString(250 + (j / 255)) + "." + ToString(j % 256) + ".1.1"), NODE_NONE),
             ResolveIP("251.4.1.1"));
-        int bucket = infoj.GetNewBucket(nKey1, asmap);
+        int bucket = addrman1.GetNewBucket(infoj);
         buckets.insert(bucket);
     }
     // Test: IP addresses in the same source /16 prefix should not map to more
@@ -689,7 +695,7 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_new_bucket)
         CAddrInfo infoj = CAddrInfo(
             CAddress(ResolveService("250.1.1.1"), NODE_NONE),
             ResolveIP("101." + ToString(p) + ".1.1"));
-        int bucket = infoj.GetNewBucket(nKey1, asmap);
+        int bucket = addrman1.GetNewBucket(infoj);
         buckets.insert(bucket);
     }
     // Test: IP addresses in the different source /16 prefixes usually map to MORE
@@ -701,7 +707,7 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_new_bucket)
         CAddrInfo infoj = CAddrInfo(
             CAddress(ResolveService("250.1.1.1"), NODE_NONE),
             ResolveIP("250." + ToString(p) + ".1.1"));
-        int bucket = infoj.GetNewBucket(nKey1, asmap);
+        int bucket = addrman1.GetNewBucket(infoj);
         buckets.insert(bucket);
     }
     // Test: IP addresses in the different source /16 prefixes sometimes map to NO MORE
