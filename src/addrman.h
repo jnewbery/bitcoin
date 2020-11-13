@@ -7,9 +7,9 @@
 #define BITCOIN_ADDRMAN_H
 
 #include <clientversion.h>
-#include <fs.h>
 #include <hash.h>
 #include <netaddress.h>
+#include <netgroup.h>
 #include <protocol.h>
 #include <random.h>
 #include <streams.h>
@@ -270,22 +270,6 @@ public:
         V3_BIP155 = 3,        //!< same as V2_ASMAP plus addresses are in BIP155 format
     };
 
-    // Compressed IP->ASN mapping, loaded from a file when a node starts.
-    // Should be always empty if no file was provided.
-    // This mapping is then used for bucketing nodes in Addrman.
-    //
-    // If asmap is provided, nodes will be bucketed by
-    // AS they belong to, in order to make impossible for a node
-    // to connect to several nodes hosted in a single AS.
-    // This is done in response to Erebus attack, but also to generally
-    // diversify the connections every node creates,
-    // especially useful when a large fraction of nodes
-    // operate under a couple of cloud providers.
-    //
-    // If a new asmap was provided, the existing records
-    // would be re-bucketed accordingly.
-    std::vector<bool> m_asmap;
-
     /**
      * Serialized format.
      * * version byte (@see `Format`)
@@ -368,11 +352,7 @@ public:
         }
         // Store asmap version after bucket entries so that it
         // can be ignored by older clients for backward compatibility.
-        uint256 asmap_version;
-        if (!m_asmap.empty()) {
-            asmap_version = SerializeHash(m_asmap);
-        }
-        s << asmap_version;
+        s << GetAsmapVersion();
     }
 
     template <typename Stream>
@@ -469,10 +449,7 @@ public:
             }
         }
 
-        uint256 supplied_asmap_version;
-        if (!m_asmap.empty()) {
-            supplied_asmap_version = SerializeHash(m_asmap);
-        }
+        const uint256 supplied_asmap_version{GetAsmapVersion()};
         uint256 serialized_asmap_version;
         if (format >= Format::V2_ASMAP) {
             s >> serialized_asmap_version;
@@ -687,8 +664,5 @@ public:
     }
 
 };
-
-//! Read asmap from provided binary file
-std::vector<bool> DecodeAsmap(fs::path path);
 
 #endif // BITCOIN_ADDRMAN_H

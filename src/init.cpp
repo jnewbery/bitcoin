@@ -1510,14 +1510,10 @@ bool AppInitMain(const util::Ref& context, NodeContext& node, interfaces::BlockA
             InitError(strprintf(_("Could not find asmap file %s"), asmap_path));
             return false;
         }
-        std::vector<bool> asmap = DecodeAsmap(asmap_path);
-        if (asmap.empty()) {
+        if (!LoadAsmap(asmap_path) {
             InitError(strprintf(_("Could not parse asmap file %s"), asmap_path));
             return false;
         }
-        const uint256 asmap_version = SerializeHash(asmap);
-        node.connman->SetAsmap(std::move(asmap));
-        LogPrintf("Using asmap version %s for IP bucketing\n", asmap_version.ToString());
     } else {
         LogPrintf("Using /16 prefix for IP bucketing\n");
     }

@@ -604,20 +604,20 @@ CAddrInfo CAddrMan::SelectTriedCollision_()
 int CAddrMan::GetTriedBucket(const CAddrInfo& addr) const
 {
     uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << addr.GetKey()).GetCheapHash();
-    uint64_t hash2 = (CHashWriter(SER_GETHASH, 0) << nKey << addr.GetGroup(m_asmap) << (hash1 % ADDRMAN_TRIED_BUCKETS_PER_GROUP)).GetCheapHash();
+    uint64_t hash2 = (CHashWriter(SER_GETHASH, 0) << nKey << GetGroup(addr) << (hash1 % ADDRMAN_TRIED_BUCKETS_PER_GROUP)).GetCheapHash();
     int tried_bucket = hash2 % ADDRMAN_TRIED_BUCKET_COUNT;
-    uint32_t mapped_as = addr.GetMappedAS(m_asmap);
+    uint32_t mapped_as = GetMappedAS(addr);
     LogPrint(BCLog::NET, "IP %s mapped to AS%i belongs to tried bucket %i\n", addr.ToStringIP(), mapped_as, tried_bucket);
     return tried_bucket;
 }
 
 int CAddrMan::GetNewBucket(const CAddrInfo& addr, const CNetAddr& src) const
 {
-    std::vector<unsigned char> vchSourceGroupKey = src.GetGroup(m_asmap);
-    uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << addr.GetGroup(m_asmap) << vchSourceGroupKey).GetCheapHash();
+    std::vector<unsigned char> vchSourceGroupKey = GetGroup(src);
+    uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << GetGroup(addr) << vchSourceGroupKey).GetCheapHash();
     uint64_t hash2 = (CHashWriter(SER_GETHASH, 0) << nKey << vchSourceGroupKey << (hash1 % ADDRMAN_NEW_BUCKETS_PER_SOURCE_GROUP)).GetCheapHash();
     int new_bucket = hash2 % ADDRMAN_NEW_BUCKET_COUNT;
-    uint32_t mapped_as = addr.GetMappedAS(m_asmap);
+    uint32_t mapped_as = GetMappedAS(addr);
     LogPrint(BCLog::NET, "IP %s mapped to AS%i belongs to new bucket %i\n", addr.ToStringIP(), mapped_as, new_bucket);
     return new_bucket;
 }
@@ -626,31 +626,4 @@ int CAddrMan::GetBucketPosition(const CAddrInfo& addr, bool fNew, int nBucket) c
 {
     uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << (fNew ? 'N' : 'K') << nBucket << addr.GetKey()).GetCheapHash();
     return hash1 % ADDRMAN_BUCKET_SIZE;
-}
-
-std::vector<bool> DecodeAsmap(fs::path path)
-{
-    std::vector<bool> bits;
-    FILE *filestr = fsbridge::fopen(path, "rb");
-    CAutoFile file(filestr, SER_DISK, CLIENT_VERSION);
-    if (file.IsNull()) {
-        LogPrintf("Failed to open asmap file from disk\n");
-        return bits;
-    }
-    fseek(filestr, 0, SEEK_END);
-    int length = ftell(filestr);
-    LogPrintf("Opened asmap file %s (%d bytes) from disk\n", path, length);
-    fseek(filestr, 0, SEEK_SET);
-    char cur_byte;
-    for (int i = 0; i < length; ++i) {
-        file >> cur_byte;
-        for (int bit = 0; bit < 8; ++bit) {
-            bits.push_back((cur_byte >> bit) & 1);
-        }
-    }
-    if (!SanityCheckASMap(bits)) {
-        LogPrintf("Sanity check of asmap file %s failed\n", path);
-        return {};
-    }
-    return bits;
 }
