@@ -9,17 +9,16 @@
 #include <config/bitcoin-config.h>
 #endif
 
-#include <key.h>
-#include <script/standard.h>
-
-#include <qt/walletmodeltransaction.h>
-
 #include <interfaces/wallet.h>
+#include <key.h>
+#include <qt/walletmodeltransaction.h>
+#include <script/standard.h>
 #include <support/allocators/secure.h>
-
-#include <vector>
+#include <uint256.h>
 
 #include <QObject>
+
+#include <vector>
 
 enum class OutputType;
 
@@ -37,7 +36,6 @@ class CKeyID;
 class COutPoint;
 class COutput;
 class CPubKey;
-class uint256;
 
 namespace interfaces {
 class Node;

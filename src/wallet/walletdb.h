@@ -7,13 +7,14 @@
 #define BITCOIN_WALLET_WALLETDB_H
 
 #include <amount.h>
+#include <key.h>
 #include <script/sign.h>
 #include <wallet/bdb.h>
 #include <wallet/db.h>
 #include <wallet/walletutil.h>
-#include <key.h>
+#include <uint256.h>
 
-#include <stdint.h>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -37,8 +38,6 @@ class CMasterKey;
 class CScript;
 class CWallet;
 class CWalletTx;
-class uint160;
-class uint256;
 
 /** Error statuses for the wallet database */
 enum class DBErrors

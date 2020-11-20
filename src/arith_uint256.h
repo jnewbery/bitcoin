@@ -6,13 +6,13 @@
 #ifndef BITCOIN_ARITH_UINT256_H
 #define BITCOIN_ARITH_UINT256_H
 
+#include <uint256.h>
+
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <stdexcept>
-#include <stdint.h>
 #include <string>
-
-class uint256;
 
 class uint_error : public std::runtime_error {
 public:

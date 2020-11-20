@@ -7,12 +7,12 @@
 #define BITCOIN_POW_H
 
 #include <consensus/params.h>
+#include <uint256.h>
 
-#include <stdint.h>
+#include <cstdint>
 
 class CBlockHeader;
 class CBlockIndex;
-class uint256;
 
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock, const Consensus::Params&);
 unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nFirstBlockTime, const Consensus::Params&);
