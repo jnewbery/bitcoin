@@ -19,7 +19,12 @@ from test_framework.messages import (
     msg_mempool,
     msg_version,
 )
-from test_framework.p2p import P2PInterface, p2p_lock, P2P_VERSION
+from test_framework.p2p import (
+    P2PInterface,
+    P2P_SUBVERSION,
+    P2P_VERSION,
+    p2p_lock,
+)
 from test_framework.script import MAX_SCRIPT_ELEMENT_SIZE
 from test_framework.test_framework import BitcoinTestFramework
 
@@ -220,6 +225,7 @@ class FilterTest(BitcoinTestFramework):
         # Send version with fRelay=False
         version_without_fRelay = msg_version()
         version_without_fRelay.nVersion = P2P_VERSION
+        version_without_fRelay.strSubVer = P2P_SUBVERSION
         version_without_fRelay.nRelay = 0
         filter_peer_without_nrelay.send_message(version_without_fRelay)
         filter_peer_without_nrelay.wait_for_verack()
