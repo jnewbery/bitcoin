@@ -147,7 +147,7 @@ class P2PLeakTest(BitcoinTestFramework):
         self.log.info('Check that old peers are disconnected')
         p2p_old_peer = self.nodes[0].add_p2p_connection(P2PInterface(), send_version=False, wait_for_verack=False)
         old_version_msg = msg_version()
-        old_version_msg.nVersion = 31799
+        old_version_msg.nVersion=31799
         with self.nodes[0].assert_debug_log(['peer=4 using obsolete version 31799; disconnecting']):
             p2p_old_peer.send_message(old_version_msg)
             p2p_old_peer.wait_for_disconnect()
