@@ -2297,19 +2297,23 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
         vRecv >> relay;
     }
 
+    if (version < MIN_PEER_PROTO_VERSION) {
+        // disconnect from peers older than this proto version
+        LogPrint(BCLog::NET, "peer=%d using obsolete version %i; disconnecting\n", pfrom.GetId(), version);
+        pfrom.fDisconnect = true;
+        return;
+    }
+
+    const int greatest_common_version = std::min(version, PROTOCOL_VERSION);
+    pfrom.SetCommonVersion(greatest_common_version);
+    pfrom.nVersion = version;
+
     service_flags = ServiceFlags(services);
     if (!pfrom.IsInboundConn()) {
         m_connman.SetServices(pfrom.addr, service_flags);
     }
     if (pfrom.ExpectServicesFromConn() && !HasAllDesirableServiceFlags(service_flags)) {
         LogPrint(BCLog::NET, "peer=%d does not offer the expected services (%08x offered, %08x expected); disconnecting\n", pfrom.GetId(), service_flags, GetDesirableServiceFlags(service_flags));
-        pfrom.fDisconnect = true;
-        return;
-    }
-
-    if (version < MIN_PEER_PROTO_VERSION) {
-        // disconnect from peers older than this proto version
-        LogPrint(BCLog::NET, "peer=%d using obsolete version %i; disconnecting\n", pfrom.GetId(), version);
         pfrom.fDisconnect = true;
         return;
     }
@@ -2328,14 +2332,9 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     // Be shy and don't send version until we hear
     if (pfrom.IsInboundConn()) PushNodeVersion(pfrom, m_connman, GetAdjustedTime());
 
-    // Change version
-    const int greatest_common_version = std::min(version, PROTOCOL_VERSION);
-    pfrom.SetCommonVersion(greatest_common_version);
-    pfrom.nVersion = version;
+    const CNetMsgMaker msg_maker(pfrom.GetCommonVersion());
 
-    const CNetMsgMaker msg_maker(greatest_common_version);
-
-    if (greatest_common_version >= WTXID_RELAY_VERSION) {
+    if (pfrom.GetCommonVersion() >= WTXID_RELAY_VERSION) {
         m_connman.PushMessage(&pfrom, msg_maker.Make(NetMsgType::WTXIDRELAY));
     }
 
