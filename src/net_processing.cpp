@@ -2360,7 +2360,36 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
         WITH_LOCK(pfrom.m_tx_relay->cs_filter, pfrom.m_tx_relay->fRelayTxes = relay);
     }
 
-    // Be shy and don't send version until we hear
+    // Potentially mark this peer as a preferred download peer.
+    WITH_LOCK(cs_main, UpdatePreferredDownload(pfrom, State(pfrom.GetId())));
+
+    if (!pfrom.IsInboundConn()) {
+        // For non-inbound connections, we update the addrman to record
+        // connection success so that addrman will have an up-to-date
+        // notion of which peers are online and available.
+        //
+        // While we strive to not leak information about block-relay-only
+        // connections via the addrman, not moving an address to the tried
+        // table is also potentially detrimental because new-table entries
+        // are subject to eviction in the event of addrman collisions.  We
+        // mitigate the information-leak by never calling
+        // CAddrMan::Connected() on block-relay-only peers; see
+        // FinalizeNode().
+        //
+        // This moves an address from New to Tried table in Addrman,
+        // resolves tried-table collisions, etc.
+        m_connman.MarkAddressGood(pfrom.addr);
+    }
+
+    std::string remote_addr_string;
+    if (fLogIPs) remote_addr_string = ", peeraddr=" + pfrom.addr.ToString();
+
+    LogPrint(BCLog::NET, "receive version message: %s: version %d, blocks=%d, us=%s, peer=%d%s\n",
+             clean_subver, pfrom.nVersion,
+             pfrom.nStartingHeight, local_addr.ToString(), pfrom.GetId(),
+             remote_addr_string);
+
+    // Send version message if this is an inbound connection.
     if (pfrom.IsInboundConn()) PushNodeVersion(pfrom, m_connman, GetAdjustedTime());
 
     const CNetMsgMaker msg_maker(pfrom.GetCommonVersion());
@@ -2373,9 +2402,6 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
 
     // Signal ADDRv2 support (BIP155).
     m_connman.PushMessage(&pfrom, msg_maker.Make(NetMsgType::SENDADDRV2));
-
-    // Potentially mark this peer as a preferred download peer.
-    WITH_LOCK(cs_main, UpdatePreferredDownload(pfrom, State(pfrom.GetId())));
 
     if (!pfrom.IsInboundConn() && !pfrom.IsBlockOnlyConn()) {
         // For outbound peers, we try to relay our address (so that other
@@ -2405,32 +2431,6 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
         m_connman.PushMessage(&pfrom, CNetMsgMaker(greatest_common_version).Make(NetMsgType::GETADDR));
         pfrom.fGetAddr = true;
     }
-
-    if (!pfrom.IsInboundConn()) {
-        // For non-inbound connections, we update the addrman to record
-        // connection success so that addrman will have an up-to-date
-        // notion of which peers are online and available.
-        //
-        // While we strive to not leak information about block-relay-only
-        // connections via the addrman, not moving an address to the tried
-        // table is also potentially detrimental because new-table entries
-        // are subject to eviction in the event of addrman collisions.  We
-        // mitigate the information-leak by never calling
-        // CAddrMan::Connected() on block-relay-only peers; see
-        // FinalizeNode().
-        //
-        // This moves an address from New to Tried table in Addrman,
-        // resolves tried-table collisions, etc.
-        m_connman.MarkAddressGood(pfrom.addr);
-    }
-
-    std::string remote_addr_string;
-    if (fLogIPs) remote_addr_string = ", peeraddr=" + pfrom.addr.ToString();
-
-    LogPrint(BCLog::NET, "receive version message: %s: version %d, blocks=%d, us=%s, peer=%d%s\n",
-             clean_subver, pfrom.nVersion,
-             pfrom.nStartingHeight, local_addr.ToString(), pfrom.GetId(),
-             remote_addr_string);
 
     // If the peer is old enough to have the old alert system, send it the final alert.
     if (greatest_common_version <= 70012) {
