@@ -2284,11 +2284,19 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     uint64_t services;
     ServiceFlags service_flags;
     int version;
+    std::string subver;
     std::string clean_subver;
     int starting_height = -1;
     bool relay = true;
 
-    vRecv >> version >> services >> time >> local_addr;
+    vRecv >> version >> services >> time >> local_addr >> remote_addr >> nonce
+          >> LIMITED_STRING(subver, MAX_SUBVERSION_LENGTH) >> starting_height;
+
+    if (!vRecv.empty()) {
+        // relay field is optional
+        vRecv >> relay;
+    }
+
     service_flags = ServiceFlags(services);
     if (!pfrom.IsInboundConn()) {
         m_connman.SetServices(pfrom.addr, service_flags);
@@ -2306,20 +2314,7 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
         return;
     }
 
-    if (!vRecv.empty()) {
-        vRecv >> remote_addr >> nonce;
-    }
-    if (!vRecv.empty()) {
-        std::string subver;
-        vRecv >> LIMITED_STRING(subver, MAX_SUBVERSION_LENGTH);
-        clean_subver = SanitizeString(subver);
-    }
-    if (!vRecv.empty()) {
-        vRecv >> starting_height;
-    }
-    if (!vRecv.empty()) {
-        vRecv >> relay;
-    }
+    clean_subver = SanitizeString(subver);
 
     // Disconnect if we connected to ourself
     if (pfrom.IsInboundConn() && !m_connman.CheckIncomingNonce(nonce)) {
