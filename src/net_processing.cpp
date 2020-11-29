@@ -2331,6 +2331,10 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
         WITH_LOCK(cs_main, State(pfrom.GetId())->fHaveWitness = true);
     }
 
+    // Time
+    int64_t time_offset{time - GetTime()};
+    pfrom.nTimeOffset = time_offset;
+    AddTimeData(pfrom.addr, time_offset);
 
     clean_subver = SanitizeString(subver);
 
@@ -2423,10 +2427,6 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
              clean_subver, pfrom.nVersion,
              pfrom.nStartingHeight, local_addr.ToString(), pfrom.GetId(),
              remote_addr_string);
-
-    int64_t time_offset{time - GetTime()};
-    pfrom.nTimeOffset = time_offset;
-    AddTimeData(pfrom.addr, time_offset);
 
     // If the peer is old enough to have the old alert system, send it the final alert.
     if (greatest_common_version <= 70012) {
