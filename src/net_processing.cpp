@@ -2340,14 +2340,15 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     if (pfrom.IsInboundConn() && local_addr.IsRoutable()) SeenLocal(local_addr);
     pfrom.SetAddrLocal(local_addr);
 
-    clean_subver = SanitizeString(subver);
-
-    // Disconnect if we connected to ourself
+    // Nonce
     if (pfrom.IsInboundConn() && !m_connman.CheckIncomingNonce(nonce)) {
+        // We connected to ourself. Disconnect.
         LogPrintf("connected to self at %s, disconnecting\n", pfrom.addr.ToString());
         pfrom.fDisconnect = true;
         return;
     }
+
+    clean_subver = SanitizeString(subver);
 
     // Be shy and don't send version until we hear
     if (pfrom.IsInboundConn()) PushNodeVersion(pfrom, m_connman, GetAdjustedTime());
