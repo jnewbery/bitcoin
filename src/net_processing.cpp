@@ -2272,8 +2272,7 @@ static void ProcessGetCFCheckPt(CNode& peer, CDataStream& vRecv, const CChainPar
 void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
 {
     // Each connection can only send one version message
-    if (pfrom.nVersion != 0)
-    {
+    if (pfrom.nVersion != 0) {
         Misbehaving(pfrom.GetId(), 1, "redundant version message");
         return;
     }
@@ -2291,12 +2290,10 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
 
     vRecv >> version >> services >> time >> local_addr;
     service_flags = ServiceFlags(services);
-    if (!pfrom.IsInboundConn())
-    {
+    if (!pfrom.IsInboundConn()) {
         m_connman.SetServices(pfrom.addr, service_flags);
     }
-    if (pfrom.ExpectServicesFromConn() && !HasAllDesirableServiceFlags(service_flags))
-    {
+    if (pfrom.ExpectServicesFromConn() && !HasAllDesirableServiceFlags(service_flags)) {
         LogPrint(BCLog::NET, "peer=%d does not offer the expected services (%08x offered, %08x expected); disconnecting\n", pfrom.GetId(), service_flags, GetDesirableServiceFlags(service_flags));
         pfrom.fDisconnect = true;
         return;
@@ -2309,8 +2306,9 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
         return;
     }
 
-    if (!vRecv.empty())
+    if (!vRecv.empty()) {
         vRecv >> remote_addr >> nonce;
+    }
     if (!vRecv.empty()) {
         std::string subver;
         vRecv >> LIMITED_STRING(subver, MAX_SUBVERSION_LENGTH);
@@ -2319,24 +2317,21 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     if (!vRecv.empty()) {
         vRecv >> starting_height;
     }
-    if (!vRecv.empty())
+    if (!vRecv.empty()) {
         vRecv >> relay;
+    }
+
     // Disconnect if we connected to ourself
-    if (pfrom.IsInboundConn() && !m_connman.CheckIncomingNonce(nonce))
-    {
+    if (pfrom.IsInboundConn() && !m_connman.CheckIncomingNonce(nonce)) {
         LogPrintf("connected to self at %s, disconnecting\n", pfrom.addr.ToString());
         pfrom.fDisconnect = true;
         return;
     }
 
-    if (pfrom.IsInboundConn() && local_addr.IsRoutable())
-    {
-        SeenLocal(local_addr);
-    }
+    if (pfrom.IsInboundConn() && local_addr.IsRoutable()) SeenLocal(local_addr);
 
     // Be shy and don't send version until we hear
-    if (pfrom.IsInboundConn())
-        PushNodeVersion(pfrom, m_connman, GetAdjustedTime());
+    if (pfrom.IsInboundConn()) PushNodeVersion(pfrom, m_connman, GetAdjustedTime());
 
     // Change version
     const int greatest_common_version = std::min(version, PROTOCOL_VERSION);
@@ -2356,10 +2351,7 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
 
     pfrom.nServices = service_flags;
     pfrom.SetAddrLocal(local_addr);
-    {
-        LOCK(pfrom.cs_SubVer);
-        pfrom.cleanSubVer = clean_subver;
-    }
+    WITH_LOCK(pfrom.cs_SubVer, pfrom.cleanSubVer = clean_subver);
     pfrom.nStartingHeight = starting_height;
 
     // set nodes not relaying blocks and tx and not serving (parts) of the historical blockchain as "clients"
@@ -2369,21 +2361,16 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     pfrom.m_limited_node = (!(service_flags & NODE_NETWORK) && (service_flags & NODE_NETWORK_LIMITED));
 
     if (pfrom.m_tx_relay != nullptr) {
-        LOCK(pfrom.m_tx_relay->cs_filter);
-        pfrom.m_tx_relay->fRelayTxes = relay; // set to true after we get the first filter* message
+        // cs_filter will be set to true after we get the first filter* message
+        WITH_LOCK(pfrom.m_tx_relay->cs_filter, pfrom.m_tx_relay->fRelayTxes = relay);
     }
 
-    if((service_flags & NODE_WITNESS))
-    {
-        LOCK(cs_main);
-        State(pfrom.GetId())->fHaveWitness = true;
+    if (service_flags & NODE_WITNESS) {
+        WITH_LOCK(cs_main, State(pfrom.GetId())->fHaveWitness = true);
     }
 
     // Potentially mark this peer as a preferred download peer.
-    {
-    LOCK(cs_main);
-    UpdatePreferredDownload(pfrom, State(pfrom.GetId()));
-    }
+    WITH_LOCK(cs_main, UpdatePreferredDownload(pfrom, State(pfrom.GetId())));
 
     if (!pfrom.IsInboundConn() && !pfrom.IsBlockOnlyConn()) {
         // For outbound peers, we try to relay our address (so that other
@@ -2396,12 +2383,10 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
         //
         // We skip this for BLOCK_RELAY peers to avoid potentially leaking
         // information about our BLOCK_RELAY connections via address relay.
-        if (fListen && !::ChainstateActive().IsInitialBlockDownload())
-        {
+        if (fListen && !::ChainstateActive().IsInitialBlockDownload()) {
             CAddress addr = GetLocalAddress(&pfrom.addr, pfrom.GetLocalServices());
             FastRandomContext insecure_rand;
-            if (addr.IsRoutable())
-            {
+            if (addr.IsRoutable()) {
                 LogPrint(BCLog::NET, "ProcessMessages: advertising address %s\n", addr.ToString());
                 pfrom.PushAddress(addr, insecure_rand);
             } else if (IsPeerAddrLocalGood(&pfrom)) {
@@ -2435,15 +2420,14 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     }
 
     std::string remote_addr_string;
-    if (fLogIPs)
-        remote_addr_string = ", peeraddr=" + pfrom.addr.ToString();
+    if (fLogIPs) remote_addr_string = ", peeraddr=" + pfrom.addr.ToString();
 
     LogPrint(BCLog::NET, "receive version message: %s: version %d, blocks=%d, us=%s, peer=%d%s\n",
-              clean_subver, pfrom.nVersion,
-              pfrom.nStartingHeight, local_addr.ToString(), pfrom.GetId(),
-              remote_addr_string);
+             clean_subver, pfrom.nVersion,
+             pfrom.nStartingHeight, local_addr.ToString(), pfrom.GetId(),
+             remote_addr_string);
 
-    int64_t time_offset = time - GetTime();
+    int64_t time_offset{time - GetTime()};
     pfrom.nTimeOffset = time_offset;
     AddTimeData(pfrom.addr, time_offset);
 
@@ -2454,10 +2438,7 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     }
 
     // Feeler connections exist only to verify if address is online.
-    if (pfrom.IsFeelerConn()) {
-        pfrom.fDisconnect = true;
-    }
-    return;
+    if (pfrom.IsFeelerConn()) pfrom.fDisconnect = true;
 }
 
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
