@@ -2285,7 +2285,6 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     ServiceFlags service_flags;
     int version;
     std::string subver;
-    std::string clean_subver;
     int starting_height = -1;
     bool relay = true;
 
@@ -2348,7 +2347,9 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
         return;
     }
 
-    clean_subver = SanitizeString(subver);
+    // Subversion
+    std::string clean_subver = SanitizeString(subver);
+    WITH_LOCK(pfrom.cs_SubVer, pfrom.cleanSubVer = clean_subver);
 
     // Be shy and don't send version until we hear
     if (pfrom.IsInboundConn()) PushNodeVersion(pfrom, m_connman, GetAdjustedTime());
@@ -2364,7 +2365,6 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     // Signal ADDRv2 support (BIP155).
     m_connman.PushMessage(&pfrom, msg_maker.Make(NetMsgType::SENDADDRV2));
 
-    WITH_LOCK(pfrom.cs_SubVer, pfrom.cleanSubVer = clean_subver);
     pfrom.nStartingHeight = starting_height;
 
     if (pfrom.m_tx_relay != nullptr) {
