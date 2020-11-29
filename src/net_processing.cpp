@@ -2336,6 +2336,10 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     pfrom.nTimeOffset = time_offset;
     AddTimeData(pfrom.addr, time_offset);
 
+    // Local address
+    if (pfrom.IsInboundConn() && local_addr.IsRoutable()) SeenLocal(local_addr);
+    pfrom.SetAddrLocal(local_addr);
+
     clean_subver = SanitizeString(subver);
 
     // Disconnect if we connected to ourself
@@ -2344,8 +2348,6 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
         pfrom.fDisconnect = true;
         return;
     }
-
-    if (pfrom.IsInboundConn() && local_addr.IsRoutable()) SeenLocal(local_addr);
 
     // Be shy and don't send version until we hear
     if (pfrom.IsInboundConn()) PushNodeVersion(pfrom, m_connman, GetAdjustedTime());
@@ -2361,7 +2363,6 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     // Signal ADDRv2 support (BIP155).
     m_connman.PushMessage(&pfrom, msg_maker.Make(NetMsgType::SENDADDRV2));
 
-    pfrom.SetAddrLocal(local_addr);
     WITH_LOCK(pfrom.cs_SubVer, pfrom.cleanSubVer = clean_subver);
     pfrom.nStartingHeight = starting_height;
 
