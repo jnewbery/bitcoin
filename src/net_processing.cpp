@@ -2351,6 +2351,9 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     std::string clean_subver = SanitizeString(subver);
     WITH_LOCK(pfrom.cs_SubVer, pfrom.cleanSubVer = clean_subver);
 
+    // Starting height
+    pfrom.nStartingHeight = starting_height;
+
     // Be shy and don't send version until we hear
     if (pfrom.IsInboundConn()) PushNodeVersion(pfrom, m_connman, GetAdjustedTime());
 
@@ -2364,8 +2367,6 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
 
     // Signal ADDRv2 support (BIP155).
     m_connman.PushMessage(&pfrom, msg_maker.Make(NetMsgType::SENDADDRV2));
-
-    pfrom.nStartingHeight = starting_height;
 
     if (pfrom.m_tx_relay != nullptr) {
         // cs_filter will be set to true after we get the first filter* message
