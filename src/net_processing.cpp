@@ -2297,6 +2297,7 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
         vRecv >> relay;
     }
 
+    // Version
     if (version < MIN_PEER_PROTO_VERSION) {
         // disconnect from peers older than this proto version
         LogPrint(BCLog::NET, "peer=%d using obsolete version %i; disconnecting\n", pfrom.GetId(), version);
@@ -2308,6 +2309,7 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     pfrom.SetCommonVersion(greatest_common_version);
     pfrom.nVersion = version;
 
+    // Services
     service_flags = ServiceFlags(services);
     if (!pfrom.IsInboundConn()) {
         m_connman.SetServices(pfrom.addr, service_flags);
@@ -2317,6 +2319,18 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
         pfrom.fDisconnect = true;
         return;
     }
+    pfrom.nServices = service_flags;
+
+    // set nodes not relaying blocks and tx and not serving (parts) of the historical blockchain as "clients"
+    pfrom.fClient = (!(service_flags & NODE_NETWORK) && !(service_flags & NODE_NETWORK_LIMITED));
+
+    // set nodes not capable of serving the complete blockchain history as "limited nodes"
+    pfrom.m_limited_node = (!(service_flags & NODE_NETWORK) && (service_flags & NODE_NETWORK_LIMITED));
+
+    if (service_flags & NODE_WITNESS) {
+        WITH_LOCK(cs_main, State(pfrom.GetId())->fHaveWitness = true);
+    }
+
 
     clean_subver = SanitizeString(subver);
 
@@ -2343,24 +2357,13 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     // Signal ADDRv2 support (BIP155).
     m_connman.PushMessage(&pfrom, msg_maker.Make(NetMsgType::SENDADDRV2));
 
-    pfrom.nServices = service_flags;
     pfrom.SetAddrLocal(local_addr);
     WITH_LOCK(pfrom.cs_SubVer, pfrom.cleanSubVer = clean_subver);
     pfrom.nStartingHeight = starting_height;
 
-    // set nodes not relaying blocks and tx and not serving (parts) of the historical blockchain as "clients"
-    pfrom.fClient = (!(service_flags & NODE_NETWORK) && !(service_flags & NODE_NETWORK_LIMITED));
-
-    // set nodes not capable of serving the complete blockchain history as "limited nodes"
-    pfrom.m_limited_node = (!(service_flags & NODE_NETWORK) && (service_flags & NODE_NETWORK_LIMITED));
-
     if (pfrom.m_tx_relay != nullptr) {
         // cs_filter will be set to true after we get the first filter* message
         WITH_LOCK(pfrom.m_tx_relay->cs_filter, pfrom.m_tx_relay->fRelayTxes = relay);
-    }
-
-    if (service_flags & NODE_WITNESS) {
-        WITH_LOCK(cs_main, State(pfrom.GetId())->fHaveWitness = true);
     }
 
     // Potentially mark this peer as a preferred download peer.
