@@ -2277,53 +2277,48 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
         return;
     }
 
+    // Deserialize message
+    int version;
+    uint64_t services;
     int64_t time;
     CAddress local_addr;
-    CAddress remote_addr;
-    uint64_t nonce = 1;
-    uint64_t services;
-    ServiceFlags service_flags;
-    int version;
+    CAddress remote_addr_ignore; // We don't do anything with the peer's self-declared address.
+    uint64_t nonce;
     std::string subver;
-    int starting_height = -1;
-    bool relay = true;
-
-    vRecv >> version >> services >> time >> local_addr >> remote_addr >> nonce
+    int starting_height;
+    vRecv >> version >> services >> time >> local_addr >> remote_addr_ignore >> nonce
           >> LIMITED_STRING(subver, MAX_SUBVERSION_LENGTH) >> starting_height;
 
-    if (!vRecv.empty()) {
-        // relay field is optional
-        vRecv >> relay;
-    }
+    // Relay field is optional
+    bool relay{true};
+    if (!vRecv.empty()) vRecv >> relay;
 
     // Version
     if (version < MIN_PEER_PROTO_VERSION) {
-        // disconnect from peers older than this proto version
         LogPrint(BCLog::NET, "peer=%d using obsolete version %i; disconnecting\n", pfrom.GetId(), version);
         pfrom.fDisconnect = true;
         return;
     }
 
+    pfrom.nVersion = version;
     const int greatest_common_version = std::min(version, PROTOCOL_VERSION);
     pfrom.SetCommonVersion(greatest_common_version);
-    pfrom.nVersion = version;
 
     // Services
-    service_flags = ServiceFlags(services);
-    if (!pfrom.IsInboundConn()) {
-        m_connman.SetServices(pfrom.addr, service_flags);
-    }
+    const ServiceFlags service_flags{ServiceFlags(services)};
+    pfrom.nServices = service_flags;
+    if (!pfrom.IsInboundConn()) m_connman.SetServices(pfrom.addr, service_flags);
+
     if (pfrom.ExpectServicesFromConn() && !HasAllDesirableServiceFlags(service_flags)) {
         LogPrint(BCLog::NET, "peer=%d does not offer the expected services (%08x offered, %08x expected); disconnecting\n", pfrom.GetId(), service_flags, GetDesirableServiceFlags(service_flags));
         pfrom.fDisconnect = true;
         return;
     }
-    pfrom.nServices = service_flags;
 
-    // set nodes not relaying blocks and tx and not serving (parts) of the historical blockchain as "clients"
+    // Set nodes not relaying blocks and tx and not serving (parts) of the historical blockchain as "clients"
     pfrom.fClient = (!(service_flags & NODE_NETWORK) && !(service_flags & NODE_NETWORK_LIMITED));
 
-    // set nodes not capable of serving the complete blockchain history as "limited nodes"
+    // Set nodes not capable of serving the complete blockchain history as "limited nodes"
     pfrom.m_limited_node = (!(service_flags & NODE_NETWORK) && (service_flags & NODE_NETWORK_LIMITED));
 
     if (service_flags & NODE_WITNESS) {
@@ -2331,7 +2326,7 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     }
 
     // Time
-    int64_t time_offset{time - GetTime()};
+    const int64_t time_offset{time - GetTime()};
     pfrom.nTimeOffset = time_offset;
     AddTimeData(pfrom.addr, time_offset);
 
@@ -2348,7 +2343,7 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     }
 
     // Subversion
-    std::string clean_subver = SanitizeString(subver);
+    const std::string clean_subver{SanitizeString(subver)};
     WITH_LOCK(pfrom.cs_SubVer, pfrom.cleanSubVer = clean_subver);
 
     // Starting height
@@ -2381,8 +2376,8 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
         m_connman.MarkAddressGood(pfrom.addr);
     }
 
-    std::string remote_addr_string;
-    if (fLogIPs) remote_addr_string = ", peeraddr=" + pfrom.addr.ToString();
+    const std::string remote_addr_string = fLogIPs ? ", peeraddr=" + pfrom.addr.ToString()
+                                                   : "";
 
     LogPrint(BCLog::NET, "receive version message: %s: version %d, blocks=%d, us=%s, peer=%d%s\n",
              clean_subver, pfrom.nVersion,
@@ -2428,14 +2423,14 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
         }
 
         // Get recent addresses
-        m_connman.PushMessage(&pfrom, CNetMsgMaker(greatest_common_version).Make(NetMsgType::GETADDR));
+        m_connman.PushMessage(&pfrom, msg_maker.Make(NetMsgType::GETADDR));
         pfrom.fGetAddr = true;
     }
 
     // If the peer is old enough to have the old alert system, send it the final alert.
     if (greatest_common_version <= 70012) {
         CDataStream finalAlert(ParseHex("60010000000000000000000000ffffff7f00000000ffffff7ffeffff7f01ffffff7f00000000ffffff7f00ffffff7f002f555247454e543a20416c657274206b657920636f6d70726f6d697365642c2075706772616465207265717569726564004630440220653febd6410f470f6bae11cad19c48413becb1ac2c17f908fd0fd53bdc3abd5202206d0e9c96fe88d4a0f01ed9dedae2b6f9e00da94cad0fecaae66ecf689bf71b50"), SER_NETWORK, PROTOCOL_VERSION);
-        m_connman.PushMessage(&pfrom, CNetMsgMaker(greatest_common_version).Make("alert", finalAlert));
+        m_connman.PushMessage(&pfrom, msg_maker.Make("alert", finalAlert));
     }
 
     // Feeler connections exist only to verify if address is online.
