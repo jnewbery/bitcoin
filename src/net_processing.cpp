@@ -2354,6 +2354,12 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
     // Starting height
     pfrom.nStartingHeight = starting_height;
 
+    // Relay
+    if (pfrom.m_tx_relay != nullptr) {
+        // cs_filter will be set to true after we get the first filter* message
+        WITH_LOCK(pfrom.m_tx_relay->cs_filter, pfrom.m_tx_relay->fRelayTxes = relay);
+    }
+
     // Be shy and don't send version until we hear
     if (pfrom.IsInboundConn()) PushNodeVersion(pfrom, m_connman, GetAdjustedTime());
 
@@ -2367,11 +2373,6 @@ void PeerManager::ProcessVersionMessage(CNode& pfrom, CDataStream& vRecv)
 
     // Signal ADDRv2 support (BIP155).
     m_connman.PushMessage(&pfrom, msg_maker.Make(NetMsgType::SENDADDRV2));
-
-    if (pfrom.m_tx_relay != nullptr) {
-        // cs_filter will be set to true after we get the first filter* message
-        WITH_LOCK(pfrom.m_tx_relay->cs_filter, pfrom.m_tx_relay->fRelayTxes = relay);
-    }
 
     // Potentially mark this peer as a preferred download peer.
     WITH_LOCK(cs_main, UpdatePreferredDownload(pfrom, State(pfrom.GetId())));
