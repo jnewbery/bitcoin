@@ -1321,29 +1321,29 @@ void PeerManager::NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_
  * Update our best height and announce any block hashes which weren't previously
  * in ::ChainActive() to our peers.
  */
-void PeerManager::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool initial_sync) {
-    m_connman.SetBestHeight(pindexNew->nHeight);
+void PeerManager::UpdatedBlockTip(const CBlockIndex* new_index, const CBlockIndex* fork_index, bool initial_sync) {
+    m_connman.SetBestHeight(new_index->nHeight);
 
     SetServiceFlagsIBDCache(!initial_sync);
 
-    // Don't relay old inventory during initial block download.
+    // Don't relay inventory during initial block download.
     if (initial_sync) return;
 
     // Find the hashes of all blocks that weren't previously in the best chain.
-    std::vector<uint256> vHashes;
-    const CBlockIndex *pindexToAnnounce = pindexNew;
-    while (pindexToAnnounce != pindexFork) {
-        vHashes.push_back(pindexToAnnounce->GetBlockHash());
-        pindexToAnnounce = pindexToAnnounce->pprev;
-        if (vHashes.size() == MAX_BLOCKS_TO_ANNOUNCE) {
+    std::vector<uint256> block_hashes;
+    const CBlockIndex* block_index = new_index;
+    while (block_index != fork_index) {
+        block_hashes.push_back(block_index->GetBlockHash());
+        block_index = block_index->pprev;
+        if (block_hashes.size() == MAX_BLOCKS_TO_ANNOUNCE) {
             // Limit announcements in case of a huge reorganization.
             // Rely on the peer's synchronization mechanism in that case.
             break;
         }
     }
-    m_connman.ForEachNode([&vHashes](CNode* pnode) {
+    m_connman.ForEachNode([&block_hashes](CNode* pnode) {
         LOCK(pnode->cs_inventory);
-        for (const uint256& hash : reverse_iterate(vHashes)) {
+        for (const uint256& hash : reverse_iterate(block_hashes)) {
             pnode->vBlockHashesToAnnounce.push_back(hash);
         }
     });
