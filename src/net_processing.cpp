@@ -1342,12 +1342,10 @@ void PeerManager::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockInde
             break;
         }
     }
-    m_connman.ForEachNode([nNewHeight, &vHashes](CNode* pnode) {
+    m_connman.ForEachNode([&vHashes](CNode* pnode) {
         LOCK(pnode->cs_inventory);
-        if (nNewHeight > (pnode->nStartingHeight != -1 ? pnode->nStartingHeight - 2000 : 0)) {
-            for (const uint256& hash : reverse_iterate(vHashes)) {
-                pnode->vBlockHashesToAnnounce.push_back(hash);
-            }
+        for (const uint256& hash : reverse_iterate(vHashes)) {
+            pnode->vBlockHashesToAnnounce.push_back(hash);
         }
     });
 
