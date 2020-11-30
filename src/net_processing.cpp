@@ -1321,12 +1321,12 @@ void PeerManager::NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_
  * Update our best height and announce any block hashes which weren't previously
  * in ::ChainActive() to our peers.
  */
-void PeerManager::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload) {
+void PeerManager::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool initial_sync) {
     const int nNewHeight = pindexNew->nHeight;
     m_connman.SetBestHeight(nNewHeight);
 
-    SetServiceFlagsIBDCache(!fInitialDownload);
-    if (!fInitialDownload) {
+    SetServiceFlagsIBDCache(!initial_sync);
+    if (!initial_sync) {
         // Find the hashes of all blocks that weren't previously in the best chain.
         std::vector<uint256> vHashes;
         const CBlockIndex *pindexToAnnounce = pindexNew;
