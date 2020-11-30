@@ -1322,8 +1322,7 @@ void PeerManager::NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_
  * in ::ChainActive() to our peers.
  */
 void PeerManager::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool initial_sync) {
-    const int nNewHeight = pindexNew->nHeight;
-    m_connman.SetBestHeight(nNewHeight);
+    m_connman.SetBestHeight(pindexNew->nHeight);
 
     SetServiceFlagsIBDCache(!initial_sync);
 
