@@ -180,6 +180,20 @@ enum class ConnectionType {
     ADDR_FETCH,
 };
 
+/** The state of this connection. */
+enum class ConnectionState {
+    /** Initial state when the TCP connection is first established. No P2P
+     * messages have been received from this peer. */
+    CONNECTION_CREATED,
+
+    /** Set once a version message has been received from this peer. */
+    VERSION_RECEIVED,
+
+    /** We consider the peer fully connected once we have received the version
+     * and verack messages. */
+    FULLY_CONNECTED,
+};
+
 class NetEventsInterface;
 class CConnman
 {
@@ -902,6 +916,9 @@ public:
      */
     std::atomic_bool m_wants_addrv2{false};
     std::atomic_bool fSuccessfullyConnected{false};
+
+    /** State of the version/verack handshake. */
+    std::atomic<ConnectionState> m_connection_state{ConnectionState::CONNECTION_CREATED};
     // Setting fDisconnect to true will cause the node to be disconnected the
     // next time DisconnectNodes() runs
     std::atomic_bool fDisconnect{false};
