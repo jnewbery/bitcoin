@@ -52,7 +52,7 @@ FUZZ_TARGET_INIT(process_messages, initialize_process_messages)
         peers.push_back(MakeUnique<CNode>(i, service_flags, 0, INVALID_SOCKET, CAddress{CService{in_addr{0x0100007f}, 7777}, NODE_NETWORK}, 0, 0, CAddress{}, std::string{}, conn_type).release());
         CNode& p2p_node = *peers.back();
 
-        p2p_node.fSuccessfullyConnected = true;
+        p2p_node.m_connection_state = ConnectionState::FULLY_CONNECTED;
         p2p_node.fPauseSend = false;
         p2p_node.nVersion = PROTOCOL_VERSION;
         p2p_node.SetCommonVersion(PROTOCOL_VERSION);

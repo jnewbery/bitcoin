@@ -915,7 +915,6 @@ public:
      * messages, implying a preference to receive ADDRv2 instead of ADDR ones.
      */
     std::atomic_bool m_wants_addrv2{false};
-    std::atomic_bool fSuccessfullyConnected{false};
 
     /** State of the version/verack handshake. */
     std::atomic<ConnectionState> m_connection_state{ConnectionState::CONNECTION_CREATED};

@@ -89,7 +89,7 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
     dummyNode1.SetCommonVersion(PROTOCOL_VERSION);
 
     peerLogic->InitializeNode(&dummyNode1);
-    dummyNode1.fSuccessfullyConnected = true;
+    dummyNode1.m_connection_state = ConnectionState::FULLY_CONNECTED;
 
     // This test requires that we have a chain with non-zero work.
     {
@@ -141,7 +141,7 @@ static void AddRandomOutboundPeer(std::vector<CNode *> &vNodes, PeerManager &pee
     node.SetCommonVersion(PROTOCOL_VERSION);
 
     peerLogic.InitializeNode(&node);
-    node.fSuccessfullyConnected = true;
+    node.m_connection_state = ConnectionState::FULLY_CONNECTED;
 
     connman->AddNode(node);
 }
@@ -232,7 +232,7 @@ BOOST_AUTO_TEST_CASE(peer_discouragement)
     CNode dummyNode1(id++, NODE_NETWORK, 0, INVALID_SOCKET, addr1, 0, 0, CAddress(), "", ConnectionType::INBOUND);
     dummyNode1.SetCommonVersion(PROTOCOL_VERSION);
     peerLogic->InitializeNode(&dummyNode1);
-    dummyNode1.fSuccessfullyConnected = true;
+    dummyNode1.m_connection_state = ConnectionState::FULLY_CONNECTED;
     peerLogic->Misbehaving(dummyNode1.GetId(), DISCOURAGEMENT_THRESHOLD, /* message */ ""); // Should be discouraged
     {
         LOCK(dummyNode1.cs_sendProcessing);
@@ -245,7 +245,7 @@ BOOST_AUTO_TEST_CASE(peer_discouragement)
     CNode dummyNode2(id++, NODE_NETWORK, 0, INVALID_SOCKET, addr2, 1, 1, CAddress(), "", ConnectionType::INBOUND);
     dummyNode2.SetCommonVersion(PROTOCOL_VERSION);
     peerLogic->InitializeNode(&dummyNode2);
-    dummyNode2.fSuccessfullyConnected = true;
+    dummyNode2.m_connection_state = ConnectionState::FULLY_CONNECTED;
     peerLogic->Misbehaving(dummyNode2.GetId(), DISCOURAGEMENT_THRESHOLD - 1, /* message */ "");
     {
         LOCK(dummyNode2.cs_sendProcessing);
@@ -282,7 +282,7 @@ BOOST_AUTO_TEST_CASE(DoS_bantime)
     CNode dummyNode(id++, NODE_NETWORK, 0, INVALID_SOCKET, addr, 4, 4, CAddress(), "", ConnectionType::INBOUND);
     dummyNode.SetCommonVersion(PROTOCOL_VERSION);
     peerLogic->InitializeNode(&dummyNode);
-    dummyNode.fSuccessfullyConnected = true;
+    dummyNode.m_connection_state = ConnectionState::FULLY_CONNECTED;
 
     peerLogic->Misbehaving(dummyNode.GetId(), DISCOURAGEMENT_THRESHOLD, /* message */ "");
     {

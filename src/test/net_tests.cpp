@@ -677,7 +677,7 @@ BOOST_AUTO_TEST_CASE(ipv4_peer_with_ipv6_addrMe_test)
     ipv4AddrPeer.s_addr = 0xa0b0c001;
     CAddress addr = CAddress(CService(ipv4AddrPeer, 7777), NODE_NETWORK);
     std::unique_ptr<CNode> pnode = MakeUnique<CNode>(0, NODE_NETWORK, 0, INVALID_SOCKET, addr, 0, 0, CAddress{}, std::string{}, ConnectionType::OUTBOUND_FULL_RELAY);
-    pnode->fSuccessfullyConnected.store(true);
+    pnode->m_connection_state = ConnectionState::FULLY_CONNECTED;
 
     // the peer claims to be reaching us via IPv6
     in6_addr ipv6AddrLocal;
