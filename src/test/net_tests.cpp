@@ -179,7 +179,6 @@ BOOST_AUTO_TEST_CASE(cnode_simple_test)
 {
     SOCKET hSocket = INVALID_SOCKET;
     NodeId id = 0;
-    int height = 0;
 
     in_addr ipv4Addr;
     ipv4Addr.s_addr = 0xa0b0c001;
@@ -188,7 +187,7 @@ BOOST_AUTO_TEST_CASE(cnode_simple_test)
     std::string pszDest;
 
     std::unique_ptr<CNode> pnode1 = MakeUnique<CNode>(
-        id++, NODE_NETWORK, height, hSocket, addr,
+        id++, NODE_NETWORK, hSocket, addr,
         /* nKeyedNetGroupIn = */ 0,
         /* nLocalHostNonceIn = */ 0,
         CAddress(), pszDest, ConnectionType::OUTBOUND_FULL_RELAY);
@@ -201,7 +200,7 @@ BOOST_AUTO_TEST_CASE(cnode_simple_test)
     BOOST_CHECK_EQUAL(pnode1->ConnectedThroughNetwork(), Network::NET_IPV4);
 
     std::unique_ptr<CNode> pnode2 = MakeUnique<CNode>(
-        id++, NODE_NETWORK, height, hSocket, addr,
+        id++, NODE_NETWORK, hSocket, addr,
         /* nKeyedNetGroupIn = */ 1,
         /* nLocalHostNonceIn = */ 1,
         CAddress(), pszDest, ConnectionType::INBOUND,
@@ -215,7 +214,7 @@ BOOST_AUTO_TEST_CASE(cnode_simple_test)
     BOOST_CHECK_EQUAL(pnode2->ConnectedThroughNetwork(), Network::NET_IPV4);
 
     std::unique_ptr<CNode> pnode3 = MakeUnique<CNode>(
-        id++, NODE_NETWORK, height, hSocket, addr,
+        id++, NODE_NETWORK, hSocket, addr,
         /* nKeyedNetGroupIn = */ 0,
         /* nLocalHostNonceIn = */ 0,
         CAddress(), pszDest, ConnectionType::OUTBOUND_FULL_RELAY,
@@ -229,7 +228,7 @@ BOOST_AUTO_TEST_CASE(cnode_simple_test)
     BOOST_CHECK_EQUAL(pnode3->ConnectedThroughNetwork(), Network::NET_IPV4);
 
     std::unique_ptr<CNode> pnode4 = MakeUnique<CNode>(
-        id++, NODE_NETWORK, height, hSocket, addr,
+        id++, NODE_NETWORK, hSocket, addr,
         /* nKeyedNetGroupIn = */ 1,
         /* nLocalHostNonceIn = */ 1,
         CAddress(), pszDest, ConnectionType::INBOUND,
@@ -664,7 +663,7 @@ BOOST_AUTO_TEST_CASE(ipv4_peer_with_ipv6_addrMe_test)
     in_addr ipv4AddrPeer;
     ipv4AddrPeer.s_addr = 0xa0b0c001;
     CAddress addr = CAddress(CService(ipv4AddrPeer, 7777), NODE_NETWORK);
-    std::unique_ptr<CNode> pnode = MakeUnique<CNode>(0, NODE_NETWORK, 0, INVALID_SOCKET, addr, 0, 0, CAddress{}, std::string{}, ConnectionType::OUTBOUND_FULL_RELAY);
+    std::unique_ptr<CNode> pnode = MakeUnique<CNode>(0, NODE_NETWORK, INVALID_SOCKET, addr, 0, 0, CAddress{}, std::string{}, ConnectionType::OUTBOUND_FULL_RELAY);
     pnode->fSuccessfullyConnected.store(true);
 
     // the peer claims to be reaching us via IPv6
