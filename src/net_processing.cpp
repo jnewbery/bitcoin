@@ -693,7 +693,7 @@ void PeerManager::PushNodeVersion(CNode& pnode, int64_t nTime)
     // peer.
     ServiceFlags nLocalNodeServices = pnode.GetLocalServices();
     uint64_t nonce = pnode.GetLocalNonce();
-    int starting_height = pnode.GetMyStartingHeight();
+    const int starting_height{WITH_LOCK(cs_main, return ::ChainActive().Height())};
     NodeId nodeid = pnode.GetId();
     CAddress addr = pnode.addr;
 
