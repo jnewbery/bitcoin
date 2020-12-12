@@ -391,7 +391,6 @@ public:
     uint64_t GetTotalBytesSent();
 
     void SetBestHeight(int height);
-    int GetBestHeight() const;
 
     /** Get a unique deterministic randomizer. */
     CSipHasher GetDeterministicRandomizer(uint64_t id) const;
