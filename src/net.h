@@ -1129,10 +1129,6 @@ public:
         return nLocalHostNonce;
     }
 
-    int GetMyStartingHeight() const {
-        return nMyStartingHeight;
-    }
-
     int GetRefCount() const
     {
         assert(nRefCount >= 0);
