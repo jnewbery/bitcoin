@@ -548,19 +548,18 @@ static void MaybeSetPeerAsAnnouncingHeaderAndIDs(NodeId nodeid, CConnman& connma
         }
         connman.ForNode(nodeid, [&connman](CNode* pfrom) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
             AssertLockHeld(::cs_main);
-            uint64_t nCMPCTBLOCKVersion = (pfrom->GetLocalServices() & NODE_WITNESS) ? 2 : 1;
             if (lNodesAnnouncingHeaderAndIDs.size() >= 3) {
                 // As per BIP152, we only get 3 of our peers to announce
                 // blocks using compact encodings.
-                connman.ForNode(lNodesAnnouncingHeaderAndIDs.front(), [&connman, nCMPCTBLOCKVersion](CNode* pnodeStop){
-                    connman.PushMessage(pnodeStop, CNetMsgMaker(pnodeStop->GetCommonVersion()).Make(NetMsgType::SENDCMPCT, /*fAnnounceUsingCMPCTBLOCK=*/false, nCMPCTBLOCKVersion));
+                connman.ForNode(lNodesAnnouncingHeaderAndIDs.front(), [&connman](CNode* pnodeStop) {
+                    connman.PushMessage(pnodeStop, CNetMsgMaker(pnodeStop->GetCommonVersion()).Make(NetMsgType::SENDCMPCT, /* high bandwidth */ false, /* version */ 2));
                     // save BIP152 bandwidth state: we select peer to be low-bandwidth
                     pnodeStop->m_bip152_highbandwidth_to = false;
                     return true;
                 });
                 lNodesAnnouncingHeaderAndIDs.pop_front();
             }
-            connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetCommonVersion()).Make(NetMsgType::SENDCMPCT, /*fAnnounceUsingCMPCTBLOCK=*/true, nCMPCTBLOCKVersion));
+            connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetCommonVersion()).Make(NetMsgType::SENDCMPCT, /* high bandwidth */ true, /* version */ 2));
             // save BIP152 bandwidth state: we select peer to be high-bandwidth
             pfrom->m_bip152_highbandwidth_to = true;
             lNodesAnnouncingHeaderAndIDs.push_back(pfrom->GetId());
@@ -1742,11 +1741,7 @@ void static ProcessGetData(CNode& pfrom, Peer& peer, const CChainParams& chainpa
 }
 
 static uint32_t GetFetchFlags(const CNode& pfrom) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
-    uint32_t nFetchFlags = 0;
-    if ((pfrom.GetLocalServices() & NODE_WITNESS) && State(pfrom.GetId())->fHaveWitness) {
-        nFetchFlags |= MSG_WITNESS_FLAG;
-    }
-    return nFetchFlags;
+    return State(pfrom.GetId())->fHaveWitness ? MSG_WITNESS_FLAG : 0;
 }
 
 void PeerManager::SendBlockTransactions(CNode& pfrom, const CBlock& block, const BlockTransactionsRequest& req) {
@@ -2492,12 +2487,8 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
             // cmpctblock messages.
             // We send this to non-NODE NETWORK peers as well, because
             // they may wish to request compact blocks from us
-            bool fAnnounceUsingCMPCTBLOCK = false;
-            uint64_t nCMPCTBLOCKVersion = 2;
-            if (pfrom.GetLocalServices() & NODE_WITNESS)
-                m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion));
-            nCMPCTBLOCKVersion = 1;
-            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion));
+            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDCMPCT, /* high bandwidth mode */ false, /* version */ 2));
+            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDCMPCT, /* high bandwidth mode */ false, /* version */ 1));
         }
         pfrom.fSuccessfullyConnected = true;
         return;
@@ -2513,7 +2504,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         bool fAnnounceUsingCMPCTBLOCK = false;
         uint64_t nCMPCTBLOCKVersion = 0;
         vRecv >> fAnnounceUsingCMPCTBLOCK >> nCMPCTBLOCKVersion;
-        if (nCMPCTBLOCKVersion == 1 || ((pfrom.GetLocalServices() & NODE_WITNESS) && nCMPCTBLOCKVersion == 2)) {
+        if (nCMPCTBLOCKVersion == 1 || nCMPCTBLOCKVersion == 2) {
             LOCK(cs_main);
             // fProvidesHeaderAndIDs is used to "lock in" version of compact blocks we send (fWantsCmpctWitness)
             if (!State(pfrom.GetId())->fProvidesHeaderAndIDs) {
@@ -2527,10 +2518,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
                 pfrom.m_bip152_highbandwidth_from = fAnnounceUsingCMPCTBLOCK;
             }
             if (!State(pfrom.GetId())->fSupportsDesiredCmpctVersion) {
-                if (pfrom.GetLocalServices() & NODE_WITNESS)
-                    State(pfrom.GetId())->fSupportsDesiredCmpctVersion = (nCMPCTBLOCKVersion == 2);
-                else
-                    State(pfrom.GetId())->fSupportsDesiredCmpctVersion = (nCMPCTBLOCKVersion == 1);
+                State(pfrom.GetId())->fSupportsDesiredCmpctVersion = (nCMPCTBLOCKVersion == 2);
             }
         }
         return;
