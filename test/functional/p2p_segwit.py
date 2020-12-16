@@ -275,7 +275,6 @@ class SegWitTest(BitcoinTestFramework):
         self.test_non_witness_transaction()
         self.test_v0_outputs_arent_spendable()
         self.test_block_relay()
-        self.test_getblocktemplate_before_lockin()
         self.test_unnecessary_witness_before_segwit_activation()
         self.test_witness_tx_relay_before_segwit_activation()
         self.test_standardness_v0()
@@ -562,32 +561,6 @@ class SegWitTest(BitcoinTestFramework):
 
         self.utxo.pop(0)
         self.utxo.append(UTXO(txid, 2, value))
-
-    @subtest  # type: ignore
-    def test_getblocktemplate_before_lockin(self):
-        txid = int(self.nodes[0].sendtoaddress(self.nodes[0].getnewaddress(), 1), 16)
-
-        for node in [self.nodes[0], self.nodes[2]]:
-            gbt_results = node.getblocktemplate({"rules": ["segwit"]})
-            if node == self.nodes[2]:
-                # If this is a non-segwit node, we should not get a witness
-                # commitment.
-                assert 'default_witness_commitment' not in gbt_results
-            else:
-                # For segwit-aware nodes, check the witness
-                # commitment is correct.
-                assert 'default_witness_commitment' in gbt_results
-                witness_commitment = gbt_results['default_witness_commitment']
-
-                # Check that default_witness_commitment is present.
-                witness_root = CBlock.get_merkle_root([ser_uint256(0),
-                                                       ser_uint256(txid)])
-                script = get_witness_script(witness_root, 0)
-                assert_equal(witness_commitment, script.hex())
-
-        # Clear out the mempool
-        self.nodes[0].generate(1)
-        self.sync_blocks()
 
     @subtest  # type: ignore
     def test_witness_tx_relay_before_segwit_activation(self):
