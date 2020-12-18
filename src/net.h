@@ -1169,7 +1169,16 @@ public:
         nRefCount--;
     }
 
+    template <typename... Args>
+    void Disconnect(const char* message, const Args&... args)
+    {
+        LogPrint(BCLog::NET, "Disconnecting peer=%d: ", id); /* Continued */
+        LogPrint(BCLog::NET, message, args...); /* Continued */
+        LogPrint(BCLog::NET, "/n");
+        fDisconnect = true;
+    }
 
+    bool IsDisconnecting() { return fDisconnect; }
 
     void AddAddressKnown(const CAddress& _addr)
     {
