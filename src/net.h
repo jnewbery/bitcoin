@@ -902,9 +902,6 @@ public:
      */
     std::atomic_bool m_wants_addrv2{false};
     std::atomic_bool fSuccessfullyConnected{false};
-    // Setting fDisconnect to true will cause the node to be disconnected the
-    // next time DisconnectNodes() runs
-    std::atomic_bool fDisconnect{false};
     bool fSentAddr{false};
     CSemaphoreGrant grantOutbound;
     std::atomic<int> nRefCount{0};
@@ -1081,6 +1078,8 @@ private:
     const uint64_t nLocalHostNonce;
     const ConnectionType m_conn_type;
     std::atomic<int> m_greatest_common_version{INIT_PROTO_VERSION};
+    /** True when we're in the process of disconnecting this peer */
+    std::atomic_bool fDisconnect{false};
 
     //! Services offered to this peer.
     //!
