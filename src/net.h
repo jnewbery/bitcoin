@@ -1178,7 +1178,7 @@ public:
         fDisconnect = true;
     }
 
-    bool IsDisconnecting() { return fDisconnect; }
+    bool IsDisconnecting() const { return fDisconnect; }
 
     void AddAddressKnown(const CAddress& _addr)
     {
