@@ -3719,6 +3719,33 @@ void PeerManager::ProcessMessageType<MSG_TYPE::PONG>(CNode& pfrom, Peer& peer,
     }
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::FILTERLOAD>(CNode& pfrom, Peer& peer,
+                                                           const std::string& msg_type,
+                                                           CDataStream& vRecv,
+                                                           const std::chrono::microseconds time_received,
+                                                           const std::atomic<bool>& interruptMsgProc)
+{
+    if (!(pfrom.GetLocalServices() & NODE_BLOOM)) {
+        pfrom.fDisconnect = true;
+        return;
+    }
+    CBloomFilter filter;
+    vRecv >> filter;
+
+    if (!filter.IsWithinSizeConstraints())
+    {
+        // There is no excuse for sending a too-large filter
+        Misbehaving(pfrom.GetId(), 100, "too-large bloom filter");
+    }
+    else if (pfrom.m_tx_relay != nullptr)
+    {
+        LOCK(pfrom.m_tx_relay->cs_filter);
+        pfrom.m_tx_relay->pfilter.reset(new CBloomFilter(filter));
+        pfrom.m_tx_relay->fRelayTxes = true;
+    }
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -3838,29 +3865,12 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return;
     }
 
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
     if (msg_type == NetMsgType::FILTERLOAD) {
-        if (!(pfrom.GetLocalServices() & NODE_BLOOM)) {
-            pfrom.fDisconnect = true;
-            return;
-        }
-        CBloomFilter filter;
-        vRecv >> filter;
-
-        if (!filter.IsWithinSizeConstraints())
-        {
-            // There is no excuse for sending a too-large filter
-            Misbehaving(pfrom.GetId(), 100, "too-large bloom filter");
-        }
-        else if (pfrom.m_tx_relay != nullptr)
-        {
-            LOCK(pfrom.m_tx_relay->cs_filter);
-            pfrom.m_tx_relay->pfilter.reset(new CBloomFilter(filter));
-            pfrom.m_tx_relay->fRelayTxes = true;
-        }
+        ProcessMessageType<MSG_TYPE::FILTERLOAD>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
         return;
     }
+
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
 
     if (msg_type == NetMsgType::FILTERADD) {
         if (!(pfrom.GetLocalServices() & NODE_BLOOM)) {
