@@ -3778,6 +3778,25 @@ void PeerManager::ProcessMessageType<MSG_TYPE::FILTERADD>(CNode& pfrom, Peer& pe
     }
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::FILTERCLEAR>(CNode& pfrom, Peer& peer,
+                                                            const std::string& msg_type,
+                                                            CDataStream& vRecv,
+                                                            const std::chrono::microseconds time_received,
+                                                            const std::atomic<bool>& interruptMsgProc)
+{
+    if (!(pfrom.GetLocalServices() & NODE_BLOOM)) {
+        pfrom.fDisconnect = true;
+        return;
+    }
+    if (pfrom.m_tx_relay == nullptr) {
+        return;
+    }
+    LOCK(pfrom.m_tx_relay->cs_filter);
+    pfrom.m_tx_relay->pfilter = nullptr;
+    pfrom.m_tx_relay->fRelayTxes = true;
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -3908,16 +3927,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
     }
 
     if (msg_type == NetMsgType::FILTERCLEAR) {
-        if (!(pfrom.GetLocalServices() & NODE_BLOOM)) {
-            pfrom.fDisconnect = true;
-            return;
-        }
-        if (pfrom.m_tx_relay == nullptr) {
-            return;
-        }
-        LOCK(pfrom.m_tx_relay->cs_filter);
-        pfrom.m_tx_relay->pfilter = nullptr;
-        pfrom.m_tx_relay->fRelayTxes = true;
+        ProcessMessageType<MSG_TYPE::FILTERCLEAR>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
         return;
     }
 
