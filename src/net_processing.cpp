@@ -3519,6 +3519,47 @@ void PeerManager::ProcessMessageType<MSG_TYPE::HEADERS>(CNode& pfrom, Peer& peer
     return ProcessHeadersMessage(pfrom, headers, /*via_compact_block=*/false);
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::BLOCK>(CNode& pfrom, Peer& peer,
+                                                      const std::string& msg_type,
+                                                      CDataStream& vRecv,
+                                                      const std::chrono::microseconds time_received,
+                                                      const std::atomic<bool>& interruptMsgProc)
+{
+    // Ignore block received while importing
+    if (fImporting || fReindex) {
+        LogPrint(BCLog::NET, "Unexpected block message received from peer %d\n", pfrom.GetId());
+        return;
+    }
+
+    std::shared_ptr<CBlock> pblock = std::make_shared<CBlock>();
+    vRecv >> *pblock;
+
+    LogPrint(BCLog::NET, "received block %s peer=%d\n", pblock->GetHash().ToString(), pfrom.GetId());
+
+    bool forceProcessing = false;
+    const uint256 hash(pblock->GetHash());
+    {
+        LOCK(cs_main);
+        // Also always process if we requested the block explicitly, as we may
+        // need it even though it is not a candidate for a new best tip.
+        forceProcessing |= MarkBlockAsReceived(hash);
+        // mapBlockSource is only used for punishing peers and setting
+        // which peers send us compact blocks, so the race between here and
+        // cs_main in ProcessNewBlock is fine.
+        mapBlockSource.emplace(hash, std::make_pair(pfrom.GetId(), true));
+    }
+    bool fNewBlock = false;
+    m_chainman.ProcessNewBlock(m_chainparams, pblock, forceProcessing, &fNewBlock);
+    if (fNewBlock) {
+        pfrom.nLastBlockTime = GetTime();
+    } else {
+        LOCK(cs_main);
+        mapBlockSource.erase(pblock->GetHash());
+    }
+    return;
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -3613,43 +3654,12 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return;
     }
 
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
-    if (msg_type == NetMsgType::BLOCK)
-    {
-        // Ignore block received while importing
-        if (fImporting || fReindex) {
-            LogPrint(BCLog::NET, "Unexpected block message received from peer %d\n", pfrom.GetId());
-            return;
-        }
-
-        std::shared_ptr<CBlock> pblock = std::make_shared<CBlock>();
-        vRecv >> *pblock;
-
-        LogPrint(BCLog::NET, "received block %s peer=%d\n", pblock->GetHash().ToString(), pfrom.GetId());
-
-        bool forceProcessing = false;
-        const uint256 hash(pblock->GetHash());
-        {
-            LOCK(cs_main);
-            // Also always process if we requested the block explicitly, as we may
-            // need it even though it is not a candidate for a new best tip.
-            forceProcessing |= MarkBlockAsReceived(hash);
-            // mapBlockSource is only used for punishing peers and setting
-            // which peers send us compact blocks, so the race between here and
-            // cs_main in ProcessNewBlock is fine.
-            mapBlockSource.emplace(hash, std::make_pair(pfrom.GetId(), true));
-        }
-        bool fNewBlock = false;
-        m_chainman.ProcessNewBlock(m_chainparams, pblock, forceProcessing, &fNewBlock);
-        if (fNewBlock) {
-            pfrom.nLastBlockTime = GetTime();
-        } else {
-            LOCK(cs_main);
-            mapBlockSource.erase(pblock->GetHash());
-        }
+    if (msg_type == NetMsgType::BLOCK) {
+        ProcessMessageType<MSG_TYPE::BLOCK>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
         return;
     }
+ 
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
 
     if (msg_type == NetMsgType::GETADDR) {
         // This asymmetric behavior for inbound and outbound connections was introduced
