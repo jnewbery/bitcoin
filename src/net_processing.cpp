@@ -3796,6 +3796,27 @@ void PeerManager::ProcessMessageType<MSG_TYPE::GETCFCHECKPT>(CNode& pfrom, Peer&
               headers);
     m_connman.PushMessage(&pfrom, std::move(msg));
 }
+        
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::NOTFOUND>(CNode& pfrom, Peer& peer,
+                                                         const std::string& msg_type,
+                                                         CDataStream& vRecv,
+                                                         const std::chrono::microseconds time_received,
+                                                         const std::atomic<bool>& interruptMsgProc)
+{
+    std::vector<CInv> vInv;
+    vRecv >> vInv;
+    if (vInv.size() <= MAX_PEER_TX_ANNOUNCEMENTS + MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
+        LOCK(::cs_main);
+        for (CInv &inv : vInv) {
+            if (inv.IsGenTxMsg()) {
+                // If we receive a NOTFOUND message for a tx we requested, mark the announcement for it as
+                // completed in TxRequestTracker.
+                m_txrequest.ReceivedResponse(pfrom.GetId(), inv.hash);
+            }
+        }
+    }
+}
 
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
@@ -3952,18 +3973,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
     }
 
     if (msg_type == NetMsgType::NOTFOUND) {
-        std::vector<CInv> vInv;
-        vRecv >> vInv;
-        if (vInv.size() <= MAX_PEER_TX_ANNOUNCEMENTS + MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
-            LOCK(::cs_main);
-            for (CInv &inv : vInv) {
-                if (inv.IsGenTxMsg()) {
-                    // If we receive a NOTFOUND message for a tx we requested, mark the announcement for it as
-                    // completed in TxRequestTracker.
-                    m_txrequest.ReceivedResponse(pfrom.GetId(), inv.hash);
-                }
-            }
-        }
+        ProcessMessageType<MSG_TYPE::NOTFOUND>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
         return;
     }
 
