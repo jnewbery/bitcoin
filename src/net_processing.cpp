@@ -2492,6 +2492,17 @@ void PeerManager::ProcessMessageType<MSG_TYPE::VERACK>(CNode& pfrom, Peer& peer,
     pfrom.m_connection_state = ConnectionState::FULLY_CONNECTED;
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::SENDHEADERS>(CNode& pfrom, Peer& peer,
+                                                            const std::string& msg_type,
+                                                            CDataStream& vRecv,
+                                                            const std::chrono::microseconds time_received,
+                                                            const std::atomic<bool>& interruptMsgProc)
+{
+    LOCK(cs_main);
+    State(pfrom.GetId())->fPreferHeaders = true;
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -2520,13 +2531,11 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return ProcessMessageType<MSG_TYPE::VERACK>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
 
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
     if (msg_type == NetMsgType::SENDHEADERS) {
-        LOCK(cs_main);
-        State(pfrom.GetId())->fPreferHeaders = true;
-        return;
+        return ProcessMessageType<MSG_TYPE::SENDHEADERS>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
+
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
 
     if (msg_type == NetMsgType::SENDCMPCT) {
         bool fAnnounceUsingCMPCTBLOCK = false;
