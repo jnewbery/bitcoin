@@ -2749,7 +2749,6 @@ void PeerManager::ProcessMessageType<MSG_TYPE::GETDATA>(CNode& pfrom, Peer& peer
     }
 }
 
-
 template<>
 void PeerManager::ProcessMessageType<MSG_TYPE::GETBLOCKS>(CNode& pfrom, Peer& peer,
                                                           const std::string& msg_type,
@@ -2823,6 +2822,61 @@ void PeerManager::ProcessMessageType<MSG_TYPE::GETBLOCKS>(CNode& pfrom, Peer& pe
     }
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::GETBLOCKTXN>(CNode& pfrom, Peer& peer,
+                                                            const std::string& msg_type,
+                                                            CDataStream& vRecv,
+                                                            const std::chrono::microseconds time_received,
+                                                            const std::atomic<bool>& interruptMsgProc)
+{
+    BlockTransactionsRequest req;
+    vRecv >> req;
+
+    std::shared_ptr<const CBlock> recent_block;
+    {
+        LOCK(cs_most_recent_block);
+        if (most_recent_block_hash == req.blockhash)
+            recent_block = most_recent_block;
+        // Unlock cs_most_recent_block to avoid cs_main lock inversion
+    }
+    if (recent_block) {
+        SendBlockTransactions(pfrom, *recent_block, req);
+        return;
+    }
+
+    {
+        LOCK(cs_main);
+
+        const CBlockIndex* pindex = LookupBlockIndex(req.blockhash);
+        if (!pindex || !(pindex->nStatus & BLOCK_HAVE_DATA)) {
+            LogPrint(BCLog::NET, "Peer %d sent us a getblocktxn for a block we don't have\n", pfrom.GetId());
+            return;
+        }
+
+        if (pindex->nHeight >= ::ChainActive().Height() - MAX_BLOCKTXN_DEPTH) {
+            CBlock block;
+            bool ret = ReadBlockFromDisk(block, pindex, m_chainparams.GetConsensus());
+            assert(ret);
+
+            SendBlockTransactions(pfrom, block, req);
+            return;
+        }
+    }
+
+    // If an older block is requested (should never happen in practice,
+    // but can happen in tests) send a block response instead of a
+    // blocktxn response. Sending a full block response instead of a
+    // small blocktxn response is preferable in the case where a peer
+    // might maliciously send lots of getblocktxn requests to trigger
+    // expensive disk reads, because it will require the peer to
+    // actually receive all the data read from disk over the network.
+    LogPrint(BCLog::NET, "Peer %d sent us a getblocktxn for a block > %i deep\n", pfrom.GetId(), MAX_BLOCKTXN_DEPTH);
+    CInv inv;
+    WITH_LOCK(cs_main, inv.type = State(pfrom.GetId())->fWantsCmpctWitness ? MSG_WITNESS_BLOCK : MSG_BLOCK);
+    inv.hash = req.blockhash;
+    WITH_LOCK(peer.m_getdata_requests_mutex, peer.m_getdata_requests.push_back(inv));
+    // The message processing loop will go around again (without pausing) and we'll respond then
+}
 
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
@@ -2889,58 +2943,11 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return ProcessMessageType<MSG_TYPE::GETBLOCKS>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
 
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
     if (msg_type == NetMsgType::GETBLOCKTXN) {
-        BlockTransactionsRequest req;
-        vRecv >> req;
-
-        std::shared_ptr<const CBlock> recent_block;
-        {
-            LOCK(cs_most_recent_block);
-            if (most_recent_block_hash == req.blockhash)
-                recent_block = most_recent_block;
-            // Unlock cs_most_recent_block to avoid cs_main lock inversion
-        }
-        if (recent_block) {
-            SendBlockTransactions(pfrom, *recent_block, req);
-            return;
-        }
-
-        {
-            LOCK(cs_main);
-
-            const CBlockIndex* pindex = LookupBlockIndex(req.blockhash);
-            if (!pindex || !(pindex->nStatus & BLOCK_HAVE_DATA)) {
-                LogPrint(BCLog::NET, "Peer %d sent us a getblocktxn for a block we don't have\n", pfrom.GetId());
-                return;
-            }
-
-            if (pindex->nHeight >= ::ChainActive().Height() - MAX_BLOCKTXN_DEPTH) {
-                CBlock block;
-                bool ret = ReadBlockFromDisk(block, pindex, m_chainparams.GetConsensus());
-                assert(ret);
-
-                SendBlockTransactions(pfrom, block, req);
-                return;
-            }
-        }
-
-        // If an older block is requested (should never happen in practice,
-        // but can happen in tests) send a block response instead of a
-        // blocktxn response. Sending a full block response instead of a
-        // small blocktxn response is preferable in the case where a peer
-        // might maliciously send lots of getblocktxn requests to trigger
-        // expensive disk reads, because it will require the peer to
-        // actually receive all the data read from disk over the network.
-        LogPrint(BCLog::NET, "Peer %d sent us a getblocktxn for a block > %i deep\n", pfrom.GetId(), MAX_BLOCKTXN_DEPTH);
-        CInv inv;
-        WITH_LOCK(cs_main, inv.type = State(pfrom.GetId())->fWantsCmpctWitness ? MSG_WITNESS_BLOCK : MSG_BLOCK);
-        inv.hash = req.blockhash;
-        WITH_LOCK(peer->m_getdata_requests_mutex, peer->m_getdata_requests.push_back(inv));
-        // The message processing loop will go around again (without pausing) and we'll respond then
-        return;
+        return ProcessMessageType<MSG_TYPE::GETBLOCKTXN>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
+
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
 
     if (msg_type == NetMsgType::GETHEADERS) {
         CBlockLocator locator;
