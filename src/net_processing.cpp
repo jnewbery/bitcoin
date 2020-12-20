@@ -2721,6 +2721,34 @@ void PeerManager::ProcessMessageType<MSG_TYPE::INV>(CNode& pfrom, Peer& peer,
     }
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::GETDATA>(CNode& pfrom, Peer& peer,
+                                                        const std::string& msg_type,
+                                                        CDataStream& vRecv,
+                                                        const std::chrono::microseconds time_received,
+                                                        const std::atomic<bool>& interruptMsgProc)
+{
+    std::vector<CInv> vInv;
+    vRecv >> vInv;
+    if (vInv.size() > MAX_INV_SZ)
+    {
+        Misbehaving(pfrom.GetId(), 20, strprintf("getdata message size = %u", vInv.size()));
+        return;
+    }
+
+    LogPrint(BCLog::NET, "received getdata (%u invsz) peer=%d\n", vInv.size(), pfrom.GetId());
+
+    if (vInv.size() > 0) {
+        LogPrint(BCLog::NET, "received getdata for: %s peer=%d\n", vInv[0].ToString(), pfrom.GetId());
+    }
+
+    {
+        LOCK(peer.m_getdata_requests_mutex);
+        peer.m_getdata_requests.insert(peer.m_getdata_requests.end(), vInv.begin(), vInv.end());
+        ProcessGetData(pfrom, peer, m_chainparams, m_connman, m_mempool, interruptMsgProc);
+    }
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -2778,31 +2806,11 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return ProcessMessageType<MSG_TYPE::INV>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
 
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
     if (msg_type == NetMsgType::GETDATA) {
-        std::vector<CInv> vInv;
-        vRecv >> vInv;
-        if (vInv.size() > MAX_INV_SZ)
-        {
-            Misbehaving(pfrom.GetId(), 20, strprintf("getdata message size = %u", vInv.size()));
-            return;
-        }
-
-        LogPrint(BCLog::NET, "received getdata (%u invsz) peer=%d\n", vInv.size(), pfrom.GetId());
-
-        if (vInv.size() > 0) {
-            LogPrint(BCLog::NET, "received getdata for: %s peer=%d\n", vInv[0].ToString(), pfrom.GetId());
-        }
-
-        {
-            LOCK(peer->m_getdata_requests_mutex);
-            peer->m_getdata_requests.insert(peer->m_getdata_requests.end(), vInv.begin(), vInv.end());
-            ProcessGetData(pfrom, *peer, m_chainparams, m_connman, m_mempool, interruptMsgProc);
-        }
-
-        return;
+        return ProcessMessageType<MSG_TYPE::GETDATA>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
+
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
 
     if (msg_type == NetMsgType::GETBLOCKS) {
         CBlockLocator locator;
