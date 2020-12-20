@@ -1664,7 +1664,7 @@ void static ProcessGetData(CNode& pfrom, Peer& peer, const CChainParams& chainpa
     // possible, since they're common and it's efficient to batch process
     // them.
     while (it != peer.m_getdata_requests.end() && it->IsGenTxMsg()) {
-        if (interruptMsgProc) return;
+        if (interruptMsgProc.load()) return;
         // The send buffer provides backpressure. If there's no space in
         // the buffer, pause processing until the next call.
         if (pfrom.fPauseSend) break;
@@ -2253,8 +2253,7 @@ static void ProcessGetCFCheckPt(CNode& peer, CDataStream& vRecv, const CChainPar
 }
 
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
-                                         const std::chrono::microseconds time_received,
-                                         const std::atomic<bool>& interruptMsgProc)
+                                 const std::chrono::microseconds time_received)
 {
     LogPrint(BCLog::NET, "received: %s (%u bytes) peer=%d\n", SanitizeString(msg_type), vRecv.size(), pfrom.GetId());
     if (gArgs.IsArgSet("-dropmessagestest") && GetRand(gArgs.GetArg("-dropmessagestest", 0)) == 0)
@@ -2599,8 +2598,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         int64_t nSince = nNow - 10 * 60;
         for (CAddress& addr : vAddr)
         {
-            if (interruptMsgProc)
-                return;
+            if (m_interrupt_message_processing.load()) return;
 
             // We only bother storing full nodes, though this may include
             // things which we would not make an outbound connection to, in
@@ -2657,7 +2655,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         uint256* best_block{nullptr};
 
         for (CInv& inv : vInv) {
-            if (interruptMsgProc) return;
+            if (m_interrupt_message_processing.load()) return;
 
             // Ignore INVs that don't match wtxidrelay setting.
             // Note that orphan parent fetching always uses MSG_TX GETDATAs regardless of the wtxidrelay setting.
@@ -2725,7 +2723,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         {
             LOCK(peer->m_getdata_requests_mutex);
             peer->m_getdata_requests.insert(peer->m_getdata_requests.end(), vInv.begin(), vInv.end());
-            ProcessGetData(pfrom, *peer, m_chainparams, m_connman, m_mempool, interruptMsgProc);
+            ProcessGetData(pfrom, *peer, m_chainparams, m_connman, m_mempool, m_interrupt_message_processing);
         }
 
         return;
@@ -3307,7 +3305,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         } // cs_main
 
         if (fProcessBLOCKTXN) {
-            return ProcessMessage(pfrom, NetMsgType::BLOCKTXN, blockTxnMsg, time_received, interruptMsgProc);
+            return ProcessMessage(pfrom, NetMsgType::BLOCKTXN, blockTxnMsg, time_received);
         }
 
         if (fRevertToHeaderProcessing) {
@@ -3789,7 +3787,7 @@ bool PeerManager::MaybeDiscourageAndDisconnect(CNode& pnode)
     return true;
 }
 
-bool PeerManager::ProcessMessages(CNode* pfrom, std::atomic<bool>& interruptMsgProc)
+bool PeerManager::ProcessMessages(CNode* pfrom)
 {
     bool fMoreWork = false;
 
@@ -3799,7 +3797,7 @@ bool PeerManager::ProcessMessages(CNode* pfrom, std::atomic<bool>& interruptMsgP
     {
         LOCK(peer->m_getdata_requests_mutex);
         if (!peer->m_getdata_requests.empty()) {
-            ProcessGetData(*pfrom, *peer, m_chainparams, m_connman, m_mempool, interruptMsgProc);
+            ProcessGetData(*pfrom, *peer, m_chainparams, m_connman, m_mempool, m_interrupt_message_processing);
         }
     }
 
@@ -3849,8 +3847,8 @@ bool PeerManager::ProcessMessages(CNode* pfrom, std::atomic<bool>& interruptMsgP
     unsigned int nMessageSize = msg.m_message_size;
 
     try {
-        ProcessMessage(*pfrom, msg_type, msg.m_recv, msg.m_time, interruptMsgProc);
-        if (interruptMsgProc) return false;
+        ProcessMessage(*pfrom, msg_type, msg.m_recv, msg.m_time);
+        if (m_interrupt_message_processing.load()) return false;
         {
             LOCK(peer->m_getdata_requests_mutex);
             if (!peer->m_getdata_requests.empty()) fMoreWork = true;

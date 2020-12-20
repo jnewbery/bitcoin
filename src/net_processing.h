@@ -12,6 +12,8 @@
 #include <txrequest.h>
 #include <validationinterface.h>
 
+#include <atomic>
+
 class BlockTransactionsRequest;
 class BlockValidationState;
 class CBlockHeader;
@@ -105,9 +107,8 @@ public:
     * Process protocol messages received from a given node
     *
     * @param[in]   pfrom           The node which we have received messages from.
-    * @param[in]   interrupt       Interrupt condition for processing threads
     */
-    bool ProcessMessages(CNode* pfrom, std::atomic<bool>& interrupt) override;
+    bool ProcessMessages(CNode* pfrom) override;
     /**
     * Send queued protocol messages to be sent to a give node.
     *
@@ -115,6 +116,9 @@ public:
     * @return                      True if there is more work to be done
     */
     bool SendMessages(CNode* pto) override EXCLUSIVE_LOCKS_REQUIRED(pto->cs_sendProcessing);
+
+    /** Interrupt message handling */
+    void Interrupt() { m_interrupt_message_processing.store(true); };
 
     /** Consider evicting an outbound peer based on the amount of time they've been behind our tip */
     void ConsiderEviction(CNode& pto, int64_t time_in_seconds) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
@@ -127,7 +131,7 @@ public:
 
     /** Process a single message from a peer. Public for fuzz testing */
     void ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
-                        const std::chrono::microseconds time_received, const std::atomic<bool>& interruptMsgProc);
+                        const std::chrono::microseconds time_received);
 
     /**
      * Increment peer's misbehavior score. If the new value >= DISCOURAGEMENT_THRESHOLD, mark the node
@@ -209,6 +213,9 @@ private:
     /** Whether we've completed initial sync yet, for determining when to turn
       * on extra block-relay-only peers. */
     bool m_initial_sync_finished{false};
+
+    /** Set when message processing is to be interrupted */
+    std::atomic_bool m_interrupt_message_processing{false};
 
     /** Protects m_peer_map */
     mutable Mutex m_peer_mutex;

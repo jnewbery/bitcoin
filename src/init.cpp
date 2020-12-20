@@ -164,11 +164,9 @@ void Interrupt(NodeContext& node)
     InterruptREST();
     InterruptTorControl();
     InterruptMapPort();
-    if (node.connman)
-        node.connman->Interrupt();
-    if (g_txindex) {
-        g_txindex->Interrupt();
-    }
+    if (node.peerman) node.peerman->Interrupt();
+    if (node.connman) node.connman->Interrupt();
+    if (g_txindex) g_txindex->Interrupt();
     ForEachBlockFilterIndex([](BlockFilterIndex& index) { index.Interrupt(); });
 }
 

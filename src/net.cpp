@@ -2252,7 +2252,7 @@ void CConnman::ThreadMessageHandler()
                 continue;
 
             // Receive messages
-            bool fMoreNodeWork = m_msgproc->ProcessMessages(pnode, flagInterruptMsgProc);
+            bool fMoreNodeWork = m_msgproc->ProcessMessages(pnode);
             fMoreWork |= (fMoreNodeWork && !pnode->fPauseSend);
             if (flagInterruptMsgProc)
                 return;
