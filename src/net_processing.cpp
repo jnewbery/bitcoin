@@ -2559,6 +2559,22 @@ void PeerManager::ProcessMessageType<MSG_TYPE::WTXIDRELAY>(CNode& pfrom, Peer& p
     }
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::SENDADDRV2>(CNode& pfrom, Peer& peer,
+                                                           const std::string& msg_type,
+                                                           CDataStream& vRecv,
+                                                           const std::chrono::microseconds time_received,
+                                                           const std::atomic<bool>& interruptMsgProc)
+{
+    if (pfrom.m_connection_state == ConnectionState::FULLY_CONNECTED) {
+        // Disconnect peers that send SENDADDRV2 message after VERACK; this
+        // must be negotiated between VERSION and VERACK.
+        pfrom.fDisconnect = true;
+        return;
+    }
+    pfrom.m_wants_addrv2 = true;
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -2599,23 +2615,16 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return ProcessMessageType<MSG_TYPE::WTXIDRELAY>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
 
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
     if (msg_type == NetMsgType::SENDADDRV2) {
-        if (pfrom.m_connection_state == ConnectionState::FULLY_CONNECTED) {
-            // Disconnect peers that send SENDADDRV2 message after VERACK; this
-            // must be negotiated between VERSION and VERACK.
-            pfrom.fDisconnect = true;
-            return;
-        }
-        pfrom.m_wants_addrv2 = true;
-        return;
+        return ProcessMessageType<MSG_TYPE::SENDADDRV2>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
 
     if (pfrom.m_connection_state != ConnectionState::FULLY_CONNECTED) {
         LogPrint(BCLog::NET, "Unsupported message \"%s\" prior to verack from peer=%d\n", SanitizeString(msg_type), pfrom.GetId());
         return;
     }
+
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
 
     if (msg_type == NetMsgType::ADDR || msg_type == NetMsgType::ADDRV2) {
         int stream_version = vRecv.GetVersion();
