@@ -151,6 +151,12 @@ private:
      *  May return an empty shared_ptr if the Peer object can't be found. */
     PeerRef RemovePeer(NodeId id);
 
+    /** Process a single message type */
+    template<MSG_TYPE Type>
+    void ProcessMessageType(CNode& pfrom, Peer& peer, const std::string& msg_type, CDataStream& vRecv,
+                            const std::chrono::microseconds time_received,
+                            const std::atomic<bool>& interruptMsgProc);
+
     /**
      * Potentially mark a node discouraged based on the contents of a BlockValidationState object
      *

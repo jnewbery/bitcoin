@@ -265,6 +265,44 @@ extern const char* WTXIDRELAY;
 /* Get a vector of all valid message types (see above) */
 const std::vector<std::string>& getAllNetMessageTypes();
 
+enum class MSG_TYPE
+{
+    ADDR,
+    ADDRV2,
+    BLOCK,
+    BLOCKTXN,
+    CFCHECKPT,
+    CFHEADERS,
+    CFILTER,
+    CMPCTBLOCK,
+    FEEFILTER,
+    FILTERADD,
+    FILTERCLEAR,
+    FILTERLOAD,
+    GETADDR,
+    GETBLOCKS,
+    GETBLOCKTXN,
+    GETCFCHECKPT,
+    GETCFHEADERS,
+    GETCFILTERS,
+    GETDATA,
+    GETHEADERS,
+    HEADERS,
+    INV,
+    MEMPOOL,
+    MERKLEBLOCK,
+    NOTFOUND,
+    PING,
+    PONG,
+    SENDADDRV2,
+    SENDCMPCT,
+    SENDHEADERS,
+    TX,
+    VERACK,
+    VERSION,
+    WTXIDRELAY,
+};
+
 /** nServices flags */
 enum ServiceFlags : uint64_t {
     // NOTE: When adding here, be sure to update serviceFlagToStr too
