@@ -2503,6 +2503,38 @@ void PeerManager::ProcessMessageType<MSG_TYPE::SENDHEADERS>(CNode& pfrom, Peer& 
     State(pfrom.GetId())->fPreferHeaders = true;
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::SENDCMPCT>(CNode& pfrom, Peer& peer,
+                                                          const std::string& msg_type,
+                                                          CDataStream& vRecv,
+                                                          const std::chrono::microseconds time_received,
+                                                          const std::atomic<bool>& interruptMsgProc)
+{
+    bool fAnnounceUsingCMPCTBLOCK = false;
+    uint64_t nCMPCTBLOCKVersion = 0;
+    vRecv >> fAnnounceUsingCMPCTBLOCK >> nCMPCTBLOCKVersion;
+    if (nCMPCTBLOCKVersion == 1 || ((pfrom.GetLocalServices() & NODE_WITNESS) && nCMPCTBLOCKVersion == 2)) {
+        LOCK(cs_main);
+        // fProvidesHeaderAndIDs is used to "lock in" version of compact blocks we send (fWantsCmpctWitness)
+        if (!State(pfrom.GetId())->fProvidesHeaderAndIDs) {
+            State(pfrom.GetId())->fProvidesHeaderAndIDs = true;
+            State(pfrom.GetId())->fWantsCmpctWitness = nCMPCTBLOCKVersion == 2;
+        }
+        if (State(pfrom.GetId())->fWantsCmpctWitness == (nCMPCTBLOCKVersion == 2)) { // ignore later version announces
+            State(pfrom.GetId())->fPreferHeaderAndIDs = fAnnounceUsingCMPCTBLOCK;
+            // save whether peer selects us as BIP152 high-bandwidth peer
+            // (receiving sendcmpct(1) signals high-bandwidth, sendcmpct(0) low-bandwidth)
+            pfrom.m_bip152_highbandwidth_from = fAnnounceUsingCMPCTBLOCK;
+        }
+        if (!State(pfrom.GetId())->fSupportsDesiredCmpctVersion) {
+            if (pfrom.GetLocalServices() & NODE_WITNESS)
+                State(pfrom.GetId())->fSupportsDesiredCmpctVersion = (nCMPCTBLOCKVersion == 2);
+            else
+                State(pfrom.GetId())->fSupportsDesiredCmpctVersion = (nCMPCTBLOCKVersion == 1);
+        }
+    }
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -2535,34 +2567,11 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return ProcessMessageType<MSG_TYPE::SENDHEADERS>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
 
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
     if (msg_type == NetMsgType::SENDCMPCT) {
-        bool fAnnounceUsingCMPCTBLOCK = false;
-        uint64_t nCMPCTBLOCKVersion = 0;
-        vRecv >> fAnnounceUsingCMPCTBLOCK >> nCMPCTBLOCKVersion;
-        if (nCMPCTBLOCKVersion == 1 || ((pfrom.GetLocalServices() & NODE_WITNESS) && nCMPCTBLOCKVersion == 2)) {
-            LOCK(cs_main);
-            // fProvidesHeaderAndIDs is used to "lock in" version of compact blocks we send (fWantsCmpctWitness)
-            if (!State(pfrom.GetId())->fProvidesHeaderAndIDs) {
-                State(pfrom.GetId())->fProvidesHeaderAndIDs = true;
-                State(pfrom.GetId())->fWantsCmpctWitness = nCMPCTBLOCKVersion == 2;
-            }
-            if (State(pfrom.GetId())->fWantsCmpctWitness == (nCMPCTBLOCKVersion == 2)) { // ignore later version announces
-                State(pfrom.GetId())->fPreferHeaderAndIDs = fAnnounceUsingCMPCTBLOCK;
-                // save whether peer selects us as BIP152 high-bandwidth peer
-                // (receiving sendcmpct(1) signals high-bandwidth, sendcmpct(0) low-bandwidth)
-                pfrom.m_bip152_highbandwidth_from = fAnnounceUsingCMPCTBLOCK;
-            }
-            if (!State(pfrom.GetId())->fSupportsDesiredCmpctVersion) {
-                if (pfrom.GetLocalServices() & NODE_WITNESS)
-                    State(pfrom.GetId())->fSupportsDesiredCmpctVersion = (nCMPCTBLOCKVersion == 2);
-                else
-                    State(pfrom.GetId())->fSupportsDesiredCmpctVersion = (nCMPCTBLOCKVersion == 1);
-            }
-        }
-        return;
+        return ProcessMessageType<MSG_TYPE::SENDCMPCT>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
+
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
 
     // Feature negotiation of wtxidrelay must happen between VERSION and VERACK
     // to avoid relay problems from switching after a connection is up.
