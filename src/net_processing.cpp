@@ -3797,6 +3797,24 @@ void PeerManager::ProcessMessageType<MSG_TYPE::FILTERCLEAR>(CNode& pfrom, Peer& 
     pfrom.m_tx_relay->fRelayTxes = true;
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::FEEFILTER>(CNode& pfrom, Peer& peer,
+                                                          const std::string& msg_type,
+                                                          CDataStream& vRecv,
+                                                          const std::chrono::microseconds time_received,
+                                                          const std::atomic<bool>& interruptMsgProc)
+{        
+    CAmount newFeeFilter = 0;
+    vRecv >> newFeeFilter;
+    if (MoneyRange(newFeeFilter)) {
+        if (pfrom.m_tx_relay != nullptr) {
+            LOCK(pfrom.m_tx_relay->cs_feeFilter);
+            pfrom.m_tx_relay->minFeeFilter = newFeeFilter;
+        }
+        LogPrint(BCLog::NET, "received: feefilter of %s from peer=%d\n", CFeeRate(newFeeFilter).ToString(), pfrom.GetId());
+    }
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -3932,15 +3950,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
     }
 
     if (msg_type == NetMsgType::FEEFILTER) {
-        CAmount newFeeFilter = 0;
-        vRecv >> newFeeFilter;
-        if (MoneyRange(newFeeFilter)) {
-            if (pfrom.m_tx_relay != nullptr) {
-                LOCK(pfrom.m_tx_relay->cs_feeFilter);
-                pfrom.m_tx_relay->minFeeFilter = newFeeFilter;
-            }
-            LogPrint(BCLog::NET, "received: feefilter of %s from peer=%d\n", CFeeRate(newFeeFilter).ToString(), pfrom.GetId());
-        }
+        ProcessMessageType<MSG_TYPE::FILTERCLEAR>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
         return;
     }
 
