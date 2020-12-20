@@ -2642,6 +2642,85 @@ void PeerManager::ProcessMessageType<MSG_TYPE::ADDR>(CNode& pfrom, Peer& peer,
         pfrom.fDisconnect = true;
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::INV>(CNode& pfrom, Peer& peer,
+                                                    const std::string& msg_type,
+                                                    CDataStream& vRecv,
+                                                    const std::chrono::microseconds time_received,
+                                                    const std::atomic<bool>& interruptMsgProc)
+{
+    std::vector<CInv> vInv;
+    vRecv >> vInv;
+    if (vInv.size() > MAX_INV_SZ)
+    {
+        Misbehaving(pfrom.GetId(), 20, strprintf("inv message size = %u", vInv.size()));
+        return;
+    }
+
+    // We won't accept tx inv's if we're in blocks-only mode, or this is a
+    // block-relay-only peer
+    bool fBlocksOnly = m_ignore_incoming_txs || (pfrom.m_tx_relay == nullptr);
+
+    // Allow peers with relay permission to send data other than blocks in blocks only mode
+    if (pfrom.HasPermission(PF_RELAY)) {
+        fBlocksOnly = false;
+    }
+
+    LOCK(cs_main);
+
+    const auto current_time = GetTime<std::chrono::microseconds>();
+    uint256* best_block{nullptr};
+
+    for (CInv& inv : vInv) {
+        if (interruptMsgProc) return;
+
+        // Ignore INVs that don't match wtxidrelay setting.
+        // Note that orphan parent fetching always uses MSG_TX GETDATAs regardless of the wtxidrelay setting.
+        // This is fine as no INV messages are involved in that process.
+        if (State(pfrom.GetId())->m_wtxid_relay) {
+            if (inv.IsMsgTx()) continue;
+        } else {
+            if (inv.IsMsgWtx()) continue;
+        }
+
+        if (inv.IsMsgBlk()) {
+            const bool fAlreadyHave = AlreadyHaveBlock(inv.hash);
+            LogPrint(BCLog::NET, "got inv: %s  %s peer=%d\n", inv.ToString(), fAlreadyHave ? "have" : "new", pfrom.GetId());
+
+            UpdateBlockAvailability(pfrom.GetId(), inv.hash);
+            if (!fAlreadyHave && !fImporting && !fReindex && !mapBlocksInFlight.count(inv.hash)) {
+                // Headers-first is the primary method of announcement on
+                // the network. If a node fell back to sending blocks by inv,
+                // it's probably for a re-org. The final block hash
+                // provided should be the highest, so send a getheaders and
+                // then fetch the blocks we need to catch up.
+                best_block = &inv.hash;
+            }
+        } else if (inv.IsGenTxMsg()) {
+            const GenTxid gtxid = ToGenTxid(inv);
+            const bool fAlreadyHave = AlreadyHaveTx(gtxid, m_mempool);
+            LogPrint(BCLog::NET, "got inv: %s  %s peer=%d\n", inv.ToString(), fAlreadyHave ? "have" : "new", pfrom.GetId());
+
+            pfrom.AddKnownTx(inv.hash);
+            if (fBlocksOnly) {
+                LogPrint(BCLog::NET, "transaction (%s) inv sent in violation of protocol, disconnecting peer=%d\n", inv.hash.ToString(), pfrom.GetId());
+                pfrom.fDisconnect = true;
+                return;
+            } else if (!fAlreadyHave && !m_chainman.ActiveChainstate().IsInitialBlockDownload()) {
+                AddTxAnnouncement(pfrom, gtxid, current_time);
+            }
+        } else {
+            LogPrint(BCLog::NET, "Unknown inv type \"%s\" received from peer=%d\n", inv.ToString(), pfrom.GetId());
+        }
+    }
+
+    if (best_block != nullptr) {
+        const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
+        m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETHEADERS, ::ChainActive().GetLocator(pindexBestHeader), *best_block));
+        LogPrint(BCLog::NET, "getheaders (%d) %s to peer=%d\n", pindexBestHeader->nHeight, best_block->ToString(), pfrom.GetId());
+    }
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -2695,81 +2774,11 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return ProcessMessageType<MSG_TYPE::ADDR>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
 
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
     if (msg_type == NetMsgType::INV) {
-        std::vector<CInv> vInv;
-        vRecv >> vInv;
-        if (vInv.size() > MAX_INV_SZ)
-        {
-            Misbehaving(pfrom.GetId(), 20, strprintf("inv message size = %u", vInv.size()));
-            return;
-        }
-
-        // We won't accept tx inv's if we're in blocks-only mode, or this is a
-        // block-relay-only peer
-        bool fBlocksOnly = m_ignore_incoming_txs || (pfrom.m_tx_relay == nullptr);
-
-        // Allow peers with relay permission to send data other than blocks in blocks only mode
-        if (pfrom.HasPermission(PF_RELAY)) {
-            fBlocksOnly = false;
-        }
-
-        LOCK(cs_main);
-
-        const auto current_time = GetTime<std::chrono::microseconds>();
-        uint256* best_block{nullptr};
-
-        for (CInv& inv : vInv) {
-            if (interruptMsgProc) return;
-
-            // Ignore INVs that don't match wtxidrelay setting.
-            // Note that orphan parent fetching always uses MSG_TX GETDATAs regardless of the wtxidrelay setting.
-            // This is fine as no INV messages are involved in that process.
-            if (State(pfrom.GetId())->m_wtxid_relay) {
-                if (inv.IsMsgTx()) continue;
-            } else {
-                if (inv.IsMsgWtx()) continue;
-            }
-
-            if (inv.IsMsgBlk()) {
-                const bool fAlreadyHave = AlreadyHaveBlock(inv.hash);
-                LogPrint(BCLog::NET, "got inv: %s  %s peer=%d\n", inv.ToString(), fAlreadyHave ? "have" : "new", pfrom.GetId());
-
-                UpdateBlockAvailability(pfrom.GetId(), inv.hash);
-                if (!fAlreadyHave && !fImporting && !fReindex && !mapBlocksInFlight.count(inv.hash)) {
-                    // Headers-first is the primary method of announcement on
-                    // the network. If a node fell back to sending blocks by inv,
-                    // it's probably for a re-org. The final block hash
-                    // provided should be the highest, so send a getheaders and
-                    // then fetch the blocks we need to catch up.
-                    best_block = &inv.hash;
-                }
-            } else if (inv.IsGenTxMsg()) {
-                const GenTxid gtxid = ToGenTxid(inv);
-                const bool fAlreadyHave = AlreadyHaveTx(gtxid, m_mempool);
-                LogPrint(BCLog::NET, "got inv: %s  %s peer=%d\n", inv.ToString(), fAlreadyHave ? "have" : "new", pfrom.GetId());
-
-                pfrom.AddKnownTx(inv.hash);
-                if (fBlocksOnly) {
-                    LogPrint(BCLog::NET, "transaction (%s) inv sent in violation of protocol, disconnecting peer=%d\n", inv.hash.ToString(), pfrom.GetId());
-                    pfrom.fDisconnect = true;
-                    return;
-                } else if (!fAlreadyHave && !m_chainman.ActiveChainstate().IsInitialBlockDownload()) {
-                    AddTxAnnouncement(pfrom, gtxid, current_time);
-                }
-            } else {
-                LogPrint(BCLog::NET, "Unknown inv type \"%s\" received from peer=%d\n", inv.ToString(), pfrom.GetId());
-            }
-        }
-
-        if (best_block != nullptr) {
-            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::GETHEADERS, ::ChainActive().GetLocator(pindexBestHeader), *best_block));
-            LogPrint(BCLog::NET, "getheaders (%d) %s to peer=%d\n", pindexBestHeader->nHeight, best_block->ToString(), pfrom.GetId());
-        }
-
-        return;
+        return ProcessMessageType<MSG_TYPE::INV>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
+
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
 
     if (msg_type == NetMsgType::GETDATA) {
         std::vector<CInv> vInv;
