@@ -2878,6 +2878,79 @@ void PeerManager::ProcessMessageType<MSG_TYPE::GETBLOCKTXN>(CNode& pfrom, Peer& 
     // The message processing loop will go around again (without pausing) and we'll respond then
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::GETHEADERS>(CNode& pfrom, Peer& peer,
+                                                           const std::string& msg_type,
+                                                           CDataStream& vRecv,
+                                                           const std::chrono::microseconds time_received,
+                                                           const std::atomic<bool>& interruptMsgProc)
+{
+    CBlockLocator locator;
+    uint256 hashStop;
+    vRecv >> locator >> hashStop;
+
+    if (locator.vHave.size() > MAX_LOCATOR_SZ) {
+        LogPrint(BCLog::NET, "getheaders locator size %lld > %d, disconnect peer=%d\n", locator.vHave.size(), MAX_LOCATOR_SZ, pfrom.GetId());
+        pfrom.fDisconnect = true;
+        return;
+    }
+
+    LOCK(cs_main);
+    if (::ChainstateActive().IsInitialBlockDownload() && !pfrom.HasPermission(PF_DOWNLOAD)) {
+        LogPrint(BCLog::NET, "Ignoring getheaders from peer=%d because node is in initial block download\n", pfrom.GetId());
+        return;
+    }
+
+    CNodeState *nodestate = State(pfrom.GetId());
+    const CBlockIndex* pindex = nullptr;
+    if (locator.IsNull())
+    {
+        // If locator is null, return the hashStop block
+        pindex = LookupBlockIndex(hashStop);
+        if (!pindex) {
+            return;
+        }
+
+        if (!BlockRequestAllowed(pindex, m_chainparams.GetConsensus())) {
+            LogPrint(BCLog::NET, "%s: ignoring request from peer=%i for old block header that isn't in the main chain\n", __func__, pfrom.GetId());
+            return;
+        }
+    }
+    else
+    {
+        // Find the last block the caller has in the main chain
+        pindex = FindForkInGlobalIndex(::ChainActive(), locator);
+        if (pindex)
+            pindex = ::ChainActive().Next(pindex);
+    }
+
+    // we must use CBlocks, as CBlockHeaders won't include the 0x00 nTx count at the end
+    std::vector<CBlock> vHeaders;
+    int nLimit = MAX_HEADERS_RESULTS;
+    LogPrint(BCLog::NET, "getheaders %d to %s from peer=%d\n", (pindex ? pindex->nHeight : -1), hashStop.IsNull() ? "end" : hashStop.ToString(), pfrom.GetId());
+    for (; pindex; pindex = ::ChainActive().Next(pindex))
+    {
+        vHeaders.push_back(pindex->GetBlockHeader());
+        if (--nLimit <= 0 || pindex->GetBlockHash() == hashStop)
+            break;
+    }
+    // pindex can be nullptr either if we sent ::ChainActive().Tip() OR
+    // if our peer has ::ChainActive().Tip() (and thus we are sending an empty
+    // headers message). In both cases it's safe to update
+    // pindexBestHeaderSent to be our tip.
+    //
+    // It is important that we simply reset the BestHeaderSent value here,
+    // and not max(BestHeaderSent, newHeaderSent). We might have announced
+    // the currently-being-connected tip using a compact block, which
+    // resulted in the peer sending a headers request, which we respond to
+    // without the new block. By resetting the BestHeaderSent, we ensure we
+    // will re-announce the new block via headers (or compact blocks again)
+    // in the SendMessages logic.
+    nodestate->pindexBestHeaderSent = pindex ? pindex : ::ChainActive().Tip();
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
+    m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::HEADERS, vHeaders));
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -2947,74 +3020,12 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return ProcessMessageType<MSG_TYPE::GETBLOCKTXN>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
 
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
     if (msg_type == NetMsgType::GETHEADERS) {
-        CBlockLocator locator;
-        uint256 hashStop;
-        vRecv >> locator >> hashStop;
-
-        if (locator.vHave.size() > MAX_LOCATOR_SZ) {
-            LogPrint(BCLog::NET, "getheaders locator size %lld > %d, disconnect peer=%d\n", locator.vHave.size(), MAX_LOCATOR_SZ, pfrom.GetId());
-            pfrom.fDisconnect = true;
-            return;
-        }
-
-        LOCK(cs_main);
-        if (::ChainstateActive().IsInitialBlockDownload() && !pfrom.HasPermission(PF_DOWNLOAD)) {
-            LogPrint(BCLog::NET, "Ignoring getheaders from peer=%d because node is in initial block download\n", pfrom.GetId());
-            return;
-        }
-
-        CNodeState *nodestate = State(pfrom.GetId());
-        const CBlockIndex* pindex = nullptr;
-        if (locator.IsNull())
-        {
-            // If locator is null, return the hashStop block
-            pindex = LookupBlockIndex(hashStop);
-            if (!pindex) {
-                return;
-            }
-
-            if (!BlockRequestAllowed(pindex, m_chainparams.GetConsensus())) {
-                LogPrint(BCLog::NET, "%s: ignoring request from peer=%i for old block header that isn't in the main chain\n", __func__, pfrom.GetId());
-                return;
-            }
-        }
-        else
-        {
-            // Find the last block the caller has in the main chain
-            pindex = FindForkInGlobalIndex(::ChainActive(), locator);
-            if (pindex)
-                pindex = ::ChainActive().Next(pindex);
-        }
-
-        // we must use CBlocks, as CBlockHeaders won't include the 0x00 nTx count at the end
-        std::vector<CBlock> vHeaders;
-        int nLimit = MAX_HEADERS_RESULTS;
-        LogPrint(BCLog::NET, "getheaders %d to %s from peer=%d\n", (pindex ? pindex->nHeight : -1), hashStop.IsNull() ? "end" : hashStop.ToString(), pfrom.GetId());
-        for (; pindex; pindex = ::ChainActive().Next(pindex))
-        {
-            vHeaders.push_back(pindex->GetBlockHeader());
-            if (--nLimit <= 0 || pindex->GetBlockHash() == hashStop)
-                break;
-        }
-        // pindex can be nullptr either if we sent ::ChainActive().Tip() OR
-        // if our peer has ::ChainActive().Tip() (and thus we are sending an empty
-        // headers message). In both cases it's safe to update
-        // pindexBestHeaderSent to be our tip.
-        //
-        // It is important that we simply reset the BestHeaderSent value here,
-        // and not max(BestHeaderSent, newHeaderSent). We might have announced
-        // the currently-being-connected tip using a compact block, which
-        // resulted in the peer sending a headers request, which we respond to
-        // without the new block. By resetting the BestHeaderSent, we ensure we
-        // will re-announce the new block via headers (or compact blocks again)
-        // in the SendMessages logic.
-        nodestate->pindexBestHeaderSent = pindex ? pindex : ::ChainActive().Tip();
-        m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::HEADERS, vHeaders));
+        ProcessMessageType<MSG_TYPE::GETHEADERS>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
         return;
     }
+
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
 
     if (msg_type == NetMsgType::TX) {
         // Stop processing the transaction early if
