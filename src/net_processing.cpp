@@ -3560,6 +3560,104 @@ void PeerManager::ProcessMessageType<MSG_TYPE::BLOCK>(CNode& pfrom, Peer& peer,
     return;
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::GETADDR>(CNode& pfrom, Peer& peer,
+                                                        const std::string& msg_type,
+                                                        CDataStream& vRecv,
+                                                        const std::chrono::microseconds time_received,
+                                                        const std::atomic<bool>& interruptMsgProc)
+{
+    // This asymmetric behavior for inbound and outbound connections was introduced
+    // to prevent a fingerprinting attack: an attacker can send specific fake addresses
+    // to users' AddrMan and later request them by sending getaddr messages.
+    // Making nodes which are behind NAT and can only make outgoing connections ignore
+    // the getaddr message mitigates the attack.
+    if (!pfrom.IsInboundConn()) {
+        LogPrint(BCLog::NET, "Ignoring \"getaddr\" from %s connection. peer=%d\n", pfrom.ConnectionTypeAsString(), pfrom.GetId());
+        return;
+    }
+
+    // Only send one GetAddr response per connection to reduce resource waste
+    //  and discourage addr stamping of INV announcements.
+    if (pfrom.fSentAddr) {
+        LogPrint(BCLog::NET, "Ignoring repeated \"getaddr\". peer=%d\n", pfrom.GetId());
+        return;
+    }
+    pfrom.fSentAddr = true;
+
+    pfrom.vAddrToSend.clear();
+    std::vector<CAddress> vAddr;
+    if (pfrom.HasPermission(PF_ADDR)) {
+        vAddr = m_connman.GetAddresses(MAX_ADDR_TO_SEND, MAX_PCT_ADDR_TO_SEND);
+    } else {
+        vAddr = m_connman.GetAddresses(pfrom, MAX_ADDR_TO_SEND, MAX_PCT_ADDR_TO_SEND);
+    }
+    FastRandomContext insecure_rand;
+    for (const CAddress &addr : vAddr) {
+        pfrom.PushAddress(addr, insecure_rand);
+    }
+    return;
+}
+
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::MEMPOOL>(CNode& pfrom, Peer& peer,
+                                                        const std::string& msg_type,
+                                                        CDataStream& vRecv,
+                                                        const std::chrono::microseconds time_received,
+                                                        const std::atomic<bool>& interruptMsgProc)
+{
+    if (!(pfrom.GetLocalServices() & NODE_BLOOM) && !pfrom.HasPermission(PF_MEMPOOL))
+    {
+        if (!pfrom.HasPermission(PF_NOBAN))
+        {
+            LogPrint(BCLog::NET, "mempool request with bloom filters disabled, disconnect peer=%d\n", pfrom.GetId());
+            pfrom.fDisconnect = true;
+        }
+        return;
+    }
+
+    if (m_connman.OutboundTargetReached(false) && !pfrom.HasPermission(PF_MEMPOOL))
+    {
+        if (!pfrom.HasPermission(PF_NOBAN))
+        {
+            LogPrint(BCLog::NET, "mempool request with bandwidth limit reached, disconnect peer=%d\n", pfrom.GetId());
+            pfrom.fDisconnect = true;
+        }
+        return;
+    }
+
+    if (pfrom.m_tx_relay != nullptr) {
+        LOCK(pfrom.m_tx_relay->cs_tx_inventory);
+        pfrom.m_tx_relay->fSendMempool = true;
+    }
+}
+
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::PING>(CNode& pfrom, Peer& peer,
+                                                     const std::string& msg_type,
+                                                     CDataStream& vRecv,
+                                                     const std::chrono::microseconds time_received,
+                                                     const std::atomic<bool>& interruptMsgProc)
+{
+    if (pfrom.GetCommonVersion() > BIP0031_VERSION) {
+        uint64_t nonce = 0;
+        vRecv >> nonce;
+        // Echo the message back with the nonce. This allows for two useful features:
+        //
+        // 1) A remote node can quickly check if the connection is operational
+        // 2) Remote nodes can measure the latency of the network thread. If this node
+        //    is overloaded it won't respond to pings quickly and the remote node can
+        //    avoid sending us more work, like chain download requests.
+        //
+        // The nonce stops the remote getting confused between different pings: without
+        // it, if the remote node sends a ping once per second and this node takes 5
+        // seconds to respond to each, the 5th ping the remote sends would appear to
+        // return very quickly.
+        const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
+        m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::PONG, nonce));
+    }
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -3659,88 +3757,22 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return;
     }
  
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
     if (msg_type == NetMsgType::GETADDR) {
-        // This asymmetric behavior for inbound and outbound connections was introduced
-        // to prevent a fingerprinting attack: an attacker can send specific fake addresses
-        // to users' AddrMan and later request them by sending getaddr messages.
-        // Making nodes which are behind NAT and can only make outgoing connections ignore
-        // the getaddr message mitigates the attack.
-        if (!pfrom.IsInboundConn()) {
-            LogPrint(BCLog::NET, "Ignoring \"getaddr\" from %s connection. peer=%d\n", pfrom.ConnectionTypeAsString(), pfrom.GetId());
-            return;
-        }
-
-        // Only send one GetAddr response per connection to reduce resource waste
-        //  and discourage addr stamping of INV announcements.
-        if (pfrom.fSentAddr) {
-            LogPrint(BCLog::NET, "Ignoring repeated \"getaddr\". peer=%d\n", pfrom.GetId());
-            return;
-        }
-        pfrom.fSentAddr = true;
-
-        pfrom.vAddrToSend.clear();
-        std::vector<CAddress> vAddr;
-        if (pfrom.HasPermission(PF_ADDR)) {
-            vAddr = m_connman.GetAddresses(MAX_ADDR_TO_SEND, MAX_PCT_ADDR_TO_SEND);
-        } else {
-            vAddr = m_connman.GetAddresses(pfrom, MAX_ADDR_TO_SEND, MAX_PCT_ADDR_TO_SEND);
-        }
-        FastRandomContext insecure_rand;
-        for (const CAddress &addr : vAddr) {
-            pfrom.PushAddress(addr, insecure_rand);
-        }
+        ProcessMessageType<MSG_TYPE::GETADDR>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
         return;
     }
 
     if (msg_type == NetMsgType::MEMPOOL) {
-        if (!(pfrom.GetLocalServices() & NODE_BLOOM) && !pfrom.HasPermission(PF_MEMPOOL))
-        {
-            if (!pfrom.HasPermission(PF_NOBAN))
-            {
-                LogPrint(BCLog::NET, "mempool request with bloom filters disabled, disconnect peer=%d\n", pfrom.GetId());
-                pfrom.fDisconnect = true;
-            }
-            return;
-        }
-
-        if (m_connman.OutboundTargetReached(false) && !pfrom.HasPermission(PF_MEMPOOL))
-        {
-            if (!pfrom.HasPermission(PF_NOBAN))
-            {
-                LogPrint(BCLog::NET, "mempool request with bandwidth limit reached, disconnect peer=%d\n", pfrom.GetId());
-                pfrom.fDisconnect = true;
-            }
-            return;
-        }
-
-        if (pfrom.m_tx_relay != nullptr) {
-            LOCK(pfrom.m_tx_relay->cs_tx_inventory);
-            pfrom.m_tx_relay->fSendMempool = true;
-        }
+        ProcessMessageType<MSG_TYPE::MEMPOOL>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
         return;
     }
 
     if (msg_type == NetMsgType::PING) {
-        if (pfrom.GetCommonVersion() > BIP0031_VERSION) {
-            uint64_t nonce = 0;
-            vRecv >> nonce;
-            // Echo the message back with the nonce. This allows for two useful features:
-            //
-            // 1) A remote node can quickly check if the connection is operational
-            // 2) Remote nodes can measure the latency of the network thread. If this node
-            //    is overloaded it won't respond to pings quickly and the remote node can
-            //    avoid sending us more work, like chain download requests.
-            //
-            // The nonce stops the remote getting confused between different pings: without
-            // it, if the remote node sends a ping once per second and this node takes 5
-            // seconds to respond to each, the 5th ping the remote sends would appear to
-            // return very quickly.
-            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::PONG, nonce));
-        }
+        ProcessMessageType<MSG_TYPE::PING>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
         return;
     }
+
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
 
     if (msg_type == NetMsgType::PONG) {
         const auto ping_end = time_received;
