@@ -2105,48 +2105,6 @@ static bool PrepareBlockFilterRequest(CNode& peer, const CChainParams& chain_par
 }
 
 /**
- * Handle a cfilters request.
- *
- * May disconnect from the peer in the case of a bad request.
- *
- * @param[in]   peer            The peer that we received the request from
- * @param[in]   vRecv           The raw message received
- * @param[in]   chain_params    Chain parameters
- * @param[in]   connman         Pointer to the connection manager
- */
-static void ProcessGetCFilters(CNode& peer, CDataStream& vRecv, const CChainParams& chain_params,
-                               CConnman& connman)
-{
-    uint8_t filter_type_ser;
-    uint32_t start_height;
-    uint256 stop_hash;
-
-    vRecv >> filter_type_ser >> start_height >> stop_hash;
-
-    const BlockFilterType filter_type = static_cast<BlockFilterType>(filter_type_ser);
-
-    const CBlockIndex* stop_index;
-    BlockFilterIndex* filter_index;
-    if (!PrepareBlockFilterRequest(peer, chain_params, filter_type, start_height, stop_hash,
-                                   MAX_GETCFILTERS_SIZE, stop_index, filter_index)) {
-        return;
-    }
-
-    std::vector<BlockFilter> filters;
-    if (!filter_index->LookupFilterRange(start_height, stop_index, filters)) {
-        LogPrint(BCLog::NET, "Failed to find block filter in index: filter_type=%s, start_height=%d, stop_hash=%s\n",
-                     BlockFilterTypeName(filter_type), start_height, stop_hash.ToString());
-        return;
-    }
-
-    for (const auto& filter : filters) {
-        CSerializedNetMsg msg = CNetMsgMaker(peer.GetCommonVersion())
-            .Make(NetMsgType::CFILTER, filter);
-        connman.PushMessage(&peer, std::move(msg));
-    }
-}
-
-/**
  * Handle a cfheaders request.
  *
  * May disconnect from the peer in the case of a bad request.
@@ -3815,6 +3773,42 @@ void PeerManager::ProcessMessageType<MSG_TYPE::FEEFILTER>(CNode& pfrom, Peer& pe
     }
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::GETCFILTERS>(CNode& pfrom, Peer& peer,
+                                                            const std::string& msg_type,
+                                                            CDataStream& vRecv,
+                                                            const std::chrono::microseconds time_received,
+                                                            const std::atomic<bool>& interruptMsgProc)
+{
+    uint8_t filter_type_ser;
+    uint32_t start_height;
+    uint256 stop_hash;
+
+    vRecv >> filter_type_ser >> start_height >> stop_hash;
+
+    const BlockFilterType filter_type = static_cast<BlockFilterType>(filter_type_ser);
+
+    const CBlockIndex* stop_index;
+    BlockFilterIndex* filter_index;
+    if (!PrepareBlockFilterRequest(pfrom, m_chainparams, filter_type, start_height, stop_hash,
+                                   MAX_GETCFILTERS_SIZE, stop_index, filter_index)) {
+        return;
+    }
+
+    std::vector<BlockFilter> filters;
+    if (!filter_index->LookupFilterRange(start_height, stop_index, filters)) {
+        LogPrint(BCLog::NET, "Failed to find block filter in index: filter_type=%s, start_height=%d, stop_hash=%s\n",
+                     BlockFilterTypeName(filter_type), start_height, stop_hash.ToString());
+        return;
+    }
+
+    for (const auto& filter : filters) {
+        CSerializedNetMsg msg = CNetMsgMaker(pfrom.GetCommonVersion())
+            .Make(NetMsgType::CFILTER, filter);
+        m_connman.PushMessage(&pfrom, std::move(msg));
+    }
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -3955,7 +3949,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
     }
 
     if (msg_type == NetMsgType::GETCFILTERS) {
-        ProcessGetCFilters(pfrom, vRecv, m_chainparams, m_connman);
+        ProcessMessageType<MSG_TYPE::GETCFILTERS>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
         return;
     }
 
