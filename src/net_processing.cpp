@@ -2105,61 +2105,6 @@ static bool PrepareBlockFilterRequest(CNode& peer, const CChainParams& chain_par
 }
 
 /**
- * Handle a cfheaders request.
- *
- * May disconnect from the peer in the case of a bad request.
- *
- * @param[in]   peer            The peer that we received the request from
- * @param[in]   vRecv           The raw message received
- * @param[in]   chain_params    Chain parameters
- * @param[in]   connman         Pointer to the connection manager
- */
-static void ProcessGetCFHeaders(CNode& peer, CDataStream& vRecv, const CChainParams& chain_params,
-                                CConnman& connman)
-{
-    uint8_t filter_type_ser;
-    uint32_t start_height;
-    uint256 stop_hash;
-
-    vRecv >> filter_type_ser >> start_height >> stop_hash;
-
-    const BlockFilterType filter_type = static_cast<BlockFilterType>(filter_type_ser);
-
-    const CBlockIndex* stop_index;
-    BlockFilterIndex* filter_index;
-    if (!PrepareBlockFilterRequest(peer, chain_params, filter_type, start_height, stop_hash,
-                                   MAX_GETCFHEADERS_SIZE, stop_index, filter_index)) {
-        return;
-    }
-
-    uint256 prev_header;
-    if (start_height > 0) {
-        const CBlockIndex* const prev_block =
-            stop_index->GetAncestor(static_cast<int>(start_height - 1));
-        if (!filter_index->LookupFilterHeader(prev_block, prev_header)) {
-            LogPrint(BCLog::NET, "Failed to find block filter header in index: filter_type=%s, block_hash=%s\n",
-                         BlockFilterTypeName(filter_type), prev_block->GetBlockHash().ToString());
-            return;
-        }
-    }
-
-    std::vector<uint256> filter_hashes;
-    if (!filter_index->LookupFilterHashRange(start_height, stop_index, filter_hashes)) {
-        LogPrint(BCLog::NET, "Failed to find block filter hashes in index: filter_type=%s, start_height=%d, stop_hash=%s\n",
-                     BlockFilterTypeName(filter_type), start_height, stop_hash.ToString());
-        return;
-    }
-
-    CSerializedNetMsg msg = CNetMsgMaker(peer.GetCommonVersion())
-        .Make(NetMsgType::CFHEADERS,
-              filter_type_ser,
-              stop_index->GetBlockHash(),
-              prev_header,
-              filter_hashes);
-    connman.PushMessage(&peer, std::move(msg));
-}
-
-/**
  * Handle a getcfcheckpt request.
  *
  * May disconnect from the peer in the case of a bad request.
@@ -3809,6 +3754,55 @@ void PeerManager::ProcessMessageType<MSG_TYPE::GETCFILTERS>(CNode& pfrom, Peer& 
     }
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::GETCFHEADERS>(CNode& pfrom, Peer& peer,
+                                                             const std::string& msg_type,
+                                                             CDataStream& vRecv,
+                                                             const std::chrono::microseconds time_received,
+                                                             const std::atomic<bool>& interruptMsgProc)
+{
+    uint8_t filter_type_ser;
+    uint32_t start_height;
+    uint256 stop_hash;
+
+    vRecv >> filter_type_ser >> start_height >> stop_hash;
+
+    const BlockFilterType filter_type = static_cast<BlockFilterType>(filter_type_ser);
+
+    const CBlockIndex* stop_index;
+    BlockFilterIndex* filter_index;
+    if (!PrepareBlockFilterRequest(pfrom, m_chainparams, filter_type, start_height, stop_hash,
+                                   MAX_GETCFHEADERS_SIZE, stop_index, filter_index)) {
+        return;
+    }
+
+    uint256 prev_header;
+    if (start_height > 0) {
+        const CBlockIndex* const prev_block =
+            stop_index->GetAncestor(static_cast<int>(start_height - 1));
+        if (!filter_index->LookupFilterHeader(prev_block, prev_header)) {
+            LogPrint(BCLog::NET, "Failed to find block filter header in index: filter_type=%s, block_hash=%s\n",
+                         BlockFilterTypeName(filter_type), prev_block->GetBlockHash().ToString());
+            return;
+        }
+    }
+
+    std::vector<uint256> filter_hashes;
+    if (!filter_index->LookupFilterHashRange(start_height, stop_index, filter_hashes)) {
+        LogPrint(BCLog::NET, "Failed to find block filter hashes in index: filter_type=%s, start_height=%d, stop_hash=%s\n",
+                     BlockFilterTypeName(filter_type), start_height, stop_hash.ToString());
+        return;
+    }
+
+    CSerializedNetMsg msg = CNetMsgMaker(pfrom.GetCommonVersion())
+        .Make(NetMsgType::CFHEADERS,
+              filter_type_ser,
+              stop_index->GetBlockHash(),
+              prev_header,
+              filter_hashes);
+    m_connman.PushMessage(&pfrom, std::move(msg));
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -3954,7 +3948,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
     }
 
     if (msg_type == NetMsgType::GETCFHEADERS) {
-        ProcessGetCFHeaders(pfrom, vRecv, m_chainparams, m_connman);
+        ProcessMessageType<MSG_TYPE::GETCFHEADERS>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
         return;
     }
 
