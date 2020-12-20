@@ -2535,6 +2535,30 @@ void PeerManager::ProcessMessageType<MSG_TYPE::SENDCMPCT>(CNode& pfrom, Peer& pe
     }
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::WTXIDRELAY>(CNode& pfrom, Peer& peer,
+                                                           const std::string& msg_type,
+                                                           CDataStream& vRecv,
+                                                           const std::chrono::microseconds time_received,
+                                                           const std::atomic<bool>& interruptMsgProc)
+{
+    // Feature negotiation of wtxidrelay must happen between VERSION and VERACK
+    // to avoid relay problems from switching after a connection is up.
+    if (pfrom.m_connection_state == ConnectionState::FULLY_CONNECTED) {
+        // Disconnect peers that send wtxidrelay message after VERACK; this
+        // must be negotiated between VERSION and VERACK.
+        pfrom.fDisconnect = true;
+        return;
+    }
+    if (pfrom.GetCommonVersion() >= WTXID_RELAY_VERSION) {
+        LOCK(cs_main);
+        if (!State(pfrom.GetId())->m_wtxid_relay) {
+            State(pfrom.GetId())->m_wtxid_relay = true;
+            g_wtxid_relay_peers++;
+        }
+    }
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -2571,26 +2595,11 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return ProcessMessageType<MSG_TYPE::SENDCMPCT>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
 
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
-    // Feature negotiation of wtxidrelay must happen between VERSION and VERACK
-    // to avoid relay problems from switching after a connection is up.
     if (msg_type == NetMsgType::WTXIDRELAY) {
-        if (pfrom.m_connection_state == ConnectionState::FULLY_CONNECTED) {
-            // Disconnect peers that send wtxidrelay message after VERACK; this
-            // must be negotiated between VERSION and VERACK.
-            pfrom.fDisconnect = true;
-            return;
-        }
-        if (pfrom.GetCommonVersion() >= WTXID_RELAY_VERSION) {
-            LOCK(cs_main);
-            if (!State(pfrom.GetId())->m_wtxid_relay) {
-                State(pfrom.GetId())->m_wtxid_relay = true;
-                g_wtxid_relay_peers++;
-            }
-        }
-        return;
+        return ProcessMessageType<MSG_TYPE::WTXIDRELAY>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
+
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
 
     if (msg_type == NetMsgType::SENDADDRV2) {
         if (pfrom.m_connection_state == ConnectionState::FULLY_CONNECTED) {
