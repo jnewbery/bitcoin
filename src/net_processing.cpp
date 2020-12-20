@@ -3489,6 +3489,36 @@ void PeerManager::ProcessMessageType<MSG_TYPE::BLOCKTXN>(CNode& pfrom, Peer& pee
     return;
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::HEADERS>(CNode& pfrom, Peer& peer,
+                                                        const std::string& msg_type,
+                                                        CDataStream& vRecv,
+                                                        const std::chrono::microseconds time_received,
+                                                        const std::atomic<bool>& interruptMsgProc)
+{
+    // Ignore headers received while importing
+    if (fImporting || fReindex) {
+        LogPrint(BCLog::NET, "Unexpected headers message received from peer %d\n", pfrom.GetId());
+        return;
+    }
+
+    std::vector<CBlockHeader> headers;
+
+    // Bypass the normal CBlock deserialization, as we don't want to risk deserializing 2000 full blocks.
+    unsigned int nCount = ReadCompactSize(vRecv);
+    if (nCount > MAX_HEADERS_RESULTS) {
+        Misbehaving(pfrom.GetId(), 20, strprintf("headers message size = %u", nCount));
+        return;
+    }
+    headers.resize(nCount);
+    for (unsigned int n = 0; n < nCount; n++) {
+        vRecv >> headers[n];
+        ReadCompactSize(vRecv); // ignore tx count; assume it is 0.
+    }
+
+    return ProcessHeadersMessage(pfrom, headers, /*via_compact_block=*/false);
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -3578,32 +3608,12 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return;
     }
 
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
-    if (msg_type == NetMsgType::HEADERS)
-    {
-        // Ignore headers received while importing
-        if (fImporting || fReindex) {
-            LogPrint(BCLog::NET, "Unexpected headers message received from peer %d\n", pfrom.GetId());
-            return;
-        }
-
-        std::vector<CBlockHeader> headers;
-
-        // Bypass the normal CBlock deserialization, as we don't want to risk deserializing 2000 full blocks.
-        unsigned int nCount = ReadCompactSize(vRecv);
-        if (nCount > MAX_HEADERS_RESULTS) {
-            Misbehaving(pfrom.GetId(), 20, strprintf("headers message size = %u", nCount));
-            return;
-        }
-        headers.resize(nCount);
-        for (unsigned int n = 0; n < nCount; n++) {
-            vRecv >> headers[n];
-            ReadCompactSize(vRecv); // ignore tx count; assume it is 0.
-        }
-
-        return ProcessHeadersMessage(pfrom, headers, /*via_compact_block=*/false);
+    if (msg_type == NetMsgType::HEADERS) {
+        ProcessMessageType<MSG_TYPE::HEADERS>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
+        return;
     }
+
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
 
     if (msg_type == NetMsgType::BLOCK)
     {
