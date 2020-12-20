@@ -3746,6 +3746,38 @@ void PeerManager::ProcessMessageType<MSG_TYPE::FILTERLOAD>(CNode& pfrom, Peer& p
     }
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::FILTERADD>(CNode& pfrom, Peer& peer,
+                                                          const std::string& msg_type,
+                                                          CDataStream& vRecv,
+                                                          const std::chrono::microseconds time_received,
+                                                          const std::atomic<bool>& interruptMsgProc)
+{
+    if (!(pfrom.GetLocalServices() & NODE_BLOOM)) {
+        pfrom.fDisconnect = true;
+        return;
+    }
+    std::vector<unsigned char> vData;
+    vRecv >> vData;
+
+    // Nodes must NEVER send a data item > 520 bytes (the max size for a script data object,
+    // and thus, the maximum size any matched object can have) in a filteradd message
+    bool bad = false;
+    if (vData.size() > MAX_SCRIPT_ELEMENT_SIZE) {
+        bad = true;
+    } else if (pfrom.m_tx_relay != nullptr) {
+        LOCK(pfrom.m_tx_relay->cs_filter);
+        if (pfrom.m_tx_relay->pfilter) {
+            pfrom.m_tx_relay->pfilter->insert(vData);
+        } else {
+            bad = true;
+        }
+    }
+    if (bad) {
+        Misbehaving(pfrom.GetId(), 100, "bad filteradd message");
+    }
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -3870,32 +3902,8 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return;
     }
 
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
     if (msg_type == NetMsgType::FILTERADD) {
-        if (!(pfrom.GetLocalServices() & NODE_BLOOM)) {
-            pfrom.fDisconnect = true;
-            return;
-        }
-        std::vector<unsigned char> vData;
-        vRecv >> vData;
-
-        // Nodes must NEVER send a data item > 520 bytes (the max size for a script data object,
-        // and thus, the maximum size any matched object can have) in a filteradd message
-        bool bad = false;
-        if (vData.size() > MAX_SCRIPT_ELEMENT_SIZE) {
-            bad = true;
-        } else if (pfrom.m_tx_relay != nullptr) {
-            LOCK(pfrom.m_tx_relay->cs_filter);
-            if (pfrom.m_tx_relay->pfilter) {
-                pfrom.m_tx_relay->pfilter->insert(vData);
-            } else {
-                bad = true;
-            }
-        }
-        if (bad) {
-            Misbehaving(pfrom.GetId(), 100, "bad filteradd message");
-        }
+        ProcessMessageType<MSG_TYPE::FILTERADD>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
         return;
     }
 
