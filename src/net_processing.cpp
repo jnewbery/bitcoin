@@ -2451,6 +2451,47 @@ void PeerManager::ProcessMessageType<MSG_TYPE::VERSION>(CNode& pfrom, Peer& peer
     }
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::VERACK>(CNode& pfrom, Peer& peer,
+                                                       const std::string& msg_type,
+                                                       CDataStream& vRecv,
+                                                       const std::chrono::microseconds time_received,
+                                                       const std::atomic<bool>& interruptMsgProc)
+{
+    if (pfrom.m_connection_state == ConnectionState::FULLY_CONNECTED) return;
+
+    if (!pfrom.IsInboundConn()) {
+        LogPrintf("New outbound peer connected: version: %d, blocks=%d, peer=%d%s (%s)\n",
+                pfrom.nVersion.load(), pfrom.nStartingHeight,
+                pfrom.GetId(), (fLogIPs ? strprintf(", peeraddr=%s", pfrom.addr.ToString()) : ""),
+                pfrom.ConnectionTypeAsString());
+    }
+
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
+
+    if (pfrom.GetCommonVersion() >= SENDHEADERS_VERSION) {
+        // Tell our peer we prefer to receive headers rather than inv's
+        // We send this to non-NODE NETWORK peers as well, because even
+        // non-NODE NETWORK peers can announce blocks (such as pruning
+        // nodes)
+        m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDHEADERS));
+    }
+    if (pfrom.GetCommonVersion() >= SHORT_IDS_BLOCKS_VERSION) {
+        // Tell our peer we are willing to provide version 1 or 2 cmpctblocks
+        // However, we do not request new block announcements using
+        // cmpctblock messages.
+        // We send this to non-NODE NETWORK peers as well, because
+        // they may wish to request compact blocks from us
+        bool fAnnounceUsingCMPCTBLOCK = false;
+        uint64_t nCMPCTBLOCKVersion = 2;
+        if (pfrom.GetLocalServices() & NODE_WITNESS)
+            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion));
+        nCMPCTBLOCKVersion = 1;
+        m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion));
+    }
+    pfrom.m_connection_state = ConnectionState::FULLY_CONNECTED;
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -2475,42 +2516,11 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return;
     }
 
-    // At this point, the outgoing message serialization version can't change.
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
     if (msg_type == NetMsgType::VERACK) {
-        if (pfrom.m_connection_state == ConnectionState::FULLY_CONNECTED) return;
-
-        if (!pfrom.IsInboundConn()) {
-            LogPrintf("New outbound peer connected: version: %d, blocks=%d, peer=%d%s (%s)\n",
-                      pfrom.nVersion.load(), pfrom.nStartingHeight,
-                      pfrom.GetId(), (fLogIPs ? strprintf(", peeraddr=%s", pfrom.addr.ToString()) : ""),
-                      pfrom.ConnectionTypeAsString());
-        }
-
-        if (pfrom.GetCommonVersion() >= SENDHEADERS_VERSION) {
-            // Tell our peer we prefer to receive headers rather than inv's
-            // We send this to non-NODE NETWORK peers as well, because even
-            // non-NODE NETWORK peers can announce blocks (such as pruning
-            // nodes)
-            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDHEADERS));
-        }
-        if (pfrom.GetCommonVersion() >= SHORT_IDS_BLOCKS_VERSION) {
-            // Tell our peer we are willing to provide version 1 or 2 cmpctblocks
-            // However, we do not request new block announcements using
-            // cmpctblock messages.
-            // We send this to non-NODE NETWORK peers as well, because
-            // they may wish to request compact blocks from us
-            bool fAnnounceUsingCMPCTBLOCK = false;
-            uint64_t nCMPCTBLOCKVersion = 2;
-            if (pfrom.GetLocalServices() & NODE_WITNESS)
-                m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion));
-            nCMPCTBLOCKVersion = 1;
-            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion));
-        }
-        pfrom.m_connection_state = ConnectionState::FULLY_CONNECTED;
-        return;
+        return ProcessMessageType<MSG_TYPE::VERACK>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
+
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
 
     if (msg_type == NetMsgType::SENDHEADERS) {
         LOCK(cs_main);
