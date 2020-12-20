@@ -2575,6 +2575,73 @@ void PeerManager::ProcessMessageType<MSG_TYPE::SENDADDRV2>(CNode& pfrom, Peer& p
     pfrom.m_wants_addrv2 = true;
 }
 
+template<>
+void PeerManager::ProcessMessageType<MSG_TYPE::ADDR>(CNode& pfrom, Peer& peer,
+                                                     const std::string& msg_type,
+                                                     CDataStream& vRecv,
+                                                     const std::chrono::microseconds time_received,
+                                                     const std::atomic<bool>& interruptMsgProc)
+{
+    int stream_version = vRecv.GetVersion();
+    if (msg_type == NetMsgType::ADDRV2) {
+        // Add ADDRV2_FORMAT to the version so that the CNetAddr and CAddress
+        // unserialize methods know that an address in v2 format is coming.
+        stream_version |= ADDRV2_FORMAT;
+    }
+
+    OverrideStream<CDataStream> s(&vRecv, vRecv.GetType(), stream_version);
+    std::vector<CAddress> vAddr;
+
+    s >> vAddr;
+
+    if (!pfrom.RelayAddrsWithConn()) {
+        return;
+    }
+    if (vAddr.size() > MAX_ADDR_TO_SEND)
+    {
+        Misbehaving(pfrom.GetId(), 20, strprintf("%s message size = %u", msg_type, vAddr.size()));
+        return;
+    }
+
+    // Store the new addresses
+    std::vector<CAddress> vAddrOk;
+    int64_t nNow = GetAdjustedTime();
+    int64_t nSince = nNow - 10 * 60;
+    for (CAddress& addr : vAddr)
+    {
+        if (interruptMsgProc)
+            return;
+
+        // We only bother storing full nodes, though this may include
+        // things which we would not make an outbound connection to, in
+        // part because we may make feeler connections to them.
+        if (!MayHaveUsefulAddressDB(addr.nServices) && !HasAllDesirableServiceFlags(addr.nServices))
+            continue;
+
+        if (addr.nTime <= 100000000 || addr.nTime > nNow + 10 * 60)
+            addr.nTime = nNow - 5 * 24 * 60 * 60;
+        pfrom.AddAddressKnown(addr);
+        if (m_banman && (m_banman->IsDiscouraged(addr) || m_banman->IsBanned(addr))) {
+            // Do not process banned/discouraged addresses beyond remembering we received them
+            continue;
+        }
+        bool fReachable = IsReachable(addr);
+        if (addr.nTime > nSince && !pfrom.fGetAddr && vAddr.size() <= 10 && addr.IsRoutable())
+        {
+            // Relay to a limited number of other nodes
+            RelayAddress(pfrom, addr, fReachable, m_connman);
+        }
+        // Do not store addresses outside our network
+        if (fReachable)
+            vAddrOk.push_back(addr);
+    }
+    m_connman.AddNewAddresses(vAddrOk, pfrom.addr, 2 * 60 * 60);
+    if (vAddr.size() < 1000)
+        pfrom.fGetAddr = false;
+    if (pfrom.IsAddrFetchConn())
+        pfrom.fDisconnect = true;
+}
+
 void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                                          const std::chrono::microseconds time_received,
                                          const std::atomic<bool>& interruptMsgProc)
@@ -2624,69 +2691,11 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
         return;
     }
 
-    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-
     if (msg_type == NetMsgType::ADDR || msg_type == NetMsgType::ADDRV2) {
-        int stream_version = vRecv.GetVersion();
-        if (msg_type == NetMsgType::ADDRV2) {
-            // Add ADDRV2_FORMAT to the version so that the CNetAddr and CAddress
-            // unserialize methods know that an address in v2 format is coming.
-            stream_version |= ADDRV2_FORMAT;
-        }
-
-        OverrideStream<CDataStream> s(&vRecv, vRecv.GetType(), stream_version);
-        std::vector<CAddress> vAddr;
-
-        s >> vAddr;
-
-        if (!pfrom.RelayAddrsWithConn()) {
-            return;
-        }
-        if (vAddr.size() > MAX_ADDR_TO_SEND)
-        {
-            Misbehaving(pfrom.GetId(), 20, strprintf("%s message size = %u", msg_type, vAddr.size()));
-            return;
-        }
-
-        // Store the new addresses
-        std::vector<CAddress> vAddrOk;
-        int64_t nNow = GetAdjustedTime();
-        int64_t nSince = nNow - 10 * 60;
-        for (CAddress& addr : vAddr)
-        {
-            if (interruptMsgProc)
-                return;
-
-            // We only bother storing full nodes, though this may include
-            // things which we would not make an outbound connection to, in
-            // part because we may make feeler connections to them.
-            if (!MayHaveUsefulAddressDB(addr.nServices) && !HasAllDesirableServiceFlags(addr.nServices))
-                continue;
-
-            if (addr.nTime <= 100000000 || addr.nTime > nNow + 10 * 60)
-                addr.nTime = nNow - 5 * 24 * 60 * 60;
-            pfrom.AddAddressKnown(addr);
-            if (m_banman && (m_banman->IsDiscouraged(addr) || m_banman->IsBanned(addr))) {
-                // Do not process banned/discouraged addresses beyond remembering we received them
-                continue;
-            }
-            bool fReachable = IsReachable(addr);
-            if (addr.nTime > nSince && !pfrom.fGetAddr && vAddr.size() <= 10 && addr.IsRoutable())
-            {
-                // Relay to a limited number of other nodes
-                RelayAddress(pfrom, addr, fReachable, m_connman);
-            }
-            // Do not store addresses outside our network
-            if (fReachable)
-                vAddrOk.push_back(addr);
-        }
-        m_connman.AddNewAddresses(vAddrOk, pfrom.addr, 2 * 60 * 60);
-        if (vAddr.size() < 1000)
-            pfrom.fGetAddr = false;
-        if (pfrom.IsAddrFetchConn())
-            pfrom.fDisconnect = true;
-        return;
+        return ProcessMessageType<MSG_TYPE::ADDR>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
     }
+
+    const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
 
     if (msg_type == NetMsgType::INV) {
         std::vector<CInv> vInv;
