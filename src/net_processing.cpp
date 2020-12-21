@@ -2584,9 +2584,12 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
 
         s >> vAddr;
 
-        if (!pfrom.RelayAddrsWithConn()) {
-            return;
-        }
+        // Always ignore addr messages from block-relay-only peers
+        if (pfrom.IsBlockOnlyConn()) return;
+
+        // Start addr relay with this peer if we haven't already
+        pfrom.StartAddrRelay();
+
         if (vAddr.size() > MAX_ADDR_TO_SEND)
         {
             Misbehaving(pfrom.GetId(), 20, strprintf("%s message size = %u", msg_type, vAddr.size()));
@@ -3508,6 +3511,9 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
             LogPrint(BCLog::NET, "Ignoring \"getaddr\" from %s connection. peer=%d\n", pfrom.ConnectionTypeAsString(), pfrom.GetId());
             return;
         }
+
+        // Start addr relay with this peer if we haven't already
+        pfrom.StartAddrRelay();
 
         // Only send one GetAddr response per connection to reduce resource waste
         //  and discourage addr stamping of INV announcements.

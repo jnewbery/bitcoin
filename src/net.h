@@ -973,6 +973,12 @@ public:
         assert(false);
     }
 
+    /* Start addr relay with this peer if we haven't already */
+    void StartAddrRelay() {
+        if (m_addr_known != nullptr) return;
+        m_addr_known = MakeUnique<CRollingBloomFilter>(5000, 0.001);
+    }
+
     /**
      * Get network the peer connected through.
      *
