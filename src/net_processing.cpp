@@ -2301,6 +2301,8 @@ void PeerManager::ProcessMessageType<MSG_TYPE::VERSION>(CNode& pfrom, Peer& peer
     if (pfrom.IsFeelerConn()) {
         pfrom.fDisconnect = true;
     }
+
+    pfrom.m_connection_state = ConnectionState::VERSION_RECEIVED;
 }
 
 template<>
@@ -2310,8 +2312,6 @@ void PeerManager::ProcessMessageType<MSG_TYPE::VERACK>(CNode& pfrom, Peer& peer,
                                                        const std::chrono::microseconds time_received,
                                                        const std::atomic<bool>& interruptMsgProc)
 {
-    if (pfrom.m_connection_state == ConnectionState::FULLY_CONNECTED) return;
-
     if (!pfrom.IsInboundConn()) {
         LogPrintf("New outbound peer connected: version: %d, blocks=%d, peer=%d%s (%s)\n",
                 pfrom.nVersion.load(), pfrom.nStartingHeight,
@@ -2394,14 +2394,6 @@ void PeerManager::ProcessMessageType<MSG_TYPE::WTXIDRELAY>(CNode& pfrom, Peer& p
                                                            const std::chrono::microseconds time_received,
                                                            const std::atomic<bool>& interruptMsgProc)
 {
-    // Feature negotiation of wtxidrelay must happen between VERSION and VERACK
-    // to avoid relay problems from switching after a connection is up.
-    if (pfrom.m_connection_state == ConnectionState::FULLY_CONNECTED) {
-        // Disconnect peers that send wtxidrelay message after VERACK; this
-        // must be negotiated between VERSION and VERACK.
-        pfrom.fDisconnect = true;
-        return;
-    }
     if (pfrom.GetCommonVersion() >= WTXID_RELAY_VERSION) {
         LOCK(cs_main);
         if (!State(pfrom.GetId())->m_wtxid_relay) {
@@ -2418,12 +2410,6 @@ void PeerManager::ProcessMessageType<MSG_TYPE::SENDADDRV2>(CNode& pfrom, Peer& p
                                                            const std::chrono::microseconds time_received,
                                                            const std::atomic<bool>& interruptMsgProc)
 {
-    if (pfrom.m_connection_state == ConnectionState::FULLY_CONNECTED) {
-        // Disconnect peers that send SENDADDRV2 message after VERACK; this
-        // must be negotiated between VERSION and VERACK.
-        pfrom.fDisconnect = true;
-        return;
-    }
     pfrom.m_wants_addrv2 = true;
 }
 
@@ -3832,154 +3818,82 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
     PeerRef peer = GetPeerRef(pfrom.GetId());
     if (peer == nullptr) return;
 
-    if (msg_type == NetMsgType::VERSION) {
-        return ProcessMessageType<MSG_TYPE::VERSION>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-    }
+    using MessageHandlerFunction = std::function<void(PeerManager& pm, CNode& pfrom, Peer& peer,
+                                                      const std::string& msg_type,
+                                                      CDataStream& vRecv,
+                                                      const std::chrono::microseconds time_received,
+                                                      const std::atomic<bool>& interruptMsgProc)>;
 
-    if (pfrom.m_connection_state == ConnectionState::CONNECTION_CREATED) {
-        // Must have a version message before anything else
-        LogPrint(BCLog::NET, "non-version message before version handshake. Message \"%s\" from peer=%d\n", SanitizeString(msg_type), pfrom.GetId());
+    struct MessageHandlerRow
+    {
+        MessageHandlerFunction func;
+        std::set<ConnectionState> allowed_states;
+        std::set<ConnectionState> disconnect_states;
+    };
+
+    static std::unordered_map<std::string, MessageHandlerRow> message_handlers{
+    /*   Message string,           Handler function,                                           Allowed states,                                                        Disconnect states */
+        // Version message is always first
+        {NetMsgType::VERSION,      {&PeerManager::ProcessMessageType<MSG_TYPE::VERSION>,       {ConnectionState::CONNECTION_CREATED},                                 {}}},
+
+        // Feature negotiation messages that must happen before verack
+        {NetMsgType::SENDADDRV2,   {&PeerManager::ProcessMessageType<MSG_TYPE::SENDADDRV2>,    {ConnectionState::VERSION_RECEIVED},                                   {ConnectionState::FULLY_CONNECTED}}},
+        {NetMsgType::WTXIDRELAY,   {&PeerManager::ProcessMessageType<MSG_TYPE::WTXIDRELAY>,    {ConnectionState::VERSION_RECEIVED},                                   {ConnectionState::FULLY_CONNECTED}}},
+
+        // Feature negotiation messages that may happen before or after verack
+        {NetMsgType::SENDCMPCT,    {&PeerManager::ProcessMessageType<MSG_TYPE::SENDCMPCT>,     {ConnectionState::VERSION_RECEIVED, ConnectionState::FULLY_CONNECTED}, {}}},
+        {NetMsgType::SENDHEADERS,  {&PeerManager::ProcessMessageType<MSG_TYPE::SENDHEADERS>,   {ConnectionState::VERSION_RECEIVED, ConnectionState::FULLY_CONNECTED}, {}}},
+
+        // Verack completes the version handshake
+        {NetMsgType::VERACK,       {&PeerManager::ProcessMessageType<MSG_TYPE::VERACK>,        {ConnectionState::VERSION_RECEIVED},                                   {}}},
+
+        // Messages which can only be processed after version handshake is complete
+        {NetMsgType::ADDR,         {&PeerManager::ProcessMessageType<MSG_TYPE::ADDR>,          {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::ADDRV2,       {&PeerManager::ProcessMessageType<MSG_TYPE::ADDR>,          {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::BLOCK,        {&PeerManager::ProcessMessageType<MSG_TYPE::BLOCK>,         {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::BLOCKTXN,     {&PeerManager::ProcessMessageType<MSG_TYPE::BLOCKTXN>,      {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::CMPCTBLOCK,   {&PeerManager::ProcessMessageType<MSG_TYPE::CMPCTBLOCK>,    {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::FEEFILTER,    {&PeerManager::ProcessMessageType<MSG_TYPE::FEEFILTER>,     {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::FILTERADD,    {&PeerManager::ProcessMessageType<MSG_TYPE::FILTERADD>,     {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::FILTERCLEAR,  {&PeerManager::ProcessMessageType<MSG_TYPE::FILTERCLEAR>,   {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::FILTERLOAD,   {&PeerManager::ProcessMessageType<MSG_TYPE::FILTERLOAD>,    {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::GETADDR,      {&PeerManager::ProcessMessageType<MSG_TYPE::GETADDR>,       {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::GETBLOCKS,    {&PeerManager::ProcessMessageType<MSG_TYPE::GETBLOCKS>,     {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::GETBLOCKTXN,  {&PeerManager::ProcessMessageType<MSG_TYPE::GETBLOCKTXN>,   {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::GETCFCHECKPT, {&PeerManager::ProcessMessageType<MSG_TYPE::GETCFCHECKPT>,  {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::GETCFHEADERS, {&PeerManager::ProcessMessageType<MSG_TYPE::GETCFHEADERS>,  {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::GETCFILTERS,  {&PeerManager::ProcessMessageType<MSG_TYPE::GETCFILTERS>,   {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::GETDATA,      {&PeerManager::ProcessMessageType<MSG_TYPE::GETDATA>,       {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::GETHEADERS,   {&PeerManager::ProcessMessageType<MSG_TYPE::GETHEADERS>,    {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::HEADERS,      {&PeerManager::ProcessMessageType<MSG_TYPE::HEADERS>,       {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::INV,          {&PeerManager::ProcessMessageType<MSG_TYPE::INV>,           {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::MEMPOOL,      {&PeerManager::ProcessMessageType<MSG_TYPE::MEMPOOL>,       {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::NOTFOUND,     {&PeerManager::ProcessMessageType<MSG_TYPE::NOTFOUND>,      {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::PING,         {&PeerManager::ProcessMessageType<MSG_TYPE::PING>,          {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::PONG,         {&PeerManager::ProcessMessageType<MSG_TYPE::PONG>,          {ConnectionState::FULLY_CONNECTED},                                    {}}},
+        {NetMsgType::TX,           {&PeerManager::ProcessMessageType<MSG_TYPE::TX>,            {ConnectionState::FULLY_CONNECTED},                                    {}}},
+
+        // There are no handlers for CFCHECKPT, CFCHEADER, CFILTER or MERKLEBLOCK messages (we send but don't process these messages)*/
+    };
+
+    auto handler = message_handlers.find(msg_type);
+
+    if (handler == message_handlers.end()) {
+        // Ignore unknown commands for extensibility
+        LogPrint(BCLog::NET, "Unknown command \"%s\" from peer=%d\n", SanitizeString(msg_type), pfrom.GetId());
         return;
     }
 
-    if (msg_type == NetMsgType::VERACK) {
-        return ProcessMessageType<MSG_TYPE::VERACK>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-    }
+    MessageHandlerRow& row = handler->second;
 
-    if (msg_type == NetMsgType::SENDHEADERS) {
-        return ProcessMessageType<MSG_TYPE::SENDHEADERS>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
+    if (row.disconnect_states.count(pfrom.m_connection_state)) {
+        LogPrint(BCLog::NET, "Disallowed message \"%s\" from peer=%d\n", SanitizeString(msg_type), pfrom.GetId());
+        pfrom.fDisconnect = true;
+    } else if (row.allowed_states.count(pfrom.m_connection_state)) {
+        row.func(*this, pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
+    } else {
+        LogPrint(BCLog::NET, "Ignoring message \"%s\" from peer=%d\n", SanitizeString(msg_type), pfrom.GetId());
     }
-
-    if (msg_type == NetMsgType::SENDCMPCT) {
-        return ProcessMessageType<MSG_TYPE::SENDCMPCT>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-    }
-
-    if (msg_type == NetMsgType::WTXIDRELAY) {
-        return ProcessMessageType<MSG_TYPE::WTXIDRELAY>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-    }
-
-    if (msg_type == NetMsgType::SENDADDRV2) {
-        return ProcessMessageType<MSG_TYPE::SENDADDRV2>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-    }
-
-    if (pfrom.m_connection_state != ConnectionState::FULLY_CONNECTED) {
-        LogPrint(BCLog::NET, "Unsupported message \"%s\" prior to verack from peer=%d\n", SanitizeString(msg_type), pfrom.GetId());
-        return;
-    }
-
-    if (msg_type == NetMsgType::ADDR || msg_type == NetMsgType::ADDRV2) {
-        return ProcessMessageType<MSG_TYPE::ADDR>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-    }
-
-    if (msg_type == NetMsgType::INV) {
-        return ProcessMessageType<MSG_TYPE::INV>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-    }
-
-    if (msg_type == NetMsgType::GETDATA) {
-        return ProcessMessageType<MSG_TYPE::GETDATA>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-    }
-
-    if (msg_type == NetMsgType::GETBLOCKS) {
-        return ProcessMessageType<MSG_TYPE::GETBLOCKS>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-    }
-
-    if (msg_type == NetMsgType::GETBLOCKTXN) {
-        return ProcessMessageType<MSG_TYPE::GETBLOCKTXN>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-    }
-
-    if (msg_type == NetMsgType::GETHEADERS) {
-        ProcessMessageType<MSG_TYPE::GETHEADERS>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::TX) {
-        ProcessMessageType<MSG_TYPE::TX>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::CMPCTBLOCK) {
-        ProcessMessageType<MSG_TYPE::CMPCTBLOCK>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::BLOCKTXN) {
-        ProcessMessageType<MSG_TYPE::BLOCKTXN>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::HEADERS) {
-        ProcessMessageType<MSG_TYPE::HEADERS>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::BLOCK) {
-        ProcessMessageType<MSG_TYPE::BLOCK>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
- 
-    if (msg_type == NetMsgType::GETADDR) {
-        ProcessMessageType<MSG_TYPE::GETADDR>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::MEMPOOL) {
-        ProcessMessageType<MSG_TYPE::MEMPOOL>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::PING) {
-        ProcessMessageType<MSG_TYPE::PING>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::PONG) {
-        ProcessMessageType<MSG_TYPE::PONG>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::FILTERLOAD) {
-        ProcessMessageType<MSG_TYPE::FILTERLOAD>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::FILTERADD) {
-        ProcessMessageType<MSG_TYPE::FILTERADD>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::FILTERCLEAR) {
-        ProcessMessageType<MSG_TYPE::FILTERCLEAR>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::FEEFILTER) {
-        ProcessMessageType<MSG_TYPE::FILTERCLEAR>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::GETCFILTERS) {
-        ProcessMessageType<MSG_TYPE::GETCFILTERS>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::GETCFHEADERS) {
-        ProcessMessageType<MSG_TYPE::GETCFHEADERS>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::GETCFCHECKPT) {
-        ProcessMessageType<MSG_TYPE::GETCFCHECKPT>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    if (msg_type == NetMsgType::NOTFOUND) {
-        ProcessMessageType<MSG_TYPE::NOTFOUND>(pfrom, *peer, msg_type, vRecv, time_received, interruptMsgProc);
-        return;
-    }
-
-    // Ignore unknown commands for extensibility
-    LogPrint(BCLog::NET, "Unknown command \"%s\" from peer=%d\n", SanitizeString(msg_type), pfrom.GetId());
-    return;
 }
 
 bool PeerManager::MaybeDiscourageAndDisconnect(CNode& pnode)
