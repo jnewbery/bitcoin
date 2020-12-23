@@ -328,7 +328,7 @@ private:
     void MaybeSendPing(CNode& node_to, Peer& peer);
 
     /** Send `addr` messages on a regular schedule*/
-    void MaybeSendAddr(CNode* pto);
+    void MaybeSendAddr(CNode& pto);
 
     const CChainParams& m_chainparams;
     CConnman& m_connman;
@@ -4360,45 +4360,45 @@ void PeerManagerImpl::MaybeSendPing(CNode& node_to, Peer& peer)
     }
 }
 
-void PeerManagerImpl::MaybeSendAddr(CNode* pto)
+void PeerManagerImpl::MaybeSendAddr(CNode& pto)
 {
-    const CNetMsgMaker msgMaker(pto->GetCommonVersion());
+    const CNetMsgMaker msgMaker(pto.GetCommonVersion());
 
     // Address refresh broadcast
     auto current_time = GetTime<std::chrono::microseconds>();
 
-    if (fListen && pto->RelayAddrsWithConn() &&
+    if (fListen && pto.RelayAddrsWithConn() &&
         !::ChainstateActive().IsInitialBlockDownload() &&
-        pto->m_next_local_addr_send < current_time) {
+        pto.m_next_local_addr_send < current_time) {
         // If we've sent before, clear the bloom filter for the peer, so that our
         // self-announcement will actually go out.
         // This might be unnecessary if the bloom filter has already rolled
         // over since our last self-announcement, but there is only a small
         // bandwidth cost that we can incur by doing this (which happens
         // once a day on average).
-        if (pto->m_next_local_addr_send != 0us) {
-            pto->m_addr_known->reset();
+        if (pto.m_next_local_addr_send != 0us) {
+            pto.m_addr_known->reset();
         }
-        Optional<CAddress> local_addr = GetPeerLocalAddr(pto);
+        Optional<CAddress> local_addr = GetPeerLocalAddr(&pto);
         if (local_addr) {
             FastRandomContext insecure_rand;
-            pto->PushAddress(*local_addr, insecure_rand);
+            pto.PushAddress(*local_addr, insecure_rand);
         }
-        pto->m_next_local_addr_send = PoissonNextSend(current_time, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
+        pto.m_next_local_addr_send = PoissonNextSend(current_time, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
     }
 
     //
     // Message: addr
     //
-    if (pto->RelayAddrsWithConn() && pto->m_next_addr_send < current_time) {
-        pto->m_next_addr_send = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
+    if (pto.RelayAddrsWithConn() && pto.m_next_addr_send < current_time) {
+        pto.m_next_addr_send = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
         std::vector<CAddress> vAddr;
-        vAddr.reserve(pto->vAddrToSend.size());
-        assert(pto->m_addr_known);
+        vAddr.reserve(pto.vAddrToSend.size());
+        assert(pto.m_addr_known);
 
         const char* msg_type;
         int make_flags;
-        if (pto->m_wants_addrv2) {
+        if (pto.m_wants_addrv2) {
             msg_type = NetMsgType::ADDRV2;
             make_flags = ADDRV2_FORMAT;
         } else {
@@ -4406,26 +4406,26 @@ void PeerManagerImpl::MaybeSendAddr(CNode* pto)
             make_flags = 0;
         }
 
-        for (const CAddress& addr : pto->vAddrToSend)
+        for (const CAddress& addr : pto.vAddrToSend)
         {
-            if (!pto->m_addr_known->contains(addr.GetKey()))
+            if (!pto.m_addr_known->contains(addr.GetKey()))
             {
-                pto->m_addr_known->insert(addr.GetKey());
+                pto.m_addr_known->insert(addr.GetKey());
                 vAddr.push_back(addr);
                 // receiver rejects addr messages larger than MAX_ADDR_TO_SEND
                 if (vAddr.size() >= MAX_ADDR_TO_SEND)
                 {
-                    m_connman.PushMessage(pto, msgMaker.Make(make_flags, msg_type, vAddr));
+                    m_connman.PushMessage(&pto, msgMaker.Make(make_flags, msg_type, vAddr));
                     vAddr.clear();
                 }
             }
         }
-        pto->vAddrToSend.clear();
+        pto.vAddrToSend.clear();
         if (!vAddr.empty())
-            m_connman.PushMessage(pto, msgMaker.Make(make_flags, msg_type, vAddr));
+            m_connman.PushMessage(&pto, msgMaker.Make(make_flags, msg_type, vAddr));
         // we only send the big addr message once
-        if (pto->vAddrToSend.capacity() > 40)
-            pto->vAddrToSend.shrink_to_fit();
+        if (pto.vAddrToSend.capacity() > 40)
+            pto.vAddrToSend.shrink_to_fit();
     }
 }
 
@@ -4446,7 +4446,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
     // MaybeSendPing may have marked peer for disconnection
     if (pto->fDisconnect) return true;
 
-    MaybeSendAddr(pto);
+    MaybeSendAddr(*pto);
 
     // If we get here, the outgoing message serialization version is set and can't change.
     const CNetMsgMaker msgMaker(pto->GetCommonVersion());
