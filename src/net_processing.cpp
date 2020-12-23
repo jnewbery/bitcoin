@@ -1319,7 +1319,7 @@ void PeerManager::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockInde
         LOCK(m_peer_mutex);
         for (auto& it : m_peer_map) {
             Peer& peer = *it.second;
-            LOCK(peer.m_block_inv_mutex);
+            LOCK(peer.m_block_inv_mutex); // TODO: violates "Mutexes inside this struct must not be held when locking m_peer_mutex." rule??
             for (const uint256& hash : reverse_iterate(vHashes)) {
                 peer.m_blocks_for_headers_relay.push_back(hash);
             }
