@@ -173,7 +173,7 @@ public:
         // orphan transactions
         mapOrphanTransactions.clear();
         mapOrphanTransactionsByPrev.clear();
-        g_orphans_by_wtxid.clear();
+        m_orphans_by_wtxid.clear();
     }
 
     void BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindexConnected) override;
@@ -390,11 +390,11 @@ private:
      *  to remove orphan transactions from the mapOrphanTransactions */
     std::map<COutPoint, std::set<std::map<uint256, COrphanTx>::iterator, IteratorComparator>> mapOrphanTransactionsByPrev GUARDED_BY(g_cs_orphans);
     /** Orphan transactions in vector for quick random eviction */
-    std::vector<std::map<uint256, COrphanTx>::iterator> g_orphan_list GUARDED_BY(g_cs_orphans);
+    std::vector<std::map<uint256, COrphanTx>::iterator> m_orphan_list GUARDED_BY(g_cs_orphans);
 
     /** Index from wtxid into the mapOrphanTransactions to lookup orphan
      *  transactions using their witness ids. */
-    std::map<uint256, std::map<uint256, COrphanTx>::iterator> g_orphans_by_wtxid GUARDED_BY(g_cs_orphans);
+    std::map<uint256, std::map<uint256, COrphanTx>::iterator> m_orphans_by_wtxid GUARDED_BY(g_cs_orphans);
 
     /** Orphan/conflicted/etc transactions that are kept for compact block reconstruction.
      *  The last -blockreconstructionextratxn/DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN of
@@ -1049,11 +1049,11 @@ bool PeerManagerImpl::AddOrphanTx(const CTransactionRef& tx, NodeId peer) EXCLUS
         return false;
     }
 
-    auto ret = mapOrphanTransactions.emplace(hash, COrphanTx{tx, peer, GetTime() + ORPHAN_TX_EXPIRE_TIME, g_orphan_list.size()});
+    auto ret = mapOrphanTransactions.emplace(hash, COrphanTx{tx, peer, GetTime() + ORPHAN_TX_EXPIRE_TIME, m_orphan_list.size()});
     assert(ret.second);
-    g_orphan_list.push_back(ret.first);
+    m_orphan_list.push_back(ret.first);
     // Allow for lookups in the orphan pool by wtxid, as well as txid
-    g_orphans_by_wtxid.emplace(tx->GetWitnessHash(), ret.first);
+    m_orphans_by_wtxid.emplace(tx->GetWitnessHash(), ret.first);
     for (const CTxIn& txin : tx->vin) {
         mapOrphanTransactionsByPrev[txin.prevout].insert(ret.first);
     }
@@ -1082,16 +1082,16 @@ int PeerManagerImpl::EraseOrphanTx(uint256 hash) EXCLUSIVE_LOCKS_REQUIRED(g_cs_o
     }
 
     size_t old_pos = it->second.list_pos;
-    assert(g_orphan_list[old_pos] == it);
-    if (old_pos + 1 != g_orphan_list.size()) {
-        // Unless we're deleting the last entry in g_orphan_list, move the last
+    assert(m_orphan_list[old_pos] == it);
+    if (old_pos + 1 != m_orphan_list.size()) {
+        // Unless we're deleting the last entry in m_orphan_list, move the last
         // entry to the position we're deleting.
-        auto it_last = g_orphan_list.back();
-        g_orphan_list[old_pos] = it_last;
+        auto it_last = m_orphan_list.back();
+        m_orphan_list[old_pos] = it_last;
         it_last->second.list_pos = old_pos;
     }
-    g_orphan_list.pop_back();
-    g_orphans_by_wtxid.erase(it->second.tx->GetWitnessHash());
+    m_orphan_list.pop_back();
+    m_orphans_by_wtxid.erase(it->second.tx->GetWitnessHash());
 
     mapOrphanTransactions.erase(it);
     return 1;
@@ -1142,8 +1142,8 @@ unsigned int PeerManagerImpl::LimitOrphanTxSize(unsigned int nMaxOrphans)
     while (mapOrphanTransactions.size() > nMaxOrphans)
     {
         // Evict a random orphan:
-        size_t randompos = rng.randrange(g_orphan_list.size());
-        EraseOrphanTx(g_orphan_list[randompos]->first);
+        size_t randompos = rng.randrange(m_orphan_list.size());
+        EraseOrphanTx(m_orphan_list[randompos]->first);
         ++nEvicted;
     }
     return nEvicted;
@@ -1527,7 +1527,7 @@ bool PeerManagerImpl::AlreadyHaveTx(const GenTxid& gtxid) EXCLUSIVE_LOCKS_REQUIR
         LOCK(g_cs_orphans);
         if (!gtxid.IsWtxid() && mapOrphanTransactions.count(hash)) {
             return true;
-        } else if (gtxid.IsWtxid() && g_orphans_by_wtxid.count(hash)) {
+        } else if (gtxid.IsWtxid() && m_orphans_by_wtxid.count(hash)) {
             return true;
         }
     }
