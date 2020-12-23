@@ -95,58 +95,17 @@ struct Peer {
 
 using PeerRef = std::shared_ptr<Peer>;
 
-class PeerManager final : public CValidationInterface, public NetEventsInterface {
+class PeerManager : public CValidationInterface, public NetEventsInterface {
 public:
-    PeerManager(const CChainParams& chainparams, CConnman& connman, BanMan* banman,
-                CScheduler& scheduler, ChainstateManager& chainman, CTxMemPool& pool,
-                bool ignore_incoming_txs);
-
-    /**
-     * Overridden from CValidationInterface.
-     */
-    void BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindexConnected) override;
-    void BlockDisconnected(const std::shared_ptr<const CBlock> &block, const CBlockIndex* pindex) override;
-    /**
-     * Overridden from CValidationInterface.
-     */
-    void UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload) override;
-    /**
-     * Overridden from CValidationInterface.
-     */
-    void BlockChecked(const CBlock& block, const BlockValidationState& state) override;
-    /**
-     * Overridden from CValidationInterface.
-     */
-    void NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock>& pblock) override;
-
-    /** Initialize a peer by adding it to mapNodeState and pushing a message requesting its version */
-    void InitializeNode(CNode* pnode) override;
-    /** Handle removal of a peer by updating various state and removing it from mapNodeState */
-    void FinalizeNode(const CNode& node, bool& fUpdateConnectionTime) override;
-    /**
-    * Process protocol messages received from a given node
-    *
-    * @param[in]   pfrom           The node which we have received messages from.
-    * @param[in]   interrupt       Interrupt condition for processing threads
-    */
-    bool ProcessMessages(CNode* pfrom, std::atomic<bool>& interrupt) override;
-    /**
-    * Send queued protocol messages to be sent to a give node.
-    *
-    * @param[in]   pto             The node which we are sending messages to.
-    * @return                      True if there is more work to be done
-    */
-    bool SendMessages(CNode* pto) override EXCLUSIVE_LOCKS_REQUIRED(pto->cs_sendProcessing);
-
     /** Evict extra outbound peers. If we think our tip may be stale, connect to an extra outbound */
-    void CheckForStaleTipAndEvictPeers();
+    virtual void CheckForStaleTipAndEvictPeers() = 0;
 
 public: // exposed as debugging info for RPC
     /** Get statistics from node state */
-    bool GetNodeStateStats(NodeId nodeid, CNodeStateStats& stats);
+    virtual bool GetNodeStateStats(NodeId nodeid, CNodeStateStats& stats) = 0;
 
     /** Whether this node ignores txs received over p2p. */
-    bool IgnoresIncomingTxs() {return m_ignore_incoming_txs;};
+    virtual bool IgnoresIncomingTxs() = 0;
 
 public: // exposed for tests
     /**
@@ -154,11 +113,41 @@ public: // exposed for tests
      * to be discouraged, meaning the peer might be disconnected and added to the discouragement filter.
      * Public for unit testing.
      */
-    void Misbehaving(const NodeId pnode, const int howmuch, const std::string& message);
+    virtual void Misbehaving(const NodeId pnode, const int howmuch, const std::string& message) = 0;
 
     /** Process a single message from a peer. Public for fuzz testing */
+    virtual void ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
+                        const std::chrono::microseconds time_received, const std::atomic<bool>& interruptMsgProc) = 0;
+
+    virtual ~PeerManager() { }
+};
+
+
+std::unique_ptr<PeerManager> make_PeerManager(const CChainParams& chainparams, CConnman& connman, BanMan* banman,
+                CScheduler& scheduler, ChainstateManager& chainman, CTxMemPool& pool,
+                bool ignore_incoming_txs);
+
+class PeerManagerImpl final : public PeerManager {
+public:
+    PeerManagerImpl(const CChainParams& chainparams, CConnman& connman, BanMan* banman,
+                CScheduler& scheduler, ChainstateManager& chainman, CTxMemPool& pool,
+                bool ignore_incoming_txs);
+
+    void BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindexConnected) override;
+    void BlockDisconnected(const std::shared_ptr<const CBlock> &block, const CBlockIndex* pindex) override;
+    void UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload) override;
+    void BlockChecked(const CBlock& block, const BlockValidationState& state) override;
+    void NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock>& pblock) override;
+    void InitializeNode(CNode* pnode) override;
+    void FinalizeNode(const CNode& node, bool& fUpdateConnectionTime) override;
+    bool ProcessMessages(CNode* pfrom, std::atomic<bool>& interrupt) override;
+    bool SendMessages(CNode* pto) override EXCLUSIVE_LOCKS_REQUIRED(pto->cs_sendProcessing);
+    void CheckForStaleTipAndEvictPeers() override;
+    bool GetNodeStateStats(NodeId nodeid, CNodeStateStats& stats) override;
+    bool IgnoresIncomingTxs() override { return m_ignore_incoming_txs; }
+    void Misbehaving(const NodeId pnode, const int howmuch, const std::string& message) override;
     void ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
-                        const std::chrono::microseconds time_received, const std::atomic<bool>& interruptMsgProc);
+                        const std::chrono::microseconds time_received, const std::atomic<bool>& interruptMsgProc) override;
 
 private:
     /** Consider evicting an outbound peer based on the amount of time they've been behind our tip */
