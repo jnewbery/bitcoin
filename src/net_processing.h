@@ -100,6 +100,9 @@ public:
     /** Evict extra outbound peers. If we think our tip may be stale, connect to an extra outbound */
     virtual void CheckForStaleTipAndEvictPeers() = 0;
 
+    /** Relay transaction to every node */
+    virtual void RelayTransaction(const uint256& txid, const uint256& wtxid, const CConnman& connman) EXCLUSIVE_LOCKS_REQUIRED(cs_main) = 0;
+
 public: // exposed as debugging info for RPC
     /** Get statistics from node state */
     virtual bool GetNodeStateStats(NodeId nodeid, CNodeStateStats& stats) = 0;
@@ -129,6 +132,7 @@ public: // exposed for tests
     virtual bool AddOrphanTx(const CTransactionRef& tx, NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans) = 0;
     virtual void EraseOrphansFor(NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans) = 0;
     virtual unsigned int LimitOrphanTxSize(unsigned int nMaxOrphans) = 0;
+    virtual void UpdateLastBlockAnnounceTime(NodeId node, int64_t time_in_seconds) = 0;
 
     /** Map from txid to orphan transaction record. Limited by
      *  -maxorphantx/DEFAULT_MAX_ORPHAN_TRANSACTIONS */
@@ -141,7 +145,5 @@ std::unique_ptr<PeerManager> make_PeerManager(const CChainParams& chainparams, C
                 CScheduler& scheduler, ChainstateManager& chainman, CTxMemPool& pool,
                 bool ignore_incoming_txs);
 
-/** Relay transaction to every node */
-void RelayTransaction(const uint256& txid, const uint256& wtxid, const CConnman& connman) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
 #endif // BITCOIN_NET_PROCESSING_H
