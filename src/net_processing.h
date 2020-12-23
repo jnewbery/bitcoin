@@ -249,4 +249,12 @@ private:
 /** Relay transaction to every node */
 void RelayTransaction(const uint256& txid, const uint256& wtxid, const CConnman& connman) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
+// Exposed for access from tests
+struct COrphanTx {
+    CTransactionRef tx;
+    NodeId fromPeer;
+    int64_t nTimeExpire;
+    size_t list_pos;
+};
+
 #endif // BITCOIN_NET_PROCESSING_H

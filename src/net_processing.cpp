@@ -147,14 +147,6 @@ static constexpr uint32_t MAX_GETCFHEADERS_SIZE = 2000;
 /** the maximum percentage of addresses from our addrman to return in response to a getaddr message. */
 static constexpr size_t MAX_PCT_ADDR_TO_SEND = 23;
 
-struct COrphanTx {
-    // When modifying, adapt the copy of this definition in tests/DoS_tests.
-    CTransactionRef tx;
-    NodeId fromPeer;
-    int64_t nTimeExpire;
-    size_t list_pos;
-};
-
 /** Guards orphan transactions and extra txs for compact blocks */
 RecursiveMutex g_cs_orphans;
 /** Map from txid to orphan transaction record. Limited by
