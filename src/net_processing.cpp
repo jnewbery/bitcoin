@@ -286,10 +286,9 @@ private:
 
     /** Number of outbound peers with m_chain_sync.m_protect. */
     int m_outbound_peers_with_protect_from_disconnect GUARDED_BY(cs_main) = 0;
-};
-} // namespace
 
-namespace {
+    bool AlreadyHaveTx(const GenTxid& gtxid, const CTxMemPool& mempool) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
     /**
      * Filter for transactions that were recently rejected by
      * AcceptToMemoryPool. These are not rerequested until the chain tip
@@ -332,9 +331,12 @@ namespace {
      * We use this to avoid requesting transactions that have already been
      * confirnmed.
      */
-    Mutex g_cs_recent_confirmed_transactions;
-    std::unique_ptr<CRollingBloomFilter> g_recent_confirmed_transactions GUARDED_BY(g_cs_recent_confirmed_transactions);
+    Mutex m_cs_recent_confirmed_transactions;
+    std::unique_ptr<CRollingBloomFilter> m_recent_confirmed_transactions GUARDED_BY(m_cs_recent_confirmed_transactions);
+};
+} // namespace
 
+namespace {
     /** Blocks that are in flight, and that are in the queue to be downloaded. */
     struct QueuedBlock {
         uint256 hash;
@@ -1265,7 +1267,7 @@ PeerManagerImpl::PeerManagerImpl(const CChainParams& chainparams, CConnman& conn
     // The false positive rate of 1/1M should come out to less than 1
     // transaction per day that would be inadvertently ignored (which is the
     // same probability that we have in the reject filter).
-    g_recent_confirmed_transactions.reset(new CRollingBloomFilter(48000, 0.000001));
+    m_recent_confirmed_transactions.reset(new CRollingBloomFilter(48000, 0.000001));
 
     // Stale tip checking and peer eviction are on two different timers, but we
     // don't want them to get out of sync due to drift in the scheduler, so we
@@ -1318,11 +1320,11 @@ void PeerManagerImpl::BlockConnected(const std::shared_ptr<const CBlock>& pblock
         g_last_tip_update = GetTime();
     }
     {
-        LOCK(g_cs_recent_confirmed_transactions);
+        LOCK(m_cs_recent_confirmed_transactions);
         for (const auto& ptx : pblock->vtx) {
-            g_recent_confirmed_transactions->insert(ptx->GetHash());
+            m_recent_confirmed_transactions->insert(ptx->GetHash());
             if (ptx->GetHash() != ptx->GetWitnessHash()) {
-                g_recent_confirmed_transactions->insert(ptx->GetWitnessHash());
+                m_recent_confirmed_transactions->insert(ptx->GetWitnessHash());
             }
         }
     }
@@ -1345,8 +1347,8 @@ void PeerManagerImpl::BlockDisconnected(const std::shared_ptr<const CBlock> &blo
     // block's worth of transactions in it, but that should be fine, since
     // presumably the most common case of relaying a confirmed transaction
     // should be just after a new block containing it is found.
-    LOCK(g_cs_recent_confirmed_transactions);
-    g_recent_confirmed_transactions->reset();
+    LOCK(m_cs_recent_confirmed_transactions);
+    m_recent_confirmed_transactions->reset();
 }
 
 // All of the following cache a recent block, and are protected by cs_most_recent_block
@@ -1481,7 +1483,7 @@ void PeerManagerImpl::BlockChecked(const CBlock& block, const BlockValidationSta
 //
 
 
-bool static AlreadyHaveTx(const GenTxid& gtxid, const CTxMemPool& mempool) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+bool PeerManagerImpl::AlreadyHaveTx(const GenTxid& gtxid, const CTxMemPool& mempool) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     assert(recentRejects);
     if (::ChainActive().Tip()->GetBlockHash() != hashRecentRejectsChainTip) {
@@ -1505,8 +1507,8 @@ bool static AlreadyHaveTx(const GenTxid& gtxid, const CTxMemPool& mempool) EXCLU
     }
 
     {
-        LOCK(g_cs_recent_confirmed_transactions);
-        if (g_recent_confirmed_transactions->contains(hash)) return true;
+        LOCK(m_cs_recent_confirmed_transactions);
+        if (m_recent_confirmed_transactions->contains(hash)) return true;
     }
 
     return recentRejects->contains(hash) || mempool.exists(gtxid);
