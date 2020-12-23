@@ -522,6 +522,9 @@ private:
      *  transactions using their witness ids. */
     std::map<uint256, std::map<uint256, COrphanTx>::iterator> m_orphans_by_wtxid GUARDED_BY(g_cs_orphans);
 
+    /** Timestamp for next sweep of orphans by LimitOrphanTxSize */
+    int64_t m_next_orphan_sweep GUARDED_BY(g_cs_orphans) = 0;
+
     /** Orphan/conflicted/etc transactions that are kept for compact block reconstruction.
      *  The last -blockreconstructionextratxn/DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN of
      *  these are kept in a ring buffer */
@@ -533,6 +536,9 @@ private:
 
     /** Number of preferable block download peers. */
     int nPreferredDownload GUARDED_BY(cs_main) = 0;
+
+    /** Height of highest fast announce block, updated by NewPoWValidBlock */
+    int m_height_of_highest_fast_announce GUARDED_BY(cs_main) = 0;
 
     CNodeState *State(NodeId pnode) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     void ProcessBlockAvailability(NodeId nodeid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
@@ -551,6 +557,10 @@ private:
     std::shared_ptr<const CBlockHeaderAndShortTxIDs> most_recent_compact_block GUARDED_BY(cs_most_recent_block);
     uint256 most_recent_block_hash GUARDED_BY(cs_most_recent_block);
     bool fWitnessesPresentInMostRecentCompactBlock GUARDED_BY(cs_most_recent_block);
+
+    // Fee calculator helpers for SendMessages()
+    FeeFilterRounder m_filter_rounder GUARDED_BY(cs_main) {CFeeRate{DEFAULT_MIN_RELAY_TX_FEE}};
+    const CAmount MAX_FILTER GUARDED_BY(cs_main) {m_filter_rounder.round(MAX_MONEY)};
 };
 } // namespace
 
@@ -1133,9 +1143,8 @@ unsigned int PeerManagerImpl::LimitOrphanTxSize(unsigned int nMaxOrphans)
     LOCK(g_cs_orphans);
 
     unsigned int nEvicted = 0;
-    static int64_t nNextSweep; // GUARDED_BY(g_cs_orphans)
     int64_t nNow = GetTime();
-    if (nNextSweep <= nNow) {
+    if (m_next_orphan_sweep <= nNow) {
         // Sweep out expired orphan pool entries:
         int nErased = 0;
         int64_t nMinExpTime = nNow + ORPHAN_TX_EXPIRE_TIME - ORPHAN_TX_EXPIRE_INTERVAL;
@@ -1150,7 +1159,7 @@ unsigned int PeerManagerImpl::LimitOrphanTxSize(unsigned int nMaxOrphans)
             }
         }
         // Sweep again 5 minutes after the next entry that expires in order to batch the linear scan.
-        nNextSweep = nMinExpTime + ORPHAN_TX_EXPIRE_INTERVAL;
+        m_next_orphan_sweep = nMinExpTime + ORPHAN_TX_EXPIRE_INTERVAL;
         if (nErased > 0) LogPrint(BCLog::MEMPOOL, "Erased %d orphan tx due to expiration\n", nErased);
     }
     FastRandomContext rng;
@@ -1402,10 +1411,9 @@ void PeerManagerImpl::NewPoWValidBlock(const CBlockIndex *pindex, const std::sha
 
     LOCK(cs_main);
 
-    static int nHighestFastAnnounce = 0; // GUARDED_BY(cs_main)
-    if (pindex->nHeight <= nHighestFastAnnounce)
+    if (pindex->nHeight <= m_height_of_highest_fast_announce)
         return;
-    nHighestFastAnnounce = pindex->nHeight;
+    m_height_of_highest_fast_announce = pindex->nHeight;
 
     bool fWitnessEnabled = IsWitnessEnabled(pindex->pprev, m_chainparams.GetConsensus());
     uint256 hashBlock(pblock->GetHash());
@@ -4782,13 +4790,11 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
         ) {
             CAmount currentFilter = m_mempool.GetMinFee(gArgs.GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000).GetFeePerK();
             AssertLockHeld(cs_main);
-            static FeeFilterRounder g_filter_rounder{CFeeRate{DEFAULT_MIN_RELAY_TX_FEE}}; // GUARDED_BY(cs_main)
             if (m_chainman.ActiveChainstate().IsInitialBlockDownload()) {
                 // Received tx-inv messages are discarded when the active
                 // chainstate is in IBD, so tell the peer to not send them.
                 currentFilter = MAX_MONEY;
             } else {
-                static const CAmount MAX_FILTER{g_filter_rounder.round(MAX_MONEY)}; // GUARDED_BY(cs_main)
                 if (pto->m_tx_relay->lastSentFeeFilter == MAX_FILTER) {
                     // Send the current filter if we sent MAX_FILTER previously
                     // and made it out of IBD.
@@ -4796,7 +4802,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                 }
             }
             if (count_microseconds(current_time) > pto->m_tx_relay->nextSendTimeFeeFilter) {
-                CAmount filterToSend = g_filter_rounder.round(currentFilter);
+                CAmount filterToSend = m_filter_rounder.round(currentFilter);
                 // We always have a fee filter of at least minRelayTxFee
                 filterToSend = std::max(filterToSend, ::minRelayTxFee.GetFeePerK());
                 if (filterToSend != pto->m_tx_relay->lastSentFeeFilter) {
