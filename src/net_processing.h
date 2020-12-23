@@ -138,19 +138,17 @@ public:
     */
     bool SendMessages(CNode* pto) override EXCLUSIVE_LOCKS_REQUIRED(pto->cs_sendProcessing);
 
-    /** Consider evicting an outbound peer based on the amount of time they've been behind our tip */
-    void ConsiderEviction(CNode& pto, int64_t time_in_seconds) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     /** Evict extra outbound peers. If we think our tip may be stale, connect to an extra outbound */
     void CheckForStaleTipAndEvictPeers();
-    /** If we have extra outbound peers, try to disconnect the one with the oldest block announcement */
-    void EvictExtraOutboundPeers(int64_t time_in_seconds) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
-    /** Retrieve unbroadcast transactions from the mempool and reattempt sending to peers */
-    void ReattemptInitialBroadcast(CScheduler& scheduler) const;
 
-    /** Process a single message from a peer. Public for fuzz testing */
-    void ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
-                        const std::chrono::microseconds time_received, const std::atomic<bool>& interruptMsgProc);
+public: // exposed as debugging info for RPC
+    /** Get statistics from node state */
+    bool GetNodeStateStats(NodeId nodeid, CNodeStateStats& stats);
 
+    /** Whether this node ignores txs received over p2p. */
+    bool IgnoresIncomingTxs() {return m_ignore_incoming_txs;};
+
+public: // exposed for tests
     /**
      * Increment peer's misbehavior score. If the new value >= DISCOURAGEMENT_THRESHOLD, mark the node
      * to be discouraged, meaning the peer might be disconnected and added to the discouragement filter.
@@ -158,13 +156,20 @@ public:
      */
     void Misbehaving(const NodeId pnode, const int howmuch, const std::string& message);
 
-    /** Get statistics from node state */
-    bool GetNodeStateStats(NodeId nodeid, CNodeStateStats& stats);
-
-    /** Whether this node ignores txs received over p2p. */
-    bool IgnoresIncomingTxs() {return m_ignore_incoming_txs;};
+    /** Process a single message from a peer. Public for fuzz testing */
+    void ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
+                        const std::chrono::microseconds time_received, const std::atomic<bool>& interruptMsgProc);
 
 private:
+    /** Consider evicting an outbound peer based on the amount of time they've been behind our tip */
+    void ConsiderEviction(CNode& pto, int64_t time_in_seconds) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+    /** If we have extra outbound peers, try to disconnect the one with the oldest block announcement */
+    void EvictExtraOutboundPeers(int64_t time_in_seconds) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+    /** Retrieve unbroadcast transactions from the mempool and reattempt sending to peers */
+    void ReattemptInitialBroadcast(CScheduler& scheduler) const;
+
     /** Get a shared pointer to the Peer object.
      *  May return an empty shared_ptr if the Peer object can't be found. */
     PeerRef GetPeerRef(NodeId id) const;
