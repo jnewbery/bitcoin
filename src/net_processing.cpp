@@ -537,7 +537,7 @@ private:
     CNodeState *State(NodeId pnode) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     void ProcessBlockAvailability(NodeId nodeid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     void UpdateBlockAvailability(NodeId nodeid, const uint256 &hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
-    void RelayTransaction(const uint256& txid, const uint256& wtxid, const CConnman& connman) override EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+    void RelayTransaction(const uint256& txid, const uint256& wtxid) override EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     void ProcessGetBlockData(CNode& pfrom, Peer& peer, const CChainParams& chainparams, const CInv& inv, CConnman& connman);
     uint32_t GetFetchFlags(const CNode& pfrom) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     void UpdateLastBlockAnnounceTime(NodeId node, int64_t time_in_seconds) override;
@@ -914,7 +914,7 @@ void PeerManagerImpl::ReattemptInitialBroadcast(CScheduler& scheduler)
 
         if (tx != nullptr) {
             LOCK(cs_main);
-            RelayTransaction(txid, tx->GetWitnessHash(), m_connman);
+            RelayTransaction(txid, tx->GetWitnessHash());
         } else {
             m_mempool.RemoveUnbroadcastTx(txid, true);
         }
@@ -1553,9 +1553,9 @@ bool static AlreadyHaveBlock(const uint256& block_hash) EXCLUSIVE_LOCKS_REQUIRED
     return LookupBlockIndex(block_hash) != nullptr;
 }
 
-void PeerManagerImpl::RelayTransaction(const uint256& txid, const uint256& wtxid, const CConnman& connman)
+void PeerManagerImpl::RelayTransaction(const uint256& txid, const uint256& wtxid)
 {
-    connman.ForEachNode([this, &txid, &wtxid](CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+    m_connman.ForEachNode([this, &txid, &wtxid](CNode* pnode) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
         AssertLockHeld(::cs_main);
 
         CNodeState* state = State(pnode->GetId());
@@ -2137,7 +2137,7 @@ void PeerManagerImpl::ProcessOrphanTx(std::set<uint256>& orphan_work_set)
 
         if (AcceptToMemoryPool(m_mempool, state, porphanTx, &removed_txn, false /* bypass_limits */)) {
             LogPrint(BCLog::MEMPOOL, "   accepted orphan tx %s\n", orphanHash.ToString());
-            RelayTransaction(orphanHash, porphanTx->GetWitnessHash(), m_connman);
+            RelayTransaction(orphanHash, porphanTx->GetWitnessHash());
             for (unsigned int i = 0; i < porphanTx->vout.size(); i++) {
                 auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(orphanHash, i));
                 if (it_by_prev != mapOrphanTransactionsByPrev.end()) {
@@ -3137,7 +3137,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                     LogPrintf("Not relaying non-mempool transaction %s from forcerelay peer=%d\n", tx.GetHash().ToString(), pfrom.GetId());
                 } else {
                     LogPrintf("Force relaying tx %s from peer=%d\n", tx.GetHash().ToString(), pfrom.GetId());
-                    RelayTransaction(tx.GetHash(), tx.GetWitnessHash(), m_connman);
+                    RelayTransaction(tx.GetHash(), tx.GetWitnessHash());
                 }
             }
             return;
@@ -3152,7 +3152,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             // requests for it.
             m_txrequest.ForgetTxHash(tx.GetHash());
             m_txrequest.ForgetTxHash(tx.GetWitnessHash());
-            RelayTransaction(tx.GetHash(), tx.GetWitnessHash(), m_connman);
+            RelayTransaction(tx.GetHash(), tx.GetWitnessHash());
             for (unsigned int i = 0; i < tx.vout.size(); i++) {
                 auto it_by_prev = mapOrphanTransactionsByPrev.find(COutPoint(txid, i));
                 if (it_by_prev != mapOrphanTransactionsByPrev.end()) {

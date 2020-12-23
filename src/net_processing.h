@@ -101,7 +101,7 @@ public:
     virtual void CheckForStaleTipAndEvictPeers() = 0;
 
     /** Relay transaction to every node */
-    virtual void RelayTransaction(const uint256& txid, const uint256& wtxid, const CConnman& connman) EXCLUSIVE_LOCKS_REQUIRED(cs_main) = 0;
+    virtual void RelayTransaction(const uint256& txid, const uint256& wtxid) EXCLUSIVE_LOCKS_REQUIRED(cs_main) = 0;
 
 public: // exposed as debugging info for RPC
     /** Get statistics from node state */
