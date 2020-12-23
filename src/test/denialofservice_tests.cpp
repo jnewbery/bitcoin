@@ -43,13 +43,6 @@ struct CConnmanTest : public CConnman {
     }
 };
 
-// Tests these internal-to-net_processing.cpp methods:
-extern bool AddOrphanTx(const CTransactionRef& tx, NodeId peer);
-extern void EraseOrphansFor(NodeId peer);
-extern unsigned int LimitOrphanTxSize(unsigned int nMaxOrphans);
-
-extern std::map<uint256, COrphanTx> mapOrphanTransactions GUARDED_BY(g_cs_orphans);
-
 static CService ip(uint32_t i)
 {
     struct in_addr s;
@@ -290,13 +283,12 @@ BOOST_AUTO_TEST_CASE(DoS_bantime)
     peerLogic->FinalizeNode(dummyNode, dummy);
 }
 
-static CTransactionRef RandomOrphan()
+static CTransactionRef RandomOrphan(PeerManager& peerman) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans)
 {
-    std::map<uint256, COrphanTx>::iterator it;
-    LOCK2(cs_main, g_cs_orphans);
-    it = mapOrphanTransactions.lower_bound(InsecureRand256());
-    if (it == mapOrphanTransactions.end())
-        it = mapOrphanTransactions.begin();
+    std::map<uint256, PeerManager::COrphanTx>::iterator it;
+    it = peerman.mapOrphanTransactions.lower_bound(InsecureRand256());
+    if (it == peerman.mapOrphanTransactions.end())
+        it = peerman.mapOrphanTransactions.begin();
     return it->second.tx;
 }
 
@@ -318,10 +310,14 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
     // signature's R and S values have leading zeros.
     g_insecure_rand_ctx = FastRandomContext(ArithToUint256(arith_uint256(33)));
 
+    assert(m_node.peerman);
+
+
     CKey key;
     MakeNewKeyWithFastRandomContext(key);
     FillableSigningProvider keystore;
     BOOST_CHECK(keystore.AddKey(key));
+    LOCK(g_cs_orphans);
 
     // 50 orphan transactions:
     for (int i = 0; i < 50; i++)
@@ -335,13 +331,13 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
         tx.vout[0].nValue = 1*CENT;
         tx.vout[0].scriptPubKey = GetScriptForDestination(PKHash(key.GetPubKey()));
 
-        AddOrphanTx(MakeTransactionRef(tx), i);
+        m_node.peerman->AddOrphanTx(MakeTransactionRef(tx), i);
     }
 
     // ... and 50 that depend on other orphans:
     for (int i = 0; i < 50; i++)
     {
-        CTransactionRef txPrev = RandomOrphan();
+        CTransactionRef txPrev = RandomOrphan(*m_node.peerman);
 
         CMutableTransaction tx;
         tx.vin.resize(1);
@@ -352,13 +348,13 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
         tx.vout[0].scriptPubKey = GetScriptForDestination(PKHash(key.GetPubKey()));
         BOOST_CHECK(SignSignature(keystore, *txPrev, tx, 0, SIGHASH_ALL));
 
-        AddOrphanTx(MakeTransactionRef(tx), i);
+        m_node.peerman->AddOrphanTx(MakeTransactionRef(tx), i);
     }
 
     // This really-big orphan should be ignored:
     for (int i = 0; i < 10; i++)
     {
-        CTransactionRef txPrev = RandomOrphan();
+        CTransactionRef txPrev = RandomOrphan(*m_node.peerman);
 
         CMutableTransaction tx;
         tx.vout.resize(1);
@@ -376,25 +372,24 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
         for (unsigned int j = 1; j < tx.vin.size(); j++)
             tx.vin[j].scriptSig = tx.vin[0].scriptSig;
 
-        BOOST_CHECK(!AddOrphanTx(MakeTransactionRef(tx), i));
+        BOOST_CHECK(!m_node.peerman->AddOrphanTx(MakeTransactionRef(tx), i));
     }
 
-    LOCK2(cs_main, g_cs_orphans);
     // Test EraseOrphansFor:
     for (NodeId i = 0; i < 3; i++)
     {
-        size_t sizeBefore = mapOrphanTransactions.size();
-        EraseOrphansFor(i);
-        BOOST_CHECK(mapOrphanTransactions.size() < sizeBefore);
+        size_t sizeBefore = m_node.peerman->mapOrphanTransactions.size();
+        m_node.peerman->EraseOrphansFor(i);
+        BOOST_CHECK(m_node.peerman->mapOrphanTransactions.size() < sizeBefore);
     }
 
     // Test LimitOrphanTxSize() function:
-    LimitOrphanTxSize(40);
-    BOOST_CHECK(mapOrphanTransactions.size() <= 40);
-    LimitOrphanTxSize(10);
-    BOOST_CHECK(mapOrphanTransactions.size() <= 10);
-    LimitOrphanTxSize(0);
-    BOOST_CHECK(mapOrphanTransactions.empty());
+    m_node.peerman->LimitOrphanTxSize(40);
+    BOOST_CHECK(m_node.peerman->mapOrphanTransactions.size() <= 40);
+    m_node.peerman->LimitOrphanTxSize(10);
+    BOOST_CHECK(m_node.peerman->mapOrphanTransactions.size() <= 10);
+    m_node.peerman->LimitOrphanTxSize(0);
+    BOOST_CHECK(m_node.peerman->mapOrphanTransactions.empty());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

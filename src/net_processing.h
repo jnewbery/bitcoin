@@ -119,6 +119,21 @@ public: // exposed for tests
     virtual void ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
                         const std::chrono::microseconds time_received, const std::atomic<bool>& interruptMsgProc) = 0;
 
+    struct COrphanTx {
+        CTransactionRef tx;
+        NodeId fromPeer;
+        int64_t nTimeExpire;
+        size_t list_pos;
+    };
+
+    virtual bool AddOrphanTx(const CTransactionRef& tx, NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans) = 0;
+    virtual void EraseOrphansFor(NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans) = 0;
+    virtual unsigned int LimitOrphanTxSize(unsigned int nMaxOrphans) = 0;
+
+    /** Map from txid to orphan transaction record. Limited by
+     *  -maxorphantx/DEFAULT_MAX_ORPHAN_TRANSACTIONS */
+    std::map<uint256, COrphanTx> mapOrphanTransactions GUARDED_BY(g_cs_orphans);
+
     virtual ~PeerManager() { }
 };
 
@@ -128,13 +143,5 @@ std::unique_ptr<PeerManager> make_PeerManager(const CChainParams& chainparams, C
 
 /** Relay transaction to every node */
 void RelayTransaction(const uint256& txid, const uint256& wtxid, const CConnman& connman) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
-
-// Exposed for access from tests
-struct COrphanTx {
-    CTransactionRef tx;
-    NodeId fromPeer;
-    int64_t nTimeExpire;
-    size_t list_pos;
-};
 
 #endif // BITCOIN_NET_PROCESSING_H

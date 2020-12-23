@@ -149,14 +149,6 @@ static constexpr size_t MAX_PCT_ADDR_TO_SEND = 23;
 
 /** Guards orphan transactions and extra txs for compact blocks */
 RecursiveMutex g_cs_orphans;
-/** Map from txid to orphan transaction record. Limited by
- *  -maxorphantx/DEFAULT_MAX_ORPHAN_TRANSACTIONS */
-std::map<uint256, COrphanTx> mapOrphanTransactions GUARDED_BY(g_cs_orphans);
-/** Index from wtxid into the mapOrphanTransactions to lookup orphan
- *  transactions using their witness ids. */
-std::map<uint256, std::map<uint256, COrphanTx>::iterator> g_orphans_by_wtxid GUARDED_BY(g_cs_orphans);
-
-void EraseOrphansFor(NodeId peer);
 
 // Internal stuff
 namespace {
@@ -169,11 +161,20 @@ struct QueuedBlock {
     std::unique_ptr<PartiallyDownloadedBlock> partialBlock;  //!< Optional, used for CMPCTBLOCK downloads
 };
 
+struct CNodeState;
+
 class PeerManagerImpl final : public PeerManager {
 public:
     PeerManagerImpl(const CChainParams& chainparams, CConnman& connman, BanMan* banman,
                 CScheduler& scheduler, ChainstateManager& chainman, CTxMemPool& pool,
                 bool ignore_incoming_txs);
+
+    ~PeerManagerImpl() {
+        // orphan transactions
+        mapOrphanTransactions.clear();
+        mapOrphanTransactionsByPrev.clear();
+        g_orphans_by_wtxid.clear();
+    }
 
     void BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindexConnected) override;
     void BlockDisconnected(const std::shared_ptr<const CBlock> &block, const CBlockIndex* pindex) override;
@@ -370,13 +371,11 @@ private:
     /** Number of peers from which we're downloading blocks. */
     int nPeersWithValidatedDownloads GUARDED_BY(cs_main) = 0;
 
-};
-} // namespace
-
-namespace {
-
-    /** Number of preferable block download peers. */
-    int nPreferredDownload GUARDED_BY(cs_main) = 0;
+    void AddToCompactExtraTransactions(const CTransactionRef& tx) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans);
+    bool AddOrphanTx(const CTransactionRef& tx, NodeId peer) override EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans);
+    int EraseOrphanTx(uint256 hash) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans);
+    void EraseOrphansFor(NodeId peer) override EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans);
+    unsigned int LimitOrphanTxSize(unsigned int nMaxOrphans) override;
 
     struct IteratorComparator
     {
@@ -393,12 +392,23 @@ namespace {
     /** Orphan transactions in vector for quick random eviction */
     std::vector<std::map<uint256, COrphanTx>::iterator> g_orphan_list GUARDED_BY(g_cs_orphans);
 
+    /** Index from wtxid into the mapOrphanTransactions to lookup orphan
+     *  transactions using their witness ids. */
+    std::map<uint256, std::map<uint256, COrphanTx>::iterator> g_orphans_by_wtxid GUARDED_BY(g_cs_orphans);
+
     /** Orphan/conflicted/etc transactions that are kept for compact block reconstruction.
      *  The last -blockreconstructionextratxn/DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN of
      *  these are kept in a ring buffer */
-    static std::vector<std::pair<uint256, CTransactionRef>> vExtraTxnForCompact GUARDED_BY(g_cs_orphans);
+    std::vector<std::pair<uint256, CTransactionRef>> vExtraTxnForCompact GUARDED_BY(g_cs_orphans);
     /** Offset into vExtraTxnForCompact to insert the next tx */
-    static size_t vExtraTxnForCompactIt GUARDED_BY(g_cs_orphans) = 0;
+    size_t vExtraTxnForCompactIt GUARDED_BY(g_cs_orphans) = 0;
+};
+} // namespace
+
+namespace {
+
+    /** Number of preferable block download peers. */
+    int nPreferredDownload GUARDED_BY(cs_main) = 0;
 } // namespace
 
 namespace {
@@ -938,7 +948,7 @@ void PeerManagerImpl::FinalizeNode(const CNode& node, bool& fUpdateConnectionTim
     for (const QueuedBlock& entry : state->vBlocksInFlight) {
         mapBlocksInFlight.erase(entry.hash);
     }
-    EraseOrphansFor(nodeid);
+    WITH_LOCK(g_cs_orphans, EraseOrphansFor(nodeid));
     m_txrequest.DisconnectedPeer(nodeid);
     nPreferredDownload -= state->fPreferredDownload;
     nPeersWithValidatedDownloads -= (state->nBlocksInFlightValidHeaders != 0);
@@ -1008,7 +1018,7 @@ bool PeerManagerImpl::GetNodeStateStats(NodeId nodeid, CNodeStateStats &stats) {
 // mapOrphanTransactions
 //
 
-static void AddToCompactExtraTransactions(const CTransactionRef& tx) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans)
+void PeerManagerImpl::AddToCompactExtraTransactions(const CTransactionRef& tx) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans)
 {
     size_t max_extra_txn = gArgs.GetArg("-blockreconstructionextratxn", DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN);
     if (max_extra_txn <= 0)
@@ -1019,7 +1029,7 @@ static void AddToCompactExtraTransactions(const CTransactionRef& tx) EXCLUSIVE_L
     vExtraTxnForCompactIt = (vExtraTxnForCompactIt + 1) % max_extra_txn;
 }
 
-bool AddOrphanTx(const CTransactionRef& tx, NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans)
+bool PeerManagerImpl::AddOrphanTx(const CTransactionRef& tx, NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans)
 {
     const uint256& hash = tx->GetHash();
     if (mapOrphanTransactions.count(hash))
@@ -1055,8 +1065,9 @@ bool AddOrphanTx(const CTransactionRef& tx, NodeId peer) EXCLUSIVE_LOCKS_REQUIRE
     return true;
 }
 
-int static EraseOrphanTx(uint256 hash) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans)
+int PeerManagerImpl::EraseOrphanTx(uint256 hash) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans)
 {
+    AssertLockHeld(g_cs_orphans);
     std::map<uint256, COrphanTx>::iterator it = mapOrphanTransactions.find(hash);
     if (it == mapOrphanTransactions.end())
         return 0;
@@ -1086,9 +1097,8 @@ int static EraseOrphanTx(uint256 hash) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans)
     return 1;
 }
 
-void EraseOrphansFor(NodeId peer)
+void PeerManagerImpl::EraseOrphansFor(NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans)
 {
-    LOCK(g_cs_orphans);
     int nErased = 0;
     std::map<uint256, COrphanTx>::iterator iter = mapOrphanTransactions.begin();
     while (iter != mapOrphanTransactions.end())
@@ -1103,7 +1113,7 @@ void EraseOrphansFor(NodeId peer)
 }
 
 
-unsigned int LimitOrphanTxSize(unsigned int nMaxOrphans)
+unsigned int PeerManagerImpl::LimitOrphanTxSize(unsigned int nMaxOrphans)
 {
     LOCK(g_cs_orphans);
 
@@ -4797,15 +4807,3 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
     return true;
 }
 
-class CNetProcessingCleanup
-{
-public:
-    CNetProcessingCleanup() {}
-    ~CNetProcessingCleanup() {
-        // orphan transactions
-        mapOrphanTransactions.clear();
-        mapOrphanTransactionsByPrev.clear();
-        g_orphans_by_wtxid.clear();
-    }
-};
-static CNetProcessingCleanup instance_of_cnetprocessingcleanup;
