@@ -12,13 +12,9 @@
 #include <txrequest.h>
 #include <validationinterface.h>
 
-class BlockTransactionsRequest;
-class BlockValidationState;
-class CBlockHeader;
 class CChainParams;
 class CTxMemPool;
 class ChainstateManager;
-class TxValidationState;
 
 extern RecursiveMutex cs_main;
 extern RecursiveMutex g_cs_orphans;
@@ -39,24 +35,6 @@ struct CNodeStateStats {
     int m_starting_height = -1;
     std::vector<int> vHeightInFlight;
 };
-
-/**
- * Data structure for an individual peer. This struct is not protected by
- * cs_main since it does not contain validation-critical data.
- *
- * Memory is owned by shared pointers and this object is destructed when
- * the refcount drops to zero.
- *
- * Mutexes inside this struct must not be held when locking m_peer_mutex.
- *
- * Details are all local to net_processing.cpp
- *
- * TODO: move most members from CNodeState to this structure.
- * TODO: move remaining application-layer data members from CNode to this structure.
- */
-struct Peer; // body is defined in net_processing.cpp
-
-using PeerRef = std::shared_ptr<Peer>;
 
 class PeerManager : public CValidationInterface, public NetEventsInterface {
 public:

@@ -290,6 +290,18 @@ struct CNodeState {
 };
 } // namespace
 
+/**
+ * Data structure for an individual peer. This struct is not protected by
+ * cs_main since it does not contain validation-critical data.
+ *
+ * Memory is owned by shared pointers and this object is destructed when
+ * the refcount drops to zero.
+ *
+ * Mutexes inside this struct must not be held when locking m_peer_mutex.
+ *
+ * TODO: move most members from CNodeState to this structure.
+ * TODO: move remaining application-layer data members from CNode to this structure.
+ */
 struct Peer {
     /** Same id as the CNode object for this peer */
     const NodeId m_id{0};
@@ -333,6 +345,8 @@ struct Peer {
 
     explicit Peer(NodeId id, CAddress addr, bool is_inbound) : m_id(id),  nodestate(addr, is_inbound) {}
 };
+
+using PeerRef = std::shared_ptr<Peer>;
 
 namespace {
 class PeerManagerImpl final : public PeerManager {
