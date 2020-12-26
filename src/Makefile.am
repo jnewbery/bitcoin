@@ -158,6 +158,7 @@ BITCOIN_CORE_H = \
   net.h \
   net_permissions.h \
   net_processing.h \
+  net_processing_impl.h \
   net_types.h \
   netaddress.h \
   netbase.h \
@@ -302,6 +303,7 @@ libbitcoin_server_a_SOURCES = \
   miner.cpp \
   net.cpp \
   net_processing.cpp \
+  net_processing_impl.cpp \
   node/coin.cpp \
   node/coinstats.cpp \
   node/context.cpp \

@@ -14,7 +14,7 @@
 #include <interfaces/chain.h>
 #include <miner.h>
 #include <net.h>
-#include <net_processing.h>
+#include <net_processing_impl.h>
 #include <noui.h>
 #include <policy/fees.h>
 #include <pow.h>
@@ -192,7 +192,7 @@ TestingSetup::TestingSetup(const std::string& chainName, const std::vector<const
 
     m_node.banman = MakeUnique<BanMan>(GetDataDir() / "banlist.dat", nullptr, DEFAULT_MISBEHAVING_BANTIME);
     m_node.connman = MakeUnique<CConnman>(0x1337, 0x1337); // Deterministic randomness for tests.
-    m_node.peerman = make_PeerManager(chainparams, *m_node.connman, m_node.banman.get(),
+    m_node.peerman = std::make_unique<PeerManagerImpl>(chainparams, *m_node.connman, m_node.banman.get(),
                                                    *m_node.scheduler, *m_node.chainman, *m_node.mempool,
                                                    false);
     {

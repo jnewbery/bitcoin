@@ -8,7 +8,7 @@
 #include <banman.h>
 #include <chainparams.h>
 #include <net.h>
-#include <net_processing.h>
+#include <net_processing_impl.h>
 #include <pubkey.h>
 #include <script/sign.h>
 #include <script/signingprovider.h>
@@ -66,7 +66,7 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
 {
     const CChainParams& chainparams = Params();
     auto connman = MakeUnique<CConnman>(0x1337, 0x1337);
-    auto peerLogic = make_PeerManager(chainparams, *connman, nullptr, *m_node.scheduler,
+    auto peerLogic = std::make_unique<PeerManagerImpl>(chainparams, *connman, nullptr, *m_node.scheduler,
                                                    *m_node.chainman, *m_node.mempool, false);
 
     // Mock an outbound peer
@@ -119,7 +119,7 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
     peerLogic->FinalizeNode(dummyNode1, dummy);
 }
 
-static void AddRandomOutboundPeer(std::vector<CNode *> &vNodes, PeerManager &peerLogic, CConnmanTest* connman)
+static void AddRandomOutboundPeer(std::vector<CNode *> &vNodes, PeerManagerImpl &peerLogic, CConnmanTest* connman)
 {
     CAddress addr(ip(g_insecure_rand_ctx.randbits(32)), NODE_NONE);
     vNodes.emplace_back(new CNode(id++, ServiceFlags(NODE_NETWORK | NODE_WITNESS), 0, INVALID_SOCKET, addr, 0, 0, CAddress(), "", ConnectionType::OUTBOUND_FULL_RELAY));
@@ -136,7 +136,7 @@ BOOST_AUTO_TEST_CASE(stale_tip_peer_management)
 {
     const CChainParams& chainparams = Params();
     auto connman = MakeUnique<CConnmanTest>(0x1337, 0x1337);
-    auto peerLogic = make_PeerManager(chainparams, *connman, nullptr, *m_node.scheduler,
+    auto peerLogic = std::make_unique<PeerManagerImpl>(chainparams, *connman, nullptr, *m_node.scheduler,
                                                    *m_node.chainman, *m_node.mempool, false);
 
     constexpr int max_outbound_full_relay = MAX_OUTBOUND_FULL_RELAY_CONNECTIONS;
@@ -210,7 +210,7 @@ BOOST_AUTO_TEST_CASE(peer_discouragement)
     const CChainParams& chainparams = Params();
     auto banman = MakeUnique<BanMan>(GetDataDir() / "banlist.dat", nullptr, DEFAULT_MISBEHAVING_BANTIME);
     auto connman = MakeUnique<CConnman>(0x1337, 0x1337);
-    auto peerLogic = make_PeerManager(chainparams, *connman, banman.get(), *m_node.scheduler,
+    auto peerLogic = std::make_unique<PeerManagerImpl>(chainparams, *connman, banman.get(), *m_node.scheduler,
                                                    *m_node.chainman, *m_node.mempool, false);
 
     banman->ClearBanned();
@@ -257,7 +257,7 @@ BOOST_AUTO_TEST_CASE(DoS_bantime)
     const CChainParams& chainparams = Params();
     auto banman = MakeUnique<BanMan>(GetDataDir() / "banlist.dat", nullptr, DEFAULT_MISBEHAVING_BANTIME);
     auto connman = MakeUnique<CConnman>(0x1337, 0x1337);
-    auto peerLogic = make_PeerManager(chainparams, *connman, banman.get(), *m_node.scheduler,
+    auto peerLogic = std::make_unique<PeerManagerImpl>(chainparams, *connman, banman.get(), *m_node.scheduler,
                                                    *m_node.chainman, *m_node.mempool, false);
 
     banman->ClearBanned();
@@ -281,9 +281,9 @@ BOOST_AUTO_TEST_CASE(DoS_bantime)
     peerLogic->FinalizeNode(dummyNode, dummy);
 }
 
-static CTransactionRef RandomOrphan(PeerManager& peerman) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans)
+static CTransactionRef RandomOrphan(PeerManagerImpl& peerman) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans)
 {
-    std::map<uint256, PeerManager::COrphanTx>::iterator it;
+    std::map<uint256, PeerManagerImpl::COrphanTx>::iterator it;
     it = peerman.mapOrphanTransactions.lower_bound(InsecureRand256());
     if (it == peerman.mapOrphanTransactions.end())
         it = peerman.mapOrphanTransactions.begin();
@@ -308,7 +308,11 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
     // signature's R and S values have leading zeros.
     g_insecure_rand_ctx = FastRandomContext(ArithToUint256(arith_uint256(33)));
 
-    assert(m_node.peerman);
+    const CChainParams& chainparams = Params();
+    auto banman = MakeUnique<BanMan>(GetDataDir() / "banlist.dat", nullptr, DEFAULT_MISBEHAVING_BANTIME);
+    auto connman = MakeUnique<CConnman>(0x1337, 0x1337);
+    auto peerman = std::make_unique<PeerManagerImpl>(chainparams, *connman, banman.get(), *m_node.scheduler,
+                                                   *m_node.chainman, *m_node.mempool, false);
 
 
     CKey key;
@@ -329,13 +333,13 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
         tx.vout[0].nValue = 1*CENT;
         tx.vout[0].scriptPubKey = GetScriptForDestination(PKHash(key.GetPubKey()));
 
-        m_node.peerman->AddOrphanTx(MakeTransactionRef(tx), i);
+        peerman->AddOrphanTx(MakeTransactionRef(tx), i);
     }
 
     // ... and 50 that depend on other orphans:
     for (int i = 0; i < 50; i++)
     {
-        CTransactionRef txPrev = RandomOrphan(*m_node.peerman);
+        CTransactionRef txPrev = RandomOrphan(*peerman);
 
         CMutableTransaction tx;
         tx.vin.resize(1);
@@ -346,13 +350,13 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
         tx.vout[0].scriptPubKey = GetScriptForDestination(PKHash(key.GetPubKey()));
         BOOST_CHECK(SignSignature(keystore, *txPrev, tx, 0, SIGHASH_ALL));
 
-        m_node.peerman->AddOrphanTx(MakeTransactionRef(tx), i);
+        peerman->AddOrphanTx(MakeTransactionRef(tx), i);
     }
 
     // This really-big orphan should be ignored:
     for (int i = 0; i < 10; i++)
     {
-        CTransactionRef txPrev = RandomOrphan(*m_node.peerman);
+        CTransactionRef txPrev = RandomOrphan(*peerman);
 
         CMutableTransaction tx;
         tx.vout.resize(1);
@@ -370,24 +374,24 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
         for (unsigned int j = 1; j < tx.vin.size(); j++)
             tx.vin[j].scriptSig = tx.vin[0].scriptSig;
 
-        BOOST_CHECK(!m_node.peerman->AddOrphanTx(MakeTransactionRef(tx), i));
+        BOOST_CHECK(!peerman->AddOrphanTx(MakeTransactionRef(tx), i));
     }
 
     // Test EraseOrphansFor:
     for (NodeId i = 0; i < 3; i++)
     {
-        size_t sizeBefore = m_node.peerman->mapOrphanTransactions.size();
-        m_node.peerman->EraseOrphansFor(i);
-        BOOST_CHECK(m_node.peerman->mapOrphanTransactions.size() < sizeBefore);
+        size_t sizeBefore = peerman->mapOrphanTransactions.size();
+        peerman->EraseOrphansFor(i);
+        BOOST_CHECK(peerman->mapOrphanTransactions.size() < sizeBefore);
     }
 
     // Test LimitOrphanTxSize() function:
-    m_node.peerman->LimitOrphanTxSize(40);
-    BOOST_CHECK(m_node.peerman->mapOrphanTransactions.size() <= 40);
-    m_node.peerman->LimitOrphanTxSize(10);
-    BOOST_CHECK(m_node.peerman->mapOrphanTransactions.size() <= 10);
-    m_node.peerman->LimitOrphanTxSize(0);
-    BOOST_CHECK(m_node.peerman->mapOrphanTransactions.empty());
+    peerman->LimitOrphanTxSize(40);
+    BOOST_CHECK(peerman->mapOrphanTransactions.size() <= 40);
+    peerman->LimitOrphanTxSize(10);
+    BOOST_CHECK(peerman->mapOrphanTransactions.size() <= 10);
+    peerman->LimitOrphanTxSize(0);
+    BOOST_CHECK(peerman->mapOrphanTransactions.empty());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
