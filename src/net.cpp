@@ -2793,9 +2793,9 @@ std::vector<CNodeStats> CConnman::GetNodeStats()
     std::vector<CNodeStats> vstats;
     LOCK(cs_vNodes);
     vstats.reserve(vNodes.size());
-    for (CNode* pnode : vNodes) {
-        vstats.emplace_back(pnode->copyStats(addrman.m_asmap));
-    }
+    std::vector<bool>& asmap{addrman.m_asmap};
+    std::transform(vNodes.begin(), vNodes.end(), std::back_inserter(vstats),
+                   [&asmap] (CNode* node) {return node->copyStats(asmap);});
     return vstats;
 }
 

@@ -124,9 +124,15 @@ public:
             if (m_context->peerman) {
                 TRY_LOCK(::cs_main, lockMain);
                 if (lockMain) {
+                    std::map<NodeId, CNodeStateStats> peers_stats{m_context->peerman->GetNodeStateStats()};
                     for (auto& node_stats : stats) {
-                        std::get<1>(node_stats) =
-                            m_context->peerman->GetNodeStateStats(std::get<0>(node_stats).nodeid, std::get<2>(node_stats));
+                        auto peer_stats = peers_stats.find(std::get<0>(node_stats).nodeid);
+                        if (peer_stats != peers_stats.end()) {
+                            std::get<2>(node_stats) = peer_stats->second;
+                            std::get<1>(node_stats) = true;
+                        } else {
+                            std::get<1>(node_stats) = false;
+                        }
                     }
                 }
             }

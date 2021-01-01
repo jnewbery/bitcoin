@@ -247,7 +247,7 @@ public:
 
     /** Implement PeerManager */
     void CheckForStaleTipAndEvictPeers() override;
-    bool GetNodeStateStats(NodeId nodeid, CNodeStateStats& stats) override;
+    std::map<NodeId, CNodeStateStats> GetNodeStateStats() override;
     bool IgnoresIncomingTxs() override { return m_ignore_incoming_txs; }
     void Misbehaving(const NodeId pnode, const int howmuch, const std::string& message) override;
     void ProcessMessage(CNode& pfrom, const std::string& msg_type, CDataStream& vRecv,
@@ -1036,26 +1036,29 @@ PeerRef PeerManagerImpl::RemovePeer(NodeId id)
     return ret;
 }
 
-bool PeerManagerImpl::GetNodeStateStats(NodeId nodeid, CNodeStateStats &stats) {
+std::map<NodeId, CNodeStateStats> PeerManagerImpl::GetNodeStateStats() {
+    std::map<NodeId, CNodeStateStats> ret;
     {
         LOCK(cs_main);
-        CNodeState* state = State(nodeid);
-        if (state == nullptr)
-            return false;
-        stats.nSyncHeight = state->pindexBestKnownBlock ? state->pindexBestKnownBlock->nHeight : -1;
-        stats.nCommonHeight = state->pindexLastCommonBlock ? state->pindexLastCommonBlock->nHeight : -1;
-        for (const QueuedBlock& queue : state->vBlocksInFlight) {
-            if (queue.pindex)
-                stats.vHeightInFlight.push_back(queue.pindex->nHeight);
+        for (auto& state : mapNodeState) {
+            NodeId id = state.first;
+            const auto [it_ret, success] = ret.insert({id, CNodeStateStats()});
+            CNodeStateStats& stats = it_ret->second;
+            stats.nSyncHeight = state.second.pindexBestKnownBlock ? state.second.pindexBestKnownBlock->nHeight : -1;
+            stats.nCommonHeight = state.second.pindexLastCommonBlock ? state.second.pindexLastCommonBlock->nHeight : -1;
+            for (const QueuedBlock& queue : state.second.vBlocksInFlight) {
+                if (queue.pindex)
+                    stats.vHeightInFlight.push_back(queue.pindex->nHeight);
+            }
+
+            PeerRef peer = GetPeerRef(id);
+            if (peer == nullptr) continue;
+            stats.m_misbehavior_score = WITH_LOCK(peer->m_misbehavior_mutex, return peer->m_misbehavior_score);
+            stats.m_starting_height = peer->m_starting_height;
         }
     }
 
-    PeerRef peer = GetPeerRef(nodeid);
-    if (peer == nullptr) return false;
-    stats.m_misbehavior_score = WITH_LOCK(peer->m_misbehavior_mutex, return peer->m_misbehavior_score);
-    stats.m_starting_height = peer->m_starting_height;
-
-    return true;
+    return ret;
 }
 
 //////////////////////////////////////////////////////////////////////////////

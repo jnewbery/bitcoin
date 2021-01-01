@@ -173,13 +173,14 @@ static RPCHelpMan getpeerinfo()
     }
 
     std::vector<CNodeStats> vstats{node.connman->GetNodeStats()};
+    std::map<NodeId, CNodeStateStats> peers_stats{node.peerman->GetNodeStateStats()};
 
     UniValue ret(UniValue::VARR);
 
     for (const CNodeStats& stats : vstats) {
         UniValue obj(UniValue::VOBJ);
         CNodeStateStats statestats;
-        bool fStateStats = node.peerman->GetNodeStateStats(stats.nodeid, statestats);
+        auto peer_stats = peers_stats.find(stats.nodeid);
         obj.pushKV("id", stats.nodeid);
         obj.pushKV("addr", stats.addrName);
         if (stats.addrBind.IsValid()) {
@@ -224,16 +225,16 @@ static RPCHelpMan getpeerinfo()
             // addnode is deprecated in v0.21 for removal in v0.22
             obj.pushKV("addnode", stats.m_manual_connection);
         }
-        if (fStateStats) {
+        if (peer_stats != peers_stats.end()) {
             if (IsDeprecatedRPCEnabled("banscore")) {
                 // banscore is deprecated in v0.21 for removal in v0.22
-                obj.pushKV("banscore", statestats.m_misbehavior_score);
+                obj.pushKV("banscore", peer_stats->second.m_misbehavior_score);
             }
-            obj.pushKV("startingheight", statestats.m_starting_height);
-            obj.pushKV("synced_headers", statestats.nSyncHeight);
-            obj.pushKV("synced_blocks", statestats.nCommonHeight);
+            obj.pushKV("startingheight", peer_stats->second.m_starting_height);
+            obj.pushKV("synced_headers", peer_stats->second.nSyncHeight);
+            obj.pushKV("synced_blocks", peer_stats->second.nCommonHeight);
             UniValue heights(UniValue::VARR);
-            for (const int height : statestats.vHeightInFlight) {
+            for (const int height : peer_stats->second.vHeightInFlight) {
                 heights.push_back(height);
             }
             obj.pushKV("inflight", heights);
