@@ -11,5 +11,7 @@ class CBanEntry;
 class CSubNet;
 
 using banmap_t = std::map<CSubNet, CBanEntry>;
+using NodeId = int64_t;
+using mapMsgCmdSize = std::map<std::string, uint64_t>;
 
 #endif // BITCOIN_NET_TYPES_H

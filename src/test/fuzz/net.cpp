@@ -7,6 +7,7 @@
 #include <net.h>
 #include <net_permissions.h>
 #include <netaddress.h>
+#include <node_stats.h>
 #include <optional.h>
 #include <protocol.h>
 #include <random.h>

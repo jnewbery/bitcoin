@@ -15,6 +15,7 @@
 #include <crypto/sha256.h>
 #include <net_permissions.h>
 #include <netbase.h>
+#include <node_stats.h>
 #include <node/ui_interface.h>
 #include <optional.h>
 #include <protocol.h>

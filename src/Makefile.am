@@ -162,6 +162,7 @@ BITCOIN_CORE_H = \
   netaddress.h \
   netbase.h \
   netmessagemaker.h \
+  node_stats.h \
   node/coin.h \
   node/coinstats.h \
   node/context.h \

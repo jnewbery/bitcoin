@@ -7,10 +7,12 @@
 #define BITCOIN_NET_PROCESSING_H
 
 #include <net.h>
+#include <net_types.h>
 #include <sync.h>
 #include <validationinterface.h>
 
 class CChainParams;
+class CNodeStateStats;
 class CTxMemPool;
 class ChainstateManager;
 
@@ -25,14 +27,6 @@ static const bool DEFAULT_PEERBLOOMFILTERS = false;
 static const bool DEFAULT_PEERBLOCKFILTERS = false;
 /** Threshold for marking a node to be discouraged, e.g. disconnected and added to the discouragement filter. */
 static const int DISCOURAGEMENT_THRESHOLD{100};
-
-struct CNodeStateStats {
-    int m_misbehavior_score = 0;
-    int nSyncHeight = -1;
-    int nCommonHeight = -1;
-    int m_starting_height = -1;
-    std::vector<int> vHeightInFlight;
-};
 
 class PeerManager : public CValidationInterface, public NetEventsInterface
 {

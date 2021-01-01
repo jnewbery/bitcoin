@@ -6,6 +6,7 @@
 #include <chainparamsbase.h>
 #include <net.h>
 #include <netaddress.h>
+#include <node_stats.h>
 #include <protocol.h>
 #include <test/fuzz/FuzzedDataProvider.h>
 #include <test/fuzz/fuzz.h>

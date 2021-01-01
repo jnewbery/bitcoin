@@ -15,6 +15,7 @@
 #include <crypto/siphash.h>
 #include <hash.h>
 #include <net_permissions.h>
+#include <net_types.h>
 #include <netaddress.h>
 #include <optional.h>
 #include <policy/feerate.h>
@@ -85,8 +86,6 @@ static const int64_t DEFAULT_PEER_CONNECT_TIMEOUT = 60;
 static const bool DEFAULT_FORCEDNSSEED = false;
 static const size_t DEFAULT_MAXRECEIVEBUFFER = 5 * 1000;
 static const size_t DEFAULT_MAXSENDBUFFER    = 1 * 1000;
-
-typedef int64_t NodeId;
 
 struct AddedNodeInfo
 {
@@ -684,51 +683,6 @@ extern RecursiveMutex cs_mapLocalHost;
 extern std::map<CNetAddr, LocalServiceInfo> mapLocalHost GUARDED_BY(cs_mapLocalHost);
 
 extern const std::string NET_MESSAGE_COMMAND_OTHER;
-typedef std::map<std::string, uint64_t> mapMsgCmdSize; //command, total bytes
-
-class CNodeStats
-{
-public:
-    NodeId nodeid;
-    ServiceFlags nServices;
-    bool fRelayTxes;
-    int64_t nLastSend;
-    int64_t nLastRecv;
-    int64_t nLastTXTime;
-    int64_t nLastBlockTime;
-    int64_t nTimeConnected;
-    int64_t nTimeOffset;
-    std::string addrName;
-    int nVersion;
-    std::string cleanSubVer;
-    bool fInbound;
-    bool m_manual_connection;
-    bool m_bip152_highbandwidth_to;
-    bool m_bip152_highbandwidth_from;
-    int m_starting_height;
-    uint64_t nSendBytes;
-    mapMsgCmdSize mapSendBytesPerMsgCmd;
-    uint64_t nRecvBytes;
-    mapMsgCmdSize mapRecvBytesPerMsgCmd;
-    NetPermissionFlags m_permissionFlags;
-    bool m_legacyWhitelisted;
-    int64_t m_ping_usec;
-    int64_t m_ping_wait_usec;
-    int64_t m_min_ping_usec;
-    CAmount minFeeFilter;
-    // Our address, as reported by the peer
-    std::string addrLocal;
-    // Address of this peer
-    CAddress addr;
-    // Bind address of our side of the connection
-    CAddress addrBind;
-    // Name of the network the peer connected through
-    std::string m_network;
-    uint32_t m_mapped_as;
-    std::string m_conn_type_string;
-};
-
-
 
 /** Transport protocol agnostic message container.
  * Ideally it should only contain receive time, payload,
