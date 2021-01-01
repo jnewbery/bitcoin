@@ -46,8 +46,7 @@ FUZZ_TARGET_INIT(net, initialize_net)
             if (!SanityCheckASMap(asmap)) {
                 break;
             }
-            CNodeStats stats;
-            node.copyStats(stats, asmap);
+            CNodeStats stats{node.copyStats(asmap)};
             break;
         }
         case 3: {

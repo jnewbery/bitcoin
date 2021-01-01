@@ -561,8 +561,9 @@ Network CNode::ConnectedThroughNetwork() const
 
 #undef X
 #define X(name) stats.name = name
-void CNode::copyStats(CNodeStats &stats, const std::vector<bool> &m_asmap)
+CNodeStats CNode::copyStats(const std::vector<bool> &m_asmap)
 {
+    CNodeStats stats;
     stats.nodeid = this->GetId();
     X(nServices);
     X(addr);
@@ -631,6 +632,8 @@ void CNode::copyStats(CNodeStats &stats, const std::vector<bool> &m_asmap)
     stats.addrLocal = addrLocalUnlocked.IsValid() ? addrLocalUnlocked.ToString() : "";
 
     stats.m_conn_type_string = ConnectionTypeAsString();
+
+    return stats;
 }
 #undef X
 
@@ -2791,8 +2794,7 @@ std::vector<CNodeStats> CConnman::GetNodeStats()
     LOCK(cs_vNodes);
     vstats.reserve(vNodes.size());
     for (CNode* pnode : vNodes) {
-        vstats.emplace_back();
-        pnode->copyStats(vstats.back(), addrman.m_asmap);
+        vstats.emplace_back(pnode->copyStats(addrman.m_asmap));
     }
     return vstats;
 }
