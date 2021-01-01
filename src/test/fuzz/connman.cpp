@@ -147,8 +147,7 @@ FUZZ_TARGET_INIT(connman, initialize_connman)
     (void)connman.GetMaxOutboundTimeframe();
     (void)connman.GetMaxOutboundTimeLeftInCycle();
     (void)connman.GetNetworkActive();
-    std::vector<CNodeStats> stats;
-    connman.GetNodeStats(stats);
+    std::vector<CNodeStats> stats{connman.GetNodeStats()};
     (void)connman.GetOutboundTargetBytesLeft();
     (void)connman.GetReceiveFloodSize();
     (void)connman.GetTotalBytesRecv();

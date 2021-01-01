@@ -2785,15 +2785,16 @@ size_t CConnman::GetNodeCount(NumConnections flags)
     return nNum;
 }
 
-void CConnman::GetNodeStats(std::vector<CNodeStats>& vstats)
+std::vector<CNodeStats> CConnman::GetNodeStats()
 {
-    vstats.clear();
+    std::vector<CNodeStats> vstats;
     LOCK(cs_vNodes);
     vstats.reserve(vNodes.size());
     for (CNode* pnode : vNodes) {
         vstats.emplace_back();
         pnode->copyStats(vstats.back(), addrman.m_asmap);
     }
+    return vstats;
 }
 
 bool CConnman::DisconnectNode(const std::string& strNode)

@@ -113,8 +113,7 @@ public:
         stats.clear();
 
         if (m_context->connman) {
-            std::vector<CNodeStats> stats_temp;
-            m_context->connman->GetNodeStats(stats_temp);
+            std::vector<CNodeStats> stats_temp{m_context->connman->GetNodeStats()};
 
             stats.reserve(stats_temp.size());
             for (auto& node_stats_temp : stats_temp) {

@@ -172,8 +172,7 @@ static RPCHelpMan getpeerinfo()
         throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Peer-to-peer functionality missing or disabled");
     }
 
-    std::vector<CNodeStats> vstats;
-    node.connman->GetNodeStats(vstats);
+    std::vector<CNodeStats> vstats{node.connman->GetNodeStats()};
 
     UniValue ret(UniValue::VARR);
 
