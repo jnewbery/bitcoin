@@ -601,8 +601,6 @@ struct CNodeState {
     bool fProvidesHeaderAndIDs{false};
     //! Whether this peer can give us witnesses
     bool fHaveWitness{false};
-    //! Whether this peer wants witnesses in cmpctblocks/blocktxns
-    bool fWantsCmpctWitness{false};
 
     /** State used to enforce CHAIN_SYNC_TIMEOUT and EXTRA_PEER_CHECK_INTERVAL logic.
       *
@@ -1379,7 +1377,7 @@ void PeerManagerImpl::NewPoWValidBlock(const CBlockIndex *pindex, const std::sha
         CNodeState &state = *State(pnode->GetId());
         // If the peer has, or we announced to them the previous block already,
         // but we don't think they have this one, go ahead and announce it
-        if (state.fPreferHeaderAndIDs && (!fWitnessEnabled || state.fWantsCmpctWitness) &&
+        if (state.fPreferHeaderAndIDs && (!fWitnessEnabled || state.fProvidesHeaderAndIDs) &&
                 !PeerHasHeader(&state, pindex) && PeerHasHeader(&state, pindex->pprev)) {
 
             LogPrint(BCLog::NET, "%s sending header-and-ids %s to peer=%d\n", "PeerManager::NewPoWValidBlock",
@@ -1697,7 +1695,7 @@ void PeerManagerImpl::ProcessGetBlockData(CNode& pfrom, Peer& peer, const CInv& 
             // they won't have a useful mempool to match against a compact block,
             // and we don't feel like constructing the object for them, so
             // instead we respond with the full, non-compact block.
-            bool fPeerWantsWitness = State(pfrom.GetId())->fWantsCmpctWitness;
+            bool fPeerWantsWitness = State(pfrom.GetId())->fProvidesHeaderAndIDs;
             int nSendFlags = fPeerWantsWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS;
             if (CanDirectFetch() && pindex->nHeight >= m_chainman.ActiveChain().Height() - MAX_CMPCTBLOCK_DEPTH) {
                 if ((fPeerWantsWitness || !fWitnessesPresentInARecentCompactBlock) && a_recent_compact_block && a_recent_compact_block->header.GetHash() == pindex->GetBlockHash()) {
@@ -1868,7 +1866,7 @@ void PeerManagerImpl::SendBlockTransactions(CNode& pfrom, const CBlock& block, c
     }
     LOCK(cs_main);
     const CNetMsgMaker msgMaker(pfrom.GetCommonVersion());
-    int nSendFlags = State(pfrom.GetId())->fWantsCmpctWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS;
+    int nSendFlags = State(pfrom.GetId())->fProvidesHeaderAndIDs ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS;
     m_connman.PushMessage(&pfrom, msgMaker.Make(nSendFlags, NetMsgType::BLOCKTXN, resp));
 }
 
@@ -2584,12 +2582,10 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         if (nCMPCTBLOCKVersion != CMPCTBLOCKS_VERSION) return;
 
         LOCK(cs_main);
-        // fProvidesHeaderAndIDs is used to "lock in" version of compact blocks we send (fWantsCmpctWitness)
         if (!State(pfrom.GetId())->fProvidesHeaderAndIDs) {
             State(pfrom.GetId())->fProvidesHeaderAndIDs = true;
-            State(pfrom.GetId())->fWantsCmpctWitness = true;
         }
-        if (State(pfrom.GetId())->fWantsCmpctWitness == true) { // ignore later version announces
+        if (State(pfrom.GetId())->fProvidesHeaderAndIDs == true) { // ignore later version announces
             State(pfrom.GetId())->fPreferHeaderAndIDs = fAnnounceUsingCMPCTBLOCK;
             // save whether peer selects us as BIP152 high-bandwidth peer
             // (receiving sendcmpct(1) signals high-bandwidth, sendcmpct(0) low-bandwidth)
@@ -2913,7 +2909,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         // actually receive all the data read from disk over the network.
         LogPrint(BCLog::NET, "Peer %d sent us a getblocktxn for a block > %i deep\n", pfrom.GetId(), MAX_BLOCKTXN_DEPTH);
         CInv inv;
-        WITH_LOCK(cs_main, inv.type = State(pfrom.GetId())->fWantsCmpctWitness ? MSG_WITNESS_BLOCK : MSG_BLOCK);
+        WITH_LOCK(cs_main, inv.type = State(pfrom.GetId())->fProvidesHeaderAndIDs ? MSG_WITNESS_BLOCK : MSG_BLOCK);
         inv.hash = req.blockhash;
         WITH_LOCK(peer->m_getdata_requests_mutex, peer->m_getdata_requests.push_back(inv));
         // The message processing loop will go around again (without pausing) and we'll respond then
@@ -4355,16 +4351,16 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                     LogPrint(BCLog::NET, "%s sending header-and-ids %s to peer=%d\n", __func__,
                             vHeaders.front().GetHash().ToString(), pto->GetId());
 
-                    int nSendFlags = state.fWantsCmpctWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS;
+                    int nSendFlags = state.fProvidesHeaderAndIDs ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS;
 
                     bool fGotBlockFromCache = false;
                     {
                         LOCK(cs_most_recent_block);
                         if (most_recent_block_hash == pBestIndex->GetBlockHash()) {
-                            if (state.fWantsCmpctWitness || !fWitnessesPresentInMostRecentCompactBlock)
+                            if (state.fProvidesHeaderAndIDs || !fWitnessesPresentInMostRecentCompactBlock)
                                 m_connman.PushMessage(pto, msgMaker.Make(nSendFlags, NetMsgType::CMPCTBLOCK, *most_recent_compact_block));
                             else {
-                                CBlockHeaderAndShortTxIDs cmpctblock(*most_recent_block, state.fWantsCmpctWitness);
+                                CBlockHeaderAndShortTxIDs cmpctblock(*most_recent_block, state.fProvidesHeaderAndIDs);
                                 m_connman.PushMessage(pto, msgMaker.Make(nSendFlags, NetMsgType::CMPCTBLOCK, cmpctblock));
                             }
                             fGotBlockFromCache = true;
@@ -4374,7 +4370,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                         CBlock block;
                         bool ret = ReadBlockFromDisk(block, pBestIndex, consensusParams);
                         assert(ret);
-                        CBlockHeaderAndShortTxIDs cmpctblock(block, state.fWantsCmpctWitness);
+                        CBlockHeaderAndShortTxIDs cmpctblock(block, state.fProvidesHeaderAndIDs);
                         m_connman.PushMessage(pto, msgMaker.Make(nSendFlags, NetMsgType::CMPCTBLOCK, cmpctblock));
                     }
                     state.pindexBestHeaderSent = pBestIndex;
