@@ -606,8 +606,7 @@ struct CNodeState {
     //! Whether this peer wants witnesses in cmpctblocks/blocktxns
     bool fWantsCmpctWitness{false};
     /**
-     * If we've announced NODE_WITNESS to this peer: whether the peer sends witnesses in cmpctblocks/blocktxns,
-     * otherwise: whether this peer sends non-witnesses in cmpctblocks/blocktxns.
+     * Whether the peer sends witnesses in cmpctblocks/blocktxns.
      */
     bool fSupportsDesiredCmpctVersion{false};
 
@@ -2585,6 +2584,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         uint64_t nCMPCTBLOCKVersion = 0;
         vRecv >> fAnnounceUsingCMPCTBLOCK >> nCMPCTBLOCKVersion;
 
+        // Only support compact block relay with witness peers
+        if (WITH_LOCK(cs_main, {return !State(pfrom.GetId())->fHaveWitness;})) return;
         // Only support compact block relay with witnesses
         if (nCMPCTBLOCKVersion != CMPCTBLOCKS_VERSION) return;
 
