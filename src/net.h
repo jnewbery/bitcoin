@@ -35,52 +35,66 @@
 #include <thread>
 #include <vector>
 
-class CScheduler;
-class CNode;
 class BanMan;
+class CClientUIInterface;
+class CScheduler;
 struct bilingual_str;
 
-/** Default for -whitelistrelay. */
-static const bool DEFAULT_WHITELISTRELAY = true;
-/** Default for -whitelistforcerelay. */
-static const bool DEFAULT_WHITELISTFORCERELAY = false;
+typedef int64_t NodeId;
+typedef std::map<std::string, uint64_t> mapMsgCmdSize; //command, total bytes
 
-/** Time after which to disconnect, after waiting for a ping response (or inactivity). */
-static const int TIMEOUT_INTERVAL = 20 * 60;
-/** Run the feeler connection loop once every 2 minutes or 120 seconds. **/
-static const int FEELER_INTERVAL = 120;
-/** Run the extra block-relay-only connection loop once every 5 minutes. **/
-static const int EXTRA_BLOCK_RELAY_ONLY_PEER_INTERVAL = 300;
-/** The maximum number of addresses from our addrman to return in response to a getaddr message. */
-static constexpr size_t MAX_ADDR_TO_SEND = 1000;
-/** Maximum length of incoming protocol messages (no message over 4 MB is currently acceptable). */
-static const unsigned int MAX_PROTOCOL_MESSAGE_LENGTH = 4 * 1000 * 1000;
-/** Maximum length of the user agent string in `version` message */
-static const unsigned int MAX_SUBVERSION_LENGTH = 256;
-/** Maximum number of automatic outgoing nodes over which we'll relay everything (blocks, tx, addrs, etc) */
-static const int MAX_OUTBOUND_FULL_RELAY_CONNECTIONS = 8;
-/** Maximum number of addnode outgoing nodes */
-static const int MAX_ADDNODE_CONNECTIONS = 8;
-/** Maximum number of block-relay-only outgoing connections */
-static const int MAX_BLOCK_RELAY_ONLY_CONNECTIONS = 2;
-/** Maximum number of feeler connections */
-static const int MAX_FEELER_CONNECTIONS = 1;
+/** Default for blocks only*/
+static const bool DEFAULT_BLOCKSONLY = false;
+/** Default for -forcednsseed */
+static const bool DEFAULT_FORCEDNSSEED = false;
 /** -listen default */
 static const bool DEFAULT_LISTEN = true;
 /** The maximum number of peer connections to maintain. */
 static const unsigned int DEFAULT_MAX_PEER_CONNECTIONS = 125;
 /** The default for -maxuploadtarget. 0 = Unlimited */
 static constexpr uint64_t DEFAULT_MAX_UPLOAD_TARGET = 0;
-/** Default for blocks only*/
-static const bool DEFAULT_BLOCKSONLY = false;
+/** Default for -maxreceivebuffer */
+static const size_t DEFAULT_MAXRECEIVEBUFFER = 5 * 1000;
+/** Default for -maxsendbuffer */
+static const size_t DEFAULT_MAXSENDBUFFER    = 1 * 1000;
 /** -peertimeout default */
 static const int64_t DEFAULT_PEER_CONNECT_TIMEOUT = 60;
+/** Default for -whitelistforcerelay. */
+static const bool DEFAULT_WHITELISTFORCERELAY = false;
+/** Default for -whitelistrelay. */
+static const bool DEFAULT_WHITELISTRELAY = true;
+/** Run the extra block-relay-only connection loop once every 5 minutes. **/
+static const int EXTRA_BLOCK_RELAY_ONLY_PEER_INTERVAL = 300;
+/** Run the feeler connection loop once every 2 minutes or 120 seconds. **/
+static const int FEELER_INTERVAL = 120;
+/** Maximum number of addnode outgoing nodes */
+static const int MAX_ADDNODE_CONNECTIONS = 8;
+/** The maximum number of addresses from our addrman to return in response to a getaddr message. */
+static constexpr size_t MAX_ADDR_TO_SEND = 1000;
+/** Maximum number of block-relay-only outgoing connections */
+static const int MAX_BLOCK_RELAY_ONLY_CONNECTIONS = 2;
+/** Maximum number of feeler connections */
+static const int MAX_FEELER_CONNECTIONS = 1;
+/** Maximum number of automatic outgoing nodes over which we'll relay everything (blocks, tx, addrs, etc) */
+static const int MAX_OUTBOUND_FULL_RELAY_CONNECTIONS = 8;
+/** Maximum length of incoming protocol messages (no message over 4 MB is currently acceptable). */
+static const unsigned int MAX_PROTOCOL_MESSAGE_LENGTH = 4 * 1000 * 1000;
+/** Maximum length of the user agent string in `version` message */
+static const unsigned int MAX_SUBVERSION_LENGTH = 256;
+/** Time after which to disconnect, after waiting for a ping response (or inactivity). */
+static const int TIMEOUT_INTERVAL = 20 * 60;
 
-static const bool DEFAULT_FORCEDNSSEED = false;
-static const size_t DEFAULT_MAXRECEIVEBUFFER = 5 * 1000;
-static const size_t DEFAULT_MAXSENDBUFFER    = 1 * 1000;
+struct LocalServiceInfo {
+    int nScore;
+    int nPort;
+};
 
-typedef int64_t NodeId;
+extern bool fDiscover;
+extern bool fListen;
+extern std::string strSubVersion;
+extern RecursiveMutex cs_mapLocalHost;
+extern std::map<CNetAddr, LocalServiceInfo> mapLocalHost GUARDED_BY(cs_mapLocalHost);
+extern const std::string NET_MESSAGE_COMMAND_OTHER;
 
 struct AddedNodeInfo
 {
@@ -89,9 +103,6 @@ struct AddedNodeInfo
     bool fConnected;
     bool fInbound;
 };
-
-class CNodeStats;
-class CClientUIInterface;
 
 struct CSerializedNetMsg
 {
@@ -127,7 +138,6 @@ enum class ConnectionType {
      * MAX_OUTBOUND_FULL_RELAY_CONNECTIONS using addresses from our AddrMan.
      */
     OUTBOUND_FULL_RELAY,
-
 
     /**
      * We open manual connections to addresses that users explicitly inputted
@@ -174,11 +184,6 @@ enum class ConnectionType {
     ADDR_FETCH,
 };
 
-/** Convert ConnectionType enum to a string value */
-std::string ConnectionTypeAsString(ConnectionType conn_type);
-void Discover();
-uint16_t GetListenPort();
-
 enum
 {
     LOCAL_NONE,   // unknown
@@ -189,45 +194,6 @@ enum
 
     LOCAL_MAX
 };
-
-bool IsPeerAddrLocalGood(CNode *pnode);
-void AdvertiseLocal(CNode *pnode);
-
-/**
- * Mark a network as reachable or unreachable (no automatic connects to it)
- * @note Networks are reachable by default
- */
-void SetReachable(enum Network net, bool reachable);
-/** @returns true if the network is reachable, false otherwise */
-bool IsReachable(enum Network net);
-/** @returns true if the address is in a reachable network, false otherwise */
-bool IsReachable(const CNetAddr& addr);
-
-bool AddLocal(const CService& addr, int nScore = LOCAL_NONE);
-bool AddLocal(const CNetAddr& addr, int nScore = LOCAL_NONE);
-void RemoveLocal(const CService& addr);
-bool SeenLocal(const CService& addr);
-bool IsLocal(const CService& addr);
-bool GetLocal(CService &addr, const CNetAddr *paddrPeer = nullptr);
-CAddress GetLocalAddress(const CNetAddr *paddrPeer, ServiceFlags nLocalServices);
-
-
-extern bool fDiscover;
-extern bool fListen;
-
-/** Subversion as sent to the P2P network in `version` messages */
-extern std::string strSubVersion;
-
-struct LocalServiceInfo {
-    int nScore;
-    int nPort;
-};
-
-extern RecursiveMutex cs_mapLocalHost;
-extern std::map<CNetAddr, LocalServiceInfo> mapLocalHost GUARDED_BY(cs_mapLocalHost);
-
-extern const std::string NET_MESSAGE_COMMAND_OTHER;
-typedef std::map<std::string, uint64_t> mapMsgCmdSize; //command, total bytes
 
 class CNodeStats
 {
@@ -268,7 +234,6 @@ public:
     uint32_t m_mapped_as;
     ConnectionType m_conn_type;
 };
-
 
 /** Transport protocol agnostic message container.
  * Ideally it should only contain receive time, payload,
@@ -1256,5 +1221,31 @@ struct NodeEvictionCandidate
 };
 
 [[nodiscard]] Optional<NodeId> SelectNodeToEvict(std::vector<NodeEvictionCandidate>&& vEvictionCandidates);
+
+/** Convert ConnectionType enum to a string value */
+std::string ConnectionTypeAsString(ConnectionType conn_type);
+void Discover();
+uint16_t GetListenPort();
+
+bool IsPeerAddrLocalGood(CNode *pnode);
+void AdvertiseLocal(CNode *pnode);
+
+/**
+ * Mark a network as reachable or unreachable (no automatic connects to it)
+ * @note Networks are reachable by default
+ */
+void SetReachable(enum Network net, bool reachable);
+/** @returns true if the network is reachable, false otherwise */
+bool IsReachable(enum Network net);
+/** @returns true if the address is in a reachable network, false otherwise */
+bool IsReachable(const CNetAddr& addr);
+
+bool AddLocal(const CService& addr, int nScore = LOCAL_NONE);
+bool AddLocal(const CNetAddr& addr, int nScore = LOCAL_NONE);
+void RemoveLocal(const CService& addr);
+bool SeenLocal(const CService& addr);
+bool IsLocal(const CService& addr);
+bool GetLocal(CService &addr, const CNetAddr *paddrPeer = nullptr);
+CAddress GetLocalAddress(const CNetAddr *paddrPeer, ServiceFlags nLocalServices);
 
 #endif // BITCOIN_NET_H
