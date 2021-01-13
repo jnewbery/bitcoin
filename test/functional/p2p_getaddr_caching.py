@@ -42,6 +42,7 @@ class AddrReceiver(P2PInterface):
 class AddrTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
+        self.extra_args = [["-nopingtimeout"]]  # mocktime might cause a disconnect otherwise
 
     def run_test(self):
         self.log.info('Fill peer AddrMan with a lot of records')

@@ -49,6 +49,7 @@ class AddrTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 1
+        self.extra_args = [["-nopingtimeout"]]  # mocktime might cause a disconnect otherwise
 
     def run_test(self):
         self.log.info('Create connection that sends addrv2 messages')
