@@ -1245,7 +1245,9 @@ bool CConnman::InactivityCheck(const CNode& node) const
         return true;
     }
 
-    if (node.nPingNonceSent && node.m_ping_start.load() + std::chrono::seconds{TIMEOUT_INTERVAL} < GetTime<std::chrono::microseconds>()) {
+    if (gArgs.GetArg("-pingtimeout", DEFAULT_PING_TIMEOUT) &&
+        node.nPingNonceSent &&
+        node.m_ping_start.load() + std::chrono::seconds{TIMEOUT_INTERVAL} < GetTime<std::chrono::microseconds>()) {
         // We use mockable time for ping timeouts. This means that setmocktime
         // may cause pings to time out for peers that have been connected for
         // longer than m_peer_connect_timeout.
