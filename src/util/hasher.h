@@ -7,48 +7,33 @@
 
 #include <crypto/siphash.h>
 #include <primitives/transaction.h>
+#include <random.h>
 #include <uint256.h>
 
-class SaltedTxidHasher
+#include <limits>
+
+// Specialization hash functions
+size_t InnerHashFunction(uint64_t k0, uint64_t k1, const uint256& txid);
+size_t InnerHashFunction(uint64_t k0, uint64_t k1, const COutPoint& out) noexcept;
+size_t InnerHashFunction(uint64_t k0, uint64_t k1, const Span<const unsigned char>& span);
+
+template<typename T>
+class GenericSaltedSipHasher
 {
 private:
     /** Salt */
     const uint64_t k0, k1;
 
 public:
-    SaltedTxidHasher();
+    GenericSaltedSipHasher() : k0(GetRand(std::numeric_limits<uint64_t>::max())),
+                               k1(GetRand(std::numeric_limits<uint64_t>::max())) {}
 
-    size_t operator()(const uint256& txid) const {
-        return SipHashUint256(k0, k1, txid);
-    }
+    size_t operator()(const T t) const { return InnerHashFunction(k0, k1, t); }
 };
 
-class SaltedOutpointHasher
-{
-private:
-    /** Salt */
-    const uint64_t k0, k1;
-
-public:
-    SaltedOutpointHasher();
-
-    /**
-     * This *must* return size_t. With Boost 1.46 on 32-bit systems the
-     * unordered_map will behave unpredictably if the custom hasher returns a
-     * uint64_t, resulting in failures when syncing the chain (#4634).
-     *
-     * Having the hash noexcept allows libstdc++'s unordered_map to recalculate
-     * the hash during rehash, so it does not have to cache the value. This
-     * reduces node's memory by sizeof(size_t). The required recalculation has
-     * a slight performance penalty (around 1.6%), but this is compensated by
-     * memory savings of about 9% which allow for a larger dbcache setting.
-     *
-     * @see https://gcc.gnu.org/onlinedocs/gcc-9.2.0/libstdc++/manual/manual/unordered_associative.html
-     */
-    size_t operator()(const COutPoint& id) const noexcept {
-        return SipHashUint256Extra(k0, k1, id.hash, id.n);
-    }
-};
+using SaltedTxidHasher = GenericSaltedSipHasher<const uint256&>;
+using SaltedOutpointHasher = GenericSaltedSipHasher<const COutPoint&>;
+using SaltedSipHasher = GenericSaltedSipHasher<const Span<const unsigned char>&>;
 
 struct FilterHeaderHasher
 {
@@ -82,18 +67,6 @@ struct BlockHasher
     // cheap hash function simply calls ReadLE64() however, so the end result is
     // identical
     size_t operator()(const uint256& hash) const { return ReadLE64(hash.begin()); }
-};
-
-class SaltedSipHasher
-{
-private:
-    /** Salt */
-    const uint64_t m_k0, m_k1;
-
-public:
-    SaltedSipHasher();
-
-    size_t operator()(const Span<const unsigned char>& script) const;
 };
 
 #endif // BITCOIN_UTIL_HASHER_H
