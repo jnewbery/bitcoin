@@ -12,11 +12,6 @@
 
 #include <limits>
 
-// Specialization hash functions
-size_t InnerHashFunction(uint64_t k0, uint64_t k1, const uint256& txid);
-size_t InnerHashFunction(uint64_t k0, uint64_t k1, const COutPoint& out) noexcept;
-size_t InnerHashFunction(uint64_t k0, uint64_t k1, const Span<const unsigned char>& span);
-
 template<typename T>
 class GenericSaltedSipHasher
 {
@@ -28,7 +23,33 @@ public:
     GenericSaltedSipHasher() : k0(GetRand(std::numeric_limits<uint64_t>::max())),
                                k1(GetRand(std::numeric_limits<uint64_t>::max())) {}
 
-    size_t operator()(const T t) const { return InnerHashFunction(k0, k1, t); }
+    // Specialization for txid
+    size_t InnerHashFunction(const uint256& txid) const
+    {
+        return SipHashUint256(k0, k1, txid);
+    }
+
+    // Specialization for outpoint
+    //
+    //  Having the hash noexcept allows libstdc++'s unordered_map to recalculate
+    // the hash during rehash, so it does not have to cache the value. This
+    // reduces node's memory by sizeof(size_t). The required recalculation has
+    // a slight performance penalty (around 1.6%), but this is compensated by
+    // memory savings of about 9% which allow for a larger dbcache setting.
+    //
+    // @see https://gcc.gnu.org/onlinedocs/gcc-9.2.0/libstdc++/manual/manual/unordered_associative.html
+    size_t InnerHashFunction(const COutPoint& out) const noexcept
+    {
+        return SipHashUint256Extra(k0, k1, out.hash, out.n);
+    }
+
+    // Specialization for span
+    size_t InnerHashFunction(const Span<const unsigned char>& span) const
+    {
+        return CSipHasher(k0, k1).Write(span.data(), span.size()).Finalize();
+    }
+
+    size_t operator()(const T t) const { return InnerHashFunction(t); }
 };
 
 using SaltedTxidHasher = GenericSaltedSipHasher<const uint256&>;
