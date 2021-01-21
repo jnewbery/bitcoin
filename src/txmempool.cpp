@@ -629,11 +629,11 @@ void CTxMemPool::check(const CCoinsViewCache *pcoins) const
     const int64_t spendheight = GetSpendHeight(mempoolDuplicate);
 
     std::list<const CTxMemPoolEntry*> waitingOnDependants;
-    for (indexed_transaction_set::const_iterator it = mapTx.begin(); it != mapTx.end(); it++) {
-        checkTotal += it->GetTxSize();
-        innerUsage += it->DynamicMemoryUsage();
-        const CTransaction& tx = it->GetTx();
-        innerUsage += memusage::DynamicUsage(it->GetMemPoolParentsConst()) + memusage::DynamicUsage(it->GetMemPoolChildrenConst());
+    for (const auto entry : mapTx) {
+        checkTotal += entry.GetTxSize();
+        innerUsage += entry.DynamicMemoryUsage();
+        const CTransaction& tx = entry.GetTx();
+        innerUsage += memusage::DynamicUsage(entry.GetMemPoolParentsConst()) + memusage::DynamicUsage(entry.GetMemPoolChildrenConst());
         bool fDependsWait = false;
         CTxMemPoolEntry::Parents setParentCheck;
         for (const CTxIn &txin : tx.vin) {
@@ -656,17 +656,17 @@ void CTxMemPool::check(const CCoinsViewCache *pcoins) const
         auto comp = [](const CTxMemPoolEntry& a, const CTxMemPoolEntry& b) -> bool {
             return a.GetTx().GetHash() == b.GetTx().GetHash();
         };
-        assert(setParentCheck.size() == it->GetMemPoolParentsConst().size());
-        assert(std::equal(setParentCheck.begin(), setParentCheck.end(), it->GetMemPoolParentsConst().begin(), comp));
+        assert(setParentCheck.size() == entry.GetMemPoolParentsConst().size());
+        assert(std::equal(setParentCheck.begin(), setParentCheck.end(), entry.GetMemPoolParentsConst().begin(), comp));
         // Verify ancestor state is correct.
         setEntries setAncestors;
         uint64_t nNoLimit = std::numeric_limits<uint64_t>::max();
         std::string dummy;
-        CalculateMemPoolAncestors(*it, setAncestors, nNoLimit, nNoLimit, nNoLimit, nNoLimit, dummy);
+        CalculateMemPoolAncestors(entry, setAncestors, nNoLimit, nNoLimit, nNoLimit, nNoLimit, dummy);
         uint64_t nCountCheck = setAncestors.size() + 1;
-        uint64_t nSizeCheck = it->GetTxSize();
-        CAmount nFeesCheck = it->GetModifiedFee();
-        int64_t nSigOpCheck = it->GetSigOpCost();
+        uint64_t nSizeCheck = entry.GetTxSize();
+        CAmount nFeesCheck = entry.GetModifiedFee();
+        int64_t nSigOpCheck = entry.GetSigOpCost();
 
         for (txiter ancestorIt : setAncestors) {
             nSizeCheck += ancestorIt->GetTxSize();
@@ -674,30 +674,30 @@ void CTxMemPool::check(const CCoinsViewCache *pcoins) const
             nSigOpCheck += ancestorIt->GetSigOpCost();
         }
 
-        assert(it->GetCountWithAncestors() == nCountCheck);
-        assert(it->GetSizeWithAncestors() == nSizeCheck);
-        assert(it->GetSigOpCostWithAncestors() == nSigOpCheck);
-        assert(it->GetModFeesWithAncestors() == nFeesCheck);
+        assert(entry.GetCountWithAncestors() == nCountCheck);
+        assert(entry.GetSizeWithAncestors() == nSizeCheck);
+        assert(entry.GetSigOpCostWithAncestors() == nSigOpCheck);
+        assert(entry.GetModFeesWithAncestors() == nFeesCheck);
 
         // Check children against mapNextTx
         CTxMemPoolEntry::Children setChildrenCheck;
-        auto iter = mapNextTx.lower_bound(COutPoint(it->GetTx().GetHash(), 0));
+        auto iter = mapNextTx.lower_bound(COutPoint(entry.GetTx().GetHash(), 0));
         uint64_t child_sizes = 0;
-        for (; iter != mapNextTx.end() && iter->first->hash == it->GetTx().GetHash(); ++iter) {
+        for (; iter != mapNextTx.end() && iter->first->hash == entry.GetTx().GetHash(); ++iter) {
             txiter childit = mapTx.find(iter->second->GetHash());
             assert(childit != mapTx.end()); // mapNextTx points to in-mempool transactions
             if (setChildrenCheck.insert(*childit).second) {
                 child_sizes += childit->GetTxSize();
             }
         }
-        assert(setChildrenCheck.size() == it->GetMemPoolChildrenConst().size());
-        assert(std::equal(setChildrenCheck.begin(), setChildrenCheck.end(), it->GetMemPoolChildrenConst().begin(), comp));
+        assert(setChildrenCheck.size() == entry.GetMemPoolChildrenConst().size());
+        assert(std::equal(setChildrenCheck.begin(), setChildrenCheck.end(), entry.GetMemPoolChildrenConst().begin(), comp));
         // Also check to make sure size is greater than sum with immediate children.
         // just a sanity check, not definitive that this calc is correct...
-        assert(it->GetSizeWithDescendants() >= child_sizes + it->GetTxSize());
+        assert(entry.GetSizeWithDescendants() >= child_sizes + entry.GetTxSize());
 
         if (fDependsWait)
-            waitingOnDependants.push_back(&(*it));
+            waitingOnDependants.push_back(&(entry));
         else {
             CheckInputsAndUpdateCoins(tx, mempoolDuplicate, spendheight);
         }
@@ -715,12 +715,12 @@ void CTxMemPool::check(const CCoinsViewCache *pcoins) const
             stepsSinceLastRemove = 0;
         }
     }
-    for (auto it = mapNextTx.cbegin(); it != mapNextTx.cend(); it++) {
-        uint256 hash = it->second->GetHash();
+    for (const auto it : mapNextTx) {
+        uint256 hash = it.second->GetHash();
         indexed_transaction_set::const_iterator it2 = mapTx.find(hash);
         const CTransaction& tx = it2->GetTx();
         assert(it2 != mapTx.end());
-        assert(&tx == it->second);
+        assert(&tx == it.second);
     }
 
     assert(totalTxSize == checkTotal);
