@@ -635,6 +635,8 @@ void CTxMemPool::check(const CCoinsViewCache *pcoins) const
         const CTransaction& tx = entry.GetTx();
         innerUsage += memusage::DynamicUsage(entry.GetMemPoolParentsConst()) + memusage::DynamicUsage(entry.GetMemPoolChildrenConst());
         bool fDependsWait = false;
+
+        // Check parents
         CTxMemPoolEntry::Parents setParentCheck;
         for (const CTxIn &txin : tx.vin) {
             // Check that every mempool transaction's inputs refer to available coins, or other mempool tx's.
