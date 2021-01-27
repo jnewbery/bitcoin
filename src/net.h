@@ -550,6 +550,10 @@ public:
     // m_tx_relay == nullptr if we're not relaying transactions with this peer
     std::unique_ptr<TxRelay> m_tx_relay;
 
+    /** Has this peer asked us to relay transactions. This only changes from
+     *  false to true. It will never change back to false. */
+    std::atomic_bool m_relays_txs{false};
+
     /** UNIX epoch time of the last block received from this peer that we had
      * not yet seen (e.g. not already received from another peer), that passed
      * preliminary validity checks and was saved to disk, even if we don't
