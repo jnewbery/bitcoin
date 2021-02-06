@@ -278,8 +278,7 @@ struct Peer {
 
     explicit Peer(NodeId id, bool blocks_only)
         : m_id(id),
-          m_addr_known(blocks_only ? nullptr : MakeUnique<CRollingBloomFilter>(5000, 0.001)),
-          m_tx_relay(blocks_only ? nullptr : MakeUnique<TxRelay>())
+          m_addr_known(blocks_only ? nullptr : MakeUnique<CRollingBloomFilter>(5000, 0.001))
     {}
 };
 
@@ -1003,8 +1002,7 @@ void PeerManagerImpl::PushNodeVersion(CNode& pnode, Peer& peer, int64_t nTime)
                            CAddress(CService(), addr.nServices);
     CAddress addrMe = CAddress(CService(), nLocalNodeServices);
 
-    const bool tx_relay = !m_ignore_incoming_txs &&
-                          WITH_LOCK(peer.m_tx_relay_mutex, return peer.m_tx_relay != nullptr);
+    const bool tx_relay = !m_ignore_incoming_txs && !pnode.IsBlockOnlyConn();
     m_connman.PushMessage(&pnode, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::VERSION, PROTOCOL_VERSION, (uint64_t)nLocalNodeServices, nTime, addrYou, addrMe,
             nonce, strSubVersion, nNodeStartingHeight, tx_relay));
 
@@ -2729,8 +2727,17 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         // set nodes not capable of serving the complete blockchain history as "limited nodes"
         pfrom.m_limited_node = (!(nServices & NODE_NETWORK) && (nServices & NODE_NETWORK_LIMITED));
 
-        LOCK(peer->m_tx_relay_mutex);
-        if (peer->m_tx_relay != nullptr) {
+        // We can avoid initializing the m_tx_relay data structure if:
+        // - we're in blocksonly mode; or
+        // - this is an outbound block-relay-only connection; or
+        // - fRelay=false and we're not offering NODE_BLOOM to this peer
+        //   (NODE_BLOOM means that the peer may turn on tx relay later)
+        const bool disable_tx_relay = m_ignore_incoming_txs ||
+                                      pfrom.IsBlockOnlyConn() || 
+                                      (!fRelay && !(pfrom.GetLocalServices() & NODE_BLOOM));
+        if (!disable_tx_relay) {
+            LOCK(peer->m_tx_relay_mutex);
+            peer->m_tx_relay = std::make_unique<Peer::TxRelay>();
             peer->m_tx_relay->m_relay_txs = fRelay; // set to true after we get the first filter* message
             if (fRelay) pfrom.m_relays_txs = true;
         }
