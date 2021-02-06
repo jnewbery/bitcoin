@@ -253,11 +253,11 @@ struct Peer {
         // Used for BIP35 mempool sending
         bool m_send_mempool{false};
         // Last time a "MEMPOOL" request was serviced.
-        std::atomic<std::chrono::seconds> m_last_mempool_req{std::chrono::seconds{0}};
+        std::chrono::seconds m_last_mempool_req{std::chrono::seconds{0}};
         std::chrono::microseconds m_next_inv_send_time{0};
 
         // Minimum fee rate with which to filter inv's to this node
-        std::atomic<CAmount> m_fee_filter_theirs{0};
+        CAmount m_fee_filter_theirs{0};
         CAmount m_fee_filter_ours{0};
         int64_t m_fee_filter_next_send{0};
     };
@@ -1198,7 +1198,7 @@ bool PeerManagerImpl::GetNodeStateStats(NodeId nodeid, CNodeStateStats &stats)
     LOCK(peer->m_tx_relay_mutex);
     if (peer->m_tx_relay != nullptr) {
         stats.m_relay_txs = peer->m_tx_relay->m_relay_txs;
-        stats.m_fee_filter_theirs = peer->m_tx_relay->m_fee_filter_theirs.load();
+        stats.m_fee_filter_theirs = peer->m_tx_relay->m_fee_filter_theirs;
     } else {
         stats.m_relay_txs = false;
         stats.m_fee_filter_theirs = 0;
@@ -2017,7 +2017,7 @@ void static ProcessGetData(CNode& pfrom, Peer& peer, const CChainParams& chainpa
     std::chrono::seconds mempool_req;
     {
         LOCK(peer.m_tx_relay_mutex);
-        mempool_req = peer.m_tx_relay != nullptr ? peer.m_tx_relay->m_last_mempool_req.load()
+        mempool_req = peer.m_tx_relay != nullptr ? peer.m_tx_relay->m_last_mempool_req
                                                  : std::chrono::seconds::min();
     }
 
@@ -4784,7 +4784,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                 if (fSendTrickle && peer->m_tx_relay->m_send_mempool) {
                     auto vtxinfo = m_mempool.infoAll();
                     peer->m_tx_relay->m_send_mempool = false;
-                    const CFeeRate filterrate{peer->m_tx_relay->m_fee_filter_theirs.load()};
+                    const CFeeRate filterrate{peer->m_tx_relay->m_fee_filter_theirs};
 
                     for (const auto& txinfo : vtxinfo) {
                         const uint256& hash = peer->m_wtxid_relay ? txinfo.tx->GetWitnessHash() : txinfo.tx->GetHash();
@@ -4816,7 +4816,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                     for (std::set<uint256>::iterator it = peer->m_tx_relay->m_tx_inventory_to_send.begin(); it != peer->m_tx_relay->m_tx_inventory_to_send.end(); it++) {
                         vInvTx.push_back(it);
                     }
-                    const CFeeRate filterrate{peer->m_tx_relay->m_fee_filter_theirs.load()};
+                    const CFeeRate filterrate{peer->m_tx_relay->m_fee_filter_theirs};
                     // Topologically and fee-rate sort the inventory we send for privacy and priority reasons.
                     // A heap is used so that not all items need sorting if only a few are being sent.
                     CompareInvMempoolOrder compareInvMempoolOrder(&m_mempool, peer->m_wtxid_relay);
