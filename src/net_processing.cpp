@@ -246,13 +246,12 @@ struct Peer {
         bool m_relay_txs{false};
         std::unique_ptr<CBloomFilter> m_bloom_filter{nullptr};
 
-        mutable RecursiveMutex m_tx_inventory_mutex;
-        CRollingBloomFilter m_tx_inventory_known_filter GUARDED_BY(m_tx_inventory_mutex){50000, 0.000001};
+        CRollingBloomFilter m_tx_inventory_known_filter{50000, 0.000001};
         // Set of transaction ids we still have to announce.
         // They are sorted by the mempool before relay, so the order is not important.
         std::set<uint256> m_tx_inventory_to_send;
         // Used for BIP35 mempool sending
-        bool m_send_mempool GUARDED_BY(m_tx_inventory_mutex){false};
+        bool m_send_mempool{false};
         // Last time a "MEMPOOL" request was serviced.
         std::atomic<std::chrono::seconds> m_last_mempool_req{std::chrono::seconds{0}};
         std::chrono::microseconds m_next_inv_send_time{0};
@@ -720,7 +719,6 @@ static void AddKnownTx(Peer& peer, const uint256& hash)
 {
     LOCK(peer.m_tx_relay_mutex);
     if (peer.m_tx_relay != nullptr) {
-        LOCK(peer.m_tx_relay->m_tx_inventory_mutex);
         peer.m_tx_relay->m_tx_inventory_known_filter.insert(hash);
     }
 }
@@ -1760,7 +1758,6 @@ void PeerManagerImpl::RelayTransaction(const uint256& txid, const uint256& wtxid
         LOCK(peer.m_tx_relay_mutex);
         if (peer.m_tx_relay == nullptr) return;
         const uint256& hash = peer.m_wtxid_relay ? wtxid : txid;
-        LOCK(peer.m_tx_relay->m_tx_inventory_mutex);
         if (!peer.m_tx_relay->m_tx_inventory_known_filter.contains(hash)) {
             peer.m_tx_relay->m_tx_inventory_to_send.insert(hash);
         }
@@ -2064,7 +2061,7 @@ void static ProcessGetData(CNode& pfrom, Peer& peer, const CChainParams& chainpa
             }
             for (const uint256& parent_txid : parent_ids_to_add) {
                 // Relaying a transaction with a recent but unconfirmed parent.
-                if (WITH_LOCK(peer.m_tx_relay->m_tx_inventory_mutex, return !peer.m_tx_relay->m_tx_inventory_known_filter.contains(parent_txid))) {
+                if (!peer.m_tx_relay->m_tx_inventory_known_filter.contains(parent_txid)) {
                     LOCK(cs_main);
                     State(pfrom.GetId())->m_recently_announced_invs.insert(parent_txid);
                 }
@@ -3924,7 +3921,6 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
         LOCK(peer->m_tx_relay_mutex);
         if (peer->m_tx_relay != nullptr) {
-            LOCK(peer->m_tx_relay->m_tx_inventory_mutex);
             peer->m_tx_relay->m_send_mempool = true;
         }
         return;
@@ -4767,7 +4763,6 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
 
             LOCK(peer->m_tx_relay_mutex);
             if (peer->m_tx_relay != nullptr) {
-                LOCK(peer->m_tx_relay->m_tx_inventory_mutex);
                 // Check whether periodic sends should happen
                 bool fSendTrickle = pto->HasPermission(PF_NOBAN);
                 if (peer->m_tx_relay->m_next_inv_send_time < current_time) {
