@@ -284,9 +284,7 @@ struct Peer {
     /** Work queue of items requested by this peer **/
     std::deque<CInv> m_getdata_requests GUARDED_BY(m_getdata_requests_mutex);
 
-    explicit Peer(NodeId id, bool blocks_only) : m_id(id),
-          m_addr_relay(blocks_only ? nullptr : std::make_unique<AddrRelay>())
-    {}
+    explicit Peer(NodeId id) : m_id(id) {}
 };
 
 using PeerRef = std::shared_ptr<Peer>;
@@ -1079,7 +1077,7 @@ void PeerManagerImpl::InitializeNode(CNode *pnode)
         mapNodeState.emplace_hint(mapNodeState.end(), std::piecewise_construct, std::forward_as_tuple(nodeid), std::forward_as_tuple(addr, pnode->IsInboundConn()));
         assert(m_txrequest.Count(nodeid) == 0);
     }
-    PeerRef peer = std::make_shared<Peer>(nodeid, pnode->IsBlockOnlyConn());
+    PeerRef peer = std::make_shared<Peer>(nodeid);
     {
         LOCK(m_peer_mutex);
         m_peer_map.emplace_hint(m_peer_map.end(), nodeid, peer);
@@ -2762,6 +2760,17 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             peer->m_tx_relay = std::make_unique<Peer::TxRelay>();
             peer->m_tx_relay->m_relay_txs = fRelay; // set to true after we get the first filter* message
             if (fRelay) pfrom.m_relays_txs = true;
+        }
+
+        // We disable addr relay with a peer if:
+        // - this is an outbound block-relay-only connection; or
+        // - fRelay=false and we're not offering NODE_BLOOM to this peer
+        //   (NODE_BLOOM means that the peer may be an SPV node and need addrs)
+        const bool disable_addr_relay = pfrom.IsBlockOnlyConn() || 
+                                        (!fRelay && !(pfrom.GetLocalServices() & NODE_BLOOM));
+        if (!disable_addr_relay) {
+            LOCK(peer->m_addr_relay_mutex);
+            peer->m_addr_relay = std::make_unique<Peer::AddrRelay>();
         }
 
         if((nServices & NODE_WITNESS))
