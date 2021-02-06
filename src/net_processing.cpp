@@ -264,9 +264,11 @@ struct Peer {
         int64_t m_fee_filter_next_send{0};
     };
 
+    /** Protects m_tx_relay and all data members **/
+    mutable Mutex m_tx_relay_mutex;
     /** Transaction relay data. Will be a nullptr if we're not relaying
      *  transactions with this peer (e.g. if it's a block-relay-only peer) */
-    std::unique_ptr<TxRelay> m_tx_relay;
+    std::unique_ptr<TxRelay> m_tx_relay GUARDED_BY(m_tx_relay_mutex);
 
     /** Set of txids to reconsider once their parent transactions have been accepted **/
     std::set<uint256> m_orphan_work_set GUARDED_BY(g_cs_orphans);
@@ -717,6 +719,7 @@ static void PushAddress(Peer& peer, const CAddress& addr, FastRandomContext &ins
 
 static void AddKnownTx(Peer& peer, const uint256& hash)
 {
+    LOCK(peer.m_tx_relay_mutex);
     if (peer.m_tx_relay != nullptr) {
         LOCK(peer.m_tx_relay->m_tx_inventory_mutex);
         peer.m_tx_relay->m_tx_inventory_known_filter.insert(hash);
@@ -1003,7 +1006,8 @@ void PeerManagerImpl::PushNodeVersion(CNode& pnode, Peer& peer, int64_t nTime)
                            CAddress(CService(), addr.nServices);
     CAddress addrMe = CAddress(CService(), nLocalNodeServices);
 
-    const bool tx_relay = !m_ignore_incoming_txs && peer.m_tx_relay != nullptr;
+    const bool tx_relay = !m_ignore_incoming_txs &&
+                          WITH_LOCK(peer.m_tx_relay_mutex, return peer.m_tx_relay != nullptr);
     m_connman.PushMessage(&pnode, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::VERSION, PROTOCOL_VERSION, (uint64_t)nLocalNodeServices, nTime, addrYou, addrMe,
             nonce, strSubVersion, nNodeStartingHeight, tx_relay));
 
@@ -1194,6 +1198,7 @@ bool PeerManagerImpl::GetNodeStateStats(NodeId nodeid, CNodeStateStats &stats)
         ping_wait = GetTime<std::chrono::microseconds>() - peer->m_ping_start.load();
     }
 
+    LOCK(peer->m_tx_relay_mutex);
     if (peer->m_tx_relay != nullptr) {
         stats.m_relay_txs = WITH_LOCK(peer->m_tx_relay->m_bloom_filter_mutex, return peer->m_tx_relay->m_relay_txs);
         stats.m_fee_filter_theirs = peer->m_tx_relay->m_fee_filter_theirs.load();
@@ -1753,6 +1758,7 @@ void PeerManagerImpl::RelayTransaction(const uint256& txid, const uint256& wtxid
     LOCK(m_peer_mutex);
     for(auto& it : m_peer_map) {
         Peer& peer = *it.second;
+        LOCK(peer.m_tx_relay_mutex);
         if (peer.m_tx_relay == nullptr) return;
         const uint256& hash = peer.m_wtxid_relay ? wtxid : txid;
         LOCK(peer.m_tx_relay->m_tx_inventory_mutex);
@@ -1915,11 +1921,14 @@ void static ProcessGetBlockData(CNode& pfrom, Peer& peer, const CChainParams& ch
             } else if (inv.IsMsgFilteredBlk()) {
                 bool sendMerkleBlock = false;
                 CMerkleBlock merkleBlock;
-                if (peer.m_tx_relay != nullptr) {
-                    LOCK(peer.m_tx_relay->m_bloom_filter_mutex);
-                    if (peer.m_tx_relay->m_bloom_filter) {
-                        sendMerkleBlock = true;
-                        merkleBlock = CMerkleBlock(*pblock, *peer.m_tx_relay->m_bloom_filter);
+                {
+                    LOCK(peer.m_tx_relay_mutex);
+                    if (peer.m_tx_relay != nullptr) {
+                        LOCK(peer.m_tx_relay->m_bloom_filter_mutex);
+                        if (peer.m_tx_relay->m_bloom_filter) {
+                            sendMerkleBlock = true;
+                            merkleBlock = CMerkleBlock(*pblock, *peer.m_tx_relay->m_bloom_filter);
+                        }
                     }
                 }
                 if (sendMerkleBlock) {
@@ -2010,8 +2019,12 @@ void static ProcessGetData(CNode& pfrom, Peer& peer, const CChainParams& chainpa
 
     const std::chrono::seconds now = GetTime<std::chrono::seconds>();
     // Get last mempool request time
-    const std::chrono::seconds mempool_req = peer.m_tx_relay != nullptr ? peer.m_tx_relay->m_last_mempool_req.load()
-                                                                          : std::chrono::seconds::min();
+    std::chrono::seconds mempool_req;
+    {
+        LOCK(peer.m_tx_relay_mutex);
+        mempool_req = peer.m_tx_relay != nullptr ? peer.m_tx_relay->m_last_mempool_req.load()
+                                                 : std::chrono::seconds::min();
+    }
 
     // Process as many TX items from the front of the getdata queue as
     // possible, since they're common and it's efficient to batch process
@@ -2024,6 +2037,7 @@ void static ProcessGetData(CNode& pfrom, Peer& peer, const CChainParams& chainpa
 
         const CInv &inv = *it++;
 
+        LOCK(peer.m_tx_relay_mutex);
         if (peer.m_tx_relay == nullptr) {
             // Ignore GETDATA requests for transactions from blocks-only peers.
             continue;
@@ -2720,6 +2734,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         // set nodes not capable of serving the complete blockchain history as "limited nodes"
         pfrom.m_limited_node = (!(nServices & NODE_NETWORK) && (nServices & NODE_NETWORK_LIMITED));
 
+        LOCK(peer->m_tx_relay_mutex);
         if (peer->m_tx_relay != nullptr) {
             LOCK(peer->m_tx_relay->m_bloom_filter_mutex);
             peer->m_tx_relay->m_relay_txs = fRelay; // set to true after we get the first filter* message
@@ -3006,7 +3021,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
         // We won't accept tx inv's if we're in blocks-only mode, or this is a
         // block-relay-only peer
-        bool fBlocksOnly = m_ignore_incoming_txs || (peer->m_tx_relay == nullptr);
+        bool fBlocksOnly = m_ignore_incoming_txs || WITH_LOCK(peer->m_tx_relay_mutex, return peer->m_tx_relay == nullptr);
 
         // Allow peers with relay permission to send data other than blocks in blocks only mode
         if (pfrom.HasPermission(PF_RELAY)) {
@@ -3282,8 +3297,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         // Stop processing the transaction early if
         // 1) We are in blocks only mode and peer has no relay permission
         // 2) This peer is a block-relay-only peer
-        if ((m_ignore_incoming_txs && !pfrom.HasPermission(PF_RELAY)) || (peer->m_tx_relay == nullptr))
-        {
+        if ((m_ignore_incoming_txs && !pfrom.HasPermission(PF_RELAY)) || WITH_LOCK(peer->m_tx_relay_mutex, return peer->m_tx_relay == nullptr)) {
             LogPrint(BCLog::NET, "transaction sent in violation of protocol peer=%d\n", pfrom.GetId());
             pfrom.fDisconnect = true;
             return;
@@ -3911,6 +3925,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             return;
         }
 
+        LOCK(peer->m_tx_relay_mutex);
         if (peer->m_tx_relay != nullptr) {
             LOCK(peer->m_tx_relay->m_tx_inventory_mutex);
             peer->m_tx_relay->m_send_mempool = true;
@@ -4006,9 +4021,11 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         {
             // There is no excuse for sending a too-large filter
             Misbehaving(pfrom.GetId(), 100, "too-large bloom filter");
+            return;
         }
-        else if (peer->m_tx_relay != nullptr)
-        {
+
+        LOCK(peer->m_tx_relay_mutex);
+        if (peer->m_tx_relay != nullptr) {
             LOCK(peer->m_tx_relay->m_bloom_filter_mutex);
             peer->m_tx_relay->m_bloom_filter.reset(new CBloomFilter(filter));
             peer->m_tx_relay->m_relay_txs = true;
@@ -4028,19 +4045,20 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
         // Nodes must NEVER send a data item > 520 bytes (the max size for a script data object,
         // and thus, the maximum size any matched object can have) in a filteradd message
-        bool bad = false;
         if (vData.size() > MAX_SCRIPT_ELEMENT_SIZE) {
-            bad = true;
-        } else if (peer->m_tx_relay != nullptr) {
+            Misbehaving(pfrom.GetId(), 100, "bad filteradd message");
+            return;
+        }
+        
+        LOCK(peer->m_tx_relay_mutex);
+        if (peer->m_tx_relay != nullptr) {
             LOCK(peer->m_tx_relay->m_bloom_filter_mutex);
             if (peer->m_tx_relay->m_bloom_filter) {
                 peer->m_tx_relay->m_bloom_filter->insert(vData);
             } else {
-                bad = true;
+                Misbehaving(pfrom.GetId(), 100, "bad filteradd message");
+                return;
             }
-        }
-        if (bad) {
-            Misbehaving(pfrom.GetId(), 100, "bad filteradd message");
         }
         return;
     }
@@ -4051,6 +4069,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             pfrom.fDisconnect = true;
             return;
         }
+        LOCK(peer->m_tx_relay_mutex);
         if (peer->m_tx_relay == nullptr) {
             return;
         }
@@ -4064,6 +4083,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
     if (msg_type == NetMsgType::FEEFILTER) {
         CAmount newFeeFilter = 0;
         vRecv >> newFeeFilter;
+        LOCK(peer->m_tx_relay_mutex);
         if (MoneyRange(newFeeFilter)) {
             if (peer->m_tx_relay != nullptr) {
                 peer->m_tx_relay->m_fee_filter_theirs = newFeeFilter;
@@ -4751,6 +4771,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
             }
             peer->m_blocks_for_inv_relay.clear();
 
+            LOCK(peer->m_tx_relay_mutex);
             if (peer->m_tx_relay != nullptr) {
                 LOCK(peer->m_tx_relay->m_tx_inventory_mutex);
                 // Check whether periodic sends should happen
@@ -5002,6 +5023,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
         //
         // Message: feefilter
         //
+        LOCK(peer->m_tx_relay_mutex);
         if (peer->m_tx_relay != nullptr && pto->GetCommonVersion() >= FEEFILTER_VERSION && gArgs.GetBoolArg("-feefilter", DEFAULT_FEEFILTER) &&
             !pto->HasPermission(PF_FORCERELAY) // peers with the forcerelay permission should not filter txs to us
         ) {
