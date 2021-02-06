@@ -239,13 +239,12 @@ struct Peer {
     bool m_wtxid_relay{false};
 
     struct TxRelay {
-        mutable RecursiveMutex m_bloom_filter_mutex;
         // We use m_relay_txs for two purposes -
         // a) it allows us to not relay tx invs before receiving the peer's version message
         // b) the peer may tell us in its version message that we should not relay tx invs
         //    unless it loads a bloom filter.
-        bool m_relay_txs GUARDED_BY(m_bloom_filter_mutex){false};
-        std::unique_ptr<CBloomFilter> m_bloom_filter PT_GUARDED_BY(m_bloom_filter_mutex) GUARDED_BY(m_bloom_filter_mutex){nullptr};
+        bool m_relay_txs{false};
+        std::unique_ptr<CBloomFilter> m_bloom_filter{nullptr};
 
         mutable RecursiveMutex m_tx_inventory_mutex;
         CRollingBloomFilter m_tx_inventory_known_filter GUARDED_BY(m_tx_inventory_mutex){50000, 0.000001};
@@ -1200,7 +1199,7 @@ bool PeerManagerImpl::GetNodeStateStats(NodeId nodeid, CNodeStateStats &stats)
 
     LOCK(peer->m_tx_relay_mutex);
     if (peer->m_tx_relay != nullptr) {
-        stats.m_relay_txs = WITH_LOCK(peer->m_tx_relay->m_bloom_filter_mutex, return peer->m_tx_relay->m_relay_txs);
+        stats.m_relay_txs = peer->m_tx_relay->m_relay_txs;
         stats.m_fee_filter_theirs = peer->m_tx_relay->m_fee_filter_theirs.load();
     } else {
         stats.m_relay_txs = false;
@@ -1924,7 +1923,6 @@ void static ProcessGetBlockData(CNode& pfrom, Peer& peer, const CChainParams& ch
                 {
                     LOCK(peer.m_tx_relay_mutex);
                     if (peer.m_tx_relay != nullptr) {
-                        LOCK(peer.m_tx_relay->m_bloom_filter_mutex);
                         if (peer.m_tx_relay->m_bloom_filter) {
                             sendMerkleBlock = true;
                             merkleBlock = CMerkleBlock(*pblock, *peer.m_tx_relay->m_bloom_filter);
@@ -2736,7 +2734,6 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
         LOCK(peer->m_tx_relay_mutex);
         if (peer->m_tx_relay != nullptr) {
-            LOCK(peer->m_tx_relay->m_bloom_filter_mutex);
             peer->m_tx_relay->m_relay_txs = fRelay; // set to true after we get the first filter* message
             if (fRelay) pfrom.m_relays_txs = true;
         }
@@ -4026,7 +4023,6 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
 
         LOCK(peer->m_tx_relay_mutex);
         if (peer->m_tx_relay != nullptr) {
-            LOCK(peer->m_tx_relay->m_bloom_filter_mutex);
             peer->m_tx_relay->m_bloom_filter.reset(new CBloomFilter(filter));
             peer->m_tx_relay->m_relay_txs = true;
             pfrom.m_relays_txs = true;
@@ -4052,7 +4048,6 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         
         LOCK(peer->m_tx_relay_mutex);
         if (peer->m_tx_relay != nullptr) {
-            LOCK(peer->m_tx_relay->m_bloom_filter_mutex);
             if (peer->m_tx_relay->m_bloom_filter) {
                 peer->m_tx_relay->m_bloom_filter->insert(vData);
             } else {
@@ -4073,7 +4068,6 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         if (peer->m_tx_relay == nullptr) {
             return;
         }
-        LOCK(peer->m_tx_relay->m_bloom_filter_mutex);
         peer->m_tx_relay->m_bloom_filter = nullptr;
         peer->m_tx_relay->m_relay_txs = true;
         pfrom.m_relays_txs = true;
@@ -4788,7 +4782,6 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
 
                 // Time to send but the peer has requested we not relay transactions.
                 if (fSendTrickle) {
-                    LOCK(peer->m_tx_relay->m_bloom_filter_mutex);
                     if (!peer->m_tx_relay->m_relay_txs) peer->m_tx_relay->m_tx_inventory_to_send.clear();
                 }
 
@@ -4797,8 +4790,6 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                     auto vtxinfo = m_mempool.infoAll();
                     peer->m_tx_relay->m_send_mempool = false;
                     const CFeeRate filterrate{peer->m_tx_relay->m_fee_filter_theirs.load()};
-
-                    LOCK(peer->m_tx_relay->m_bloom_filter_mutex);
 
                     for (const auto& txinfo : vtxinfo) {
                         const uint256& hash = peer->m_wtxid_relay ? txinfo.tx->GetWitnessHash() : txinfo.tx->GetHash();
@@ -4838,7 +4829,6 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                     // No reason to drain out at many times the network's capacity,
                     // especially since we have many peers and some will draw much shorter delays.
                     unsigned int nRelayedTransactions = 0;
-                    LOCK(peer->m_tx_relay->m_bloom_filter_mutex);
                     while (!vInvTx.empty() && nRelayedTransactions < INVENTORY_BROADCAST_MAX) {
                         // Fetch the top element from the heap
                         std::pop_heap(vInvTx.begin(), vInvTx.end(), compareInvMempoolOrder);
