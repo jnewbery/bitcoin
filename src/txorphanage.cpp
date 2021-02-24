@@ -164,13 +164,25 @@ bool TxOrphanage::HaveTx(const GenTxid& gtxid) const
     }
 }
 
-std::pair<CTransactionRef, NodeId> TxOrphanage::GetTx(const uint256& txid) const
+bool TxOrphanage::GetTxToReconsider(NodeId peer, CTransactionRef& ref, NodeId& originator, bool& more)
 {
     AssertLockHeld(g_cs_orphans);
 
-    const auto it = m_orphans.find(txid);
-    if (it == m_orphans.end()) return {nullptr, -1};
-    return {it->second.tx, it->second.fromPeer};
+    auto work_it = m_peer_work_set.lower_bound(peer);
+    while (work_it != m_peer_work_set.end() && work_it->first == peer) {
+        uint256 txid = work_it->second;
+        work_it = m_peer_work_set.erase(work_it);
+
+        const auto orphan_it = m_orphans.find(txid);
+        if (orphan_it != m_orphans.end()) {
+            more = (work_it != m_peer_work_set.end() && work_it->first == peer);
+            ref = orphan_it->second.tx;
+            originator = orphan_it->second.fromPeer;
+            return true;
+        }
+    }
+    more = false;
+    return false;
 }
 
 void TxOrphanage::EraseForBlock(const CBlock& block)
