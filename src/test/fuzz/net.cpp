@@ -76,6 +76,7 @@ FUZZ_TARGET_INIT(net, initialize_net)
                     return;
                 }
                 FastRandomContext fast_random_context{ConsumeUInt256(fuzzed_data_provider)};
+                LOCK(node.m_addr_mutex);
                 node.PushAddress(*addr_opt, fast_random_context);
             },
             [&] {

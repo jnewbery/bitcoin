@@ -444,11 +444,6 @@ public:
     }
     bool fClient{false}; // set by version message
     bool m_limited_node{false}; //after BIP159, set by version message
-    /**
-     * Whether the peer has signaled support for receiving ADDRv2 (BIP155)
-     * messages, implying a preference to receive ADDRv2 instead of ADDR ones.
-     */
-    std::atomic_bool m_wants_addrv2{false};
     /** fSuccessfullyConnected is set to true on receiving VERACK from the peer. */
     std::atomic_bool fSuccessfullyConnected{false};
     // Setting fDisconnect to true will cause the node to be disconnected the
@@ -542,12 +537,25 @@ public:
     // Peer selected us as (compact blocks) high-bandwidth peer (BIP152)
     std::atomic<bool> m_bip152_highbandwidth_from{false};
 
-    // flood relay
-    std::vector<CAddress> vAddrToSend;
-    std::unique_ptr<CRollingBloomFilter> m_addr_known{nullptr};
-    bool fGetAddr{false};
-    std::chrono::microseconds m_next_addr_send GUARDED_BY(cs_sendProcessing){0};
-    std::chrono::microseconds m_next_local_addr_send GUARDED_BY(cs_sendProcessing){0};
+    /** Protects addr gossip data */
+    Mutex m_addr_mutex;
+
+    /** Addresses to send to this peer. */
+    std::vector<CAddress> vAddrToSend GUARDED_BY(m_addr_mutex);
+    /** Addresses that this peer already knows about. This gets reset once
+     *  every 24 hours (on average). */
+    std::unique_ptr<CRollingBloomFilter> m_addr_known GUARDED_BY(m_addr_mutex){nullptr};
+    /** Whether there is an outstanding getaddr request to this peer. */
+    bool fGetAddr GUARDED_BY(m_addr_mutex){false};
+    /** Time after which to potentially send the next addr message to this peer. */
+    std::chrono::microseconds m_next_addr_send GUARDED_BY(m_addr_mutex){0};
+    /** Time after which to readvertise our address to this peer. */
+    std::chrono::microseconds m_next_local_addr_send GUARDED_BY(m_addr_mutex){0};
+    /**
+     * Whether the peer has signaled support for receiving ADDRv2 (BIP155)
+     * messages, implying a preference to receive ADDRv2 instead of ADDR ones.
+     */
+    bool m_wants_addrv2 GUARDED_BY(m_addr_mutex){false};
 
     struct TxRelay {
         mutable RecursiveMutex cs_filter;
@@ -653,7 +661,7 @@ public:
         nRefCount--;
     }
 
-    void AddAddressKnown(const CAddress& _addr)
+    void AddAddressKnown(const CAddress& _addr) EXCLUSIVE_LOCKS_REQUIRED(m_addr_mutex)
     {
         assert(m_addr_known);
         m_addr_known->insert(_addr.GetKey());
@@ -664,12 +672,12 @@ public:
      * implement BIP155 cannot receive Tor v3 addresses because it requires
      * ADDRv2 (BIP155) encoding.
      */
-    bool IsAddrCompatible(const CAddress& addr) const
+    bool IsAddrCompatible(const CAddress& addr) const EXCLUSIVE_LOCKS_REQUIRED(m_addr_mutex)
     {
         return m_wants_addrv2 || addr.IsAddrV1Compatible();
     }
 
-    void PushAddress(const CAddress& _addr, FastRandomContext &insecure_rand)
+    void PushAddress(const CAddress& _addr, FastRandomContext &insecure_rand) EXCLUSIVE_LOCKS_REQUIRED(m_addr_mutex)
     {
         // Known checking here is only to save space from duplicates.
         // SendMessages will filter it again for knowns that were added

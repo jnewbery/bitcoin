@@ -1721,6 +1721,7 @@ static void RelayAddress(const CNode& originator,
 
     auto pushfunc = [&addr, &best, nRelayNodes, &insecure_rand] {
         for (unsigned int i = 0; i < nRelayNodes && best[i].first != 0; i++) {
+            LOCK(best[i].second->m_addr_mutex);
             best[i].second->PushAddress(addr, insecure_rand);
         }
     };
@@ -2662,8 +2663,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             //
             // We skip this for block-relay-only peers to avoid potentially leaking
             // information about our block-relay-only connections via address relay.
-            if (fListen && !::ChainstateActive().IsInitialBlockDownload())
-            {
+            LOCK(pfrom.m_addr_mutex);
+            if (fListen && !::ChainstateActive().IsInitialBlockDownload()) {
                 CAddress addr = GetLocalAddress(&pfrom.addr, pfrom.GetLocalServices());
                 FastRandomContext insecure_rand;
                 if (addr.IsRoutable())
@@ -2838,7 +2839,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             pfrom.fDisconnect = true;
             return;
         }
-        pfrom.m_wants_addrv2 = true;
+        WITH_LOCK(pfrom.m_addr_mutex, pfrom.m_wants_addrv2 = true);
         return;
     }
 
@@ -2869,6 +2870,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             Misbehaving(pfrom.GetId(), 20, strprintf("%s message size = %u", msg_type, vAddr.size()));
             return;
         }
+
+        LOCK(pfrom.m_addr_mutex);
 
         // Store the new addresses
         std::vector<CAddress> vAddrOk;
@@ -3787,6 +3790,8 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             return;
         }
 
+        LOCK(pfrom.m_addr_mutex);
+
         // Only send one GetAddr response per connection to reduce resource waste
         //  and discourage addr stamping of INV announcements.
         if (pfrom.fSentAddr) {
@@ -4414,67 +4419,71 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
 
         CNodeState &state = *State(pto->GetId());
 
-        // Address refresh broadcast
         auto current_time = GetTime<std::chrono::microseconds>();
 
-        if (fListen && pto->RelayAddrsWithConn() &&
-            !::ChainstateActive().IsInitialBlockDownload() &&
-            pto->m_next_local_addr_send < current_time) {
-            // If we've sent before, clear the bloom filter for the peer, so that our
-            // self-announcement will actually go out.
-            // This might be unnecessary if the bloom filter has already rolled
-            // over since our last self-announcement, but there is only a small
-            // bandwidth cost that we can incur by doing this (which happens
-            // once a day on average).
-            if (pto->m_next_local_addr_send != 0us) {
-                pto->m_addr_known->reset();
-            }
-            if (Optional<CAddress> local_addr = GetLocalAddrForPeer(pto)) {
-                FastRandomContext insecure_rand;
-                pto->PushAddress(*local_addr, insecure_rand);
-            }
-            pto->m_next_local_addr_send = PoissonNextSend(current_time, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
-        }
+        {
+            // Address refresh broadcast
+            LOCK(pto->m_addr_mutex);
 
-        //
-        // Message: addr
-        //
-        if (pto->RelayAddrsWithConn() && pto->m_next_addr_send < current_time) {
-            pto->m_next_addr_send = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
-            std::vector<CAddress> vAddr;
-            vAddr.reserve(pto->vAddrToSend.size());
-            assert(pto->m_addr_known);
-
-            const char* msg_type;
-            int make_flags;
-            if (pto->m_wants_addrv2) {
-                msg_type = NetMsgType::ADDRV2;
-                make_flags = ADDRV2_FORMAT;
-            } else {
-                msg_type = NetMsgType::ADDR;
-                make_flags = 0;
+            if (fListen && pto->RelayAddrsWithConn() &&
+                !::ChainstateActive().IsInitialBlockDownload() &&
+                pto->m_next_local_addr_send < current_time) {
+                // If we've sent before, clear the bloom filter for the peer, so that our
+                // self-announcement will actually go out.
+                // This might be unnecessary if the bloom filter has already rolled
+                // over since our last self-announcement, but there is only a small
+                // bandwidth cost that we can incur by doing this (which happens
+                // once a day on average).
+                if (pto->m_next_local_addr_send != 0us) {
+                    pto->m_addr_known->reset();
+                }
+                if (Optional<CAddress> local_addr = GetLocalAddrForPeer(pto)) {
+                    FastRandomContext insecure_rand;
+                    pto->PushAddress(*local_addr, insecure_rand);
+                }
+                pto->m_next_local_addr_send = PoissonNextSend(current_time, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
             }
 
-            for (const CAddress& addr : pto->vAddrToSend)
-            {
-                if (!pto->m_addr_known->contains(addr.GetKey()))
+            //
+            // Message: addr
+            //
+            if (pto->RelayAddrsWithConn() && pto->m_next_addr_send < current_time) {
+                pto->m_next_addr_send = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
+                std::vector<CAddress> vAddr;
+                vAddr.reserve(pto->vAddrToSend.size());
+                assert(pto->m_addr_known);
+
+                const char* msg_type;
+                int make_flags;
+                if (pto->m_wants_addrv2) {
+                    msg_type = NetMsgType::ADDRV2;
+                    make_flags = ADDRV2_FORMAT;
+                } else {
+                    msg_type = NetMsgType::ADDR;
+                    make_flags = 0;
+                }
+
+                for (const CAddress& addr : pto->vAddrToSend)
                 {
-                    pto->m_addr_known->insert(addr.GetKey());
-                    vAddr.push_back(addr);
-                    // receiver rejects addr messages larger than MAX_ADDR_TO_SEND
-                    if (vAddr.size() >= MAX_ADDR_TO_SEND)
+                    if (!pto->m_addr_known->contains(addr.GetKey()))
                     {
-                        m_connman.PushMessage(pto, msgMaker.Make(make_flags, msg_type, vAddr));
-                        vAddr.clear();
+                        pto->m_addr_known->insert(addr.GetKey());
+                        vAddr.push_back(addr);
+                        // receiver rejects addr messages larger than MAX_ADDR_TO_SEND
+                        if (vAddr.size() >= MAX_ADDR_TO_SEND)
+                        {
+                            m_connman.PushMessage(pto, msgMaker.Make(make_flags, msg_type, vAddr));
+                            vAddr.clear();
+                        }
                     }
                 }
+                pto->vAddrToSend.clear();
+                if (!vAddr.empty())
+                    m_connman.PushMessage(pto, msgMaker.Make(make_flags, msg_type, vAddr));
+                // we only send the big addr message once
+                if (pto->vAddrToSend.capacity() > 40)
+                    pto->vAddrToSend.shrink_to_fit();
             }
-            pto->vAddrToSend.clear();
-            if (!vAddr.empty())
-                m_connman.PushMessage(pto, msgMaker.Make(make_flags, msg_type, vAddr));
-            // we only send the big addr message once
-            if (pto->vAddrToSend.capacity() > 40)
-                pto->vAddrToSend.shrink_to_fit();
         }
 
         // Start block sync
