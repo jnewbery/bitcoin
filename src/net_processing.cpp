@@ -317,7 +317,7 @@ private:
      *                                  reconsidered.
      * @return                          True if there are still orphans in this peer's work set
      */
-    bool ProcessOrphanTx(Peer& peer) EXCLUSIVE_LOCKS_REQUIRED(cs_main, g_cs_orphans, m_mutex_message_handling);
+    bool ProcessOrphanTx(Peer& peer) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_mutex_message_handling) LOCKS_EXCLUDED(g_cs_orphans);
 
     /** Process a single headers message from a peer. */
     void ProcessHeadersMessage(CNode& pfrom, const Peer& peer,
@@ -1069,7 +1069,7 @@ void PeerManagerImpl::FinalizeNode(const CNode& node)
     for (const QueuedBlock& entry : state->vBlocksInFlight) {
         mapBlocksInFlight.erase(entry.hash);
     }
-    WITH_LOCK(g_cs_orphans, m_orphanage.EraseForPeer(nodeid));
+    m_orphanage.EraseForPeer(nodeid);
     m_txrequest.DisconnectedPeer(nodeid);
     nPreferredDownload -= state->fPreferredDownload;
     nPeersWithValidatedDownloads -= (state->nBlocksInFlightValidHeaders != 0);
@@ -2085,7 +2085,6 @@ bool PeerManagerImpl::ProcessOrphanTx(Peer& peer)
 {
     AssertLockHeld(cs_main);
     AssertLockHeld(m_mutex_message_handling);
-    AssertLockHeld(g_cs_orphans);
 
     CTransactionRef porphanTx = nullptr;
     NodeId from_peer = -1;
@@ -3042,7 +3041,7 @@ void PeerManagerImpl::_ProcessMessage(CNode& pfrom, const std::string& msg_type,
         const uint256& txid = ptx->GetHash();
         const uint256& wtxid = ptx->GetWitnessHash();
 
-        LOCK2(cs_main, g_cs_orphans);
+        LOCK(cs_main);
 
         CNodeState* nodestate = State(pfrom.GetId());
 
@@ -3290,7 +3289,7 @@ void PeerManagerImpl::_ProcessMessage(CNode& pfrom, const std::string& msg_type,
         bool fBlockReconstructed = false;
 
         {
-        LOCK2(cs_main, g_cs_orphans);
+        LOCK(cs_main);
         // If AcceptBlockHeader returned true, it set pindex
         assert(pindex);
         UpdateBlockAvailability(pfrom.GetId(), pindex->GetBlockHash());
@@ -3887,7 +3886,7 @@ bool PeerManagerImpl::ProcessMessages(CNode* pfrom, std::atomic<bool>& interrupt
     }
 
     {
-        LOCK2(cs_main, g_cs_orphans);
+        LOCK(cs_main);
         if (ProcessOrphanTx(*peer)) return true;
     }
 
