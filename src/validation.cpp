@@ -1109,6 +1109,9 @@ static MempoolAcceptResult AcceptToMemoryPoolWithTime(const CChainParams& chainp
     // After we've (potentially) uncached entries, ensure our coins cache is still within its size limits
     BlockValidationState state_dummy;
     active_chainstate.FlushStateToDisk(chainparams, state_dummy, FlushStateMode::PERIODIC);
+
+    // Mempool consistency check
+    pool.check(&active_chainstate.CoinsTip());
     return result;
 }
 
@@ -2793,7 +2796,6 @@ bool CChainState::ActivateBestChainStep(BlockValidationState& state, const CChai
         // any disconnected transactions back to the mempool.
         UpdateMempoolForReorg(::ChainstateActive(), m_mempool, disconnectpool, true);
     }
-    m_mempool.check(&CoinsTip());
 
     CheckForkWarningConditions();
 
