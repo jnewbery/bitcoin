@@ -1532,15 +1532,16 @@ void PeerManagerImpl::BlockChecked(const CBlock& block, const BlockValidationSta
 {
     LOCK(cs_main);
 
-    const uint256 hash(block.GetHash());
-    std::map<uint256, std::pair<NodeId, bool>>::iterator it = mapBlockSource.find(hash);
+    const uint256 hash{block.GetHash()};
+
+    auto it = mapBlockSource.find(hash);
+    if (it == mapBlockSource.end()) return;
+    auto [id, not_via_compact_block] = it->second;
 
     // If the block failed validation, we know where it came from and we're still connected
     // to that peer, maybe punish.
-    if (state.IsInvalid() &&
-        it != mapBlockSource.end() &&
-        State(it->second.first)) {
-            MaybePunishNodeForBlock(/*nodeid=*/ it->second.first, state, /*via_compact_block=*/ !it->second.second);
+    if (state.IsInvalid() && State(id)) {
+        MaybePunishNodeForBlock(id, state, !not_via_compact_block);
     }
     // Check that:
     // 1. The block is valid
@@ -1551,12 +1552,10 @@ void PeerManagerImpl::BlockChecked(const CBlock& block, const BlockValidationSta
     else if (state.IsValid() &&
              !m_chainman.ActiveChainstate().IsInitialBlockDownload() &&
              mapBlocksInFlight.count(hash) == mapBlocksInFlight.size()) {
-        if (it != mapBlockSource.end()) {
-            MaybeSetPeerAsAnnouncingHeaderAndIDs(it->second.first);
-        }
+        MaybeSetPeerAsAnnouncingHeaderAndIDs(id);
     }
-    if (it != mapBlockSource.end())
-        mapBlockSource.erase(it);
+
+    mapBlockSource.erase(it);
 }
 
 //////////////////////////////////////////////////////////////////////////////
