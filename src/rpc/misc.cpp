@@ -111,13 +111,12 @@ static RPCHelpMan createmultisig()
     int required = request.params[0].get_int();
 
     // Get the public keys
-    const UniValue& keys = request.params[1].get_array();
     std::vector<CPubKey> pubkeys;
-    for (unsigned int i = 0; i < keys.size(); ++i) {
-        if (IsHex(keys[i].get_str()) && (keys[i].get_str().length() == 66 || keys[i].get_str().length() == 130)) {
-            pubkeys.push_back(HexToPubKey(keys[i].get_str()));
+    for (const auto& key : request.params[1].get_array()) {
+        if (IsHex(key.get_str()) && (key.get_str().length() == 66 || key.get_str().length() == 130)) {
+            pubkeys.push_back(HexToPubKey(key.get_str()));
         } else {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, strprintf("Invalid public key: %s\n.", keys[i].get_str()));
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, strprintf("Invalid public key: %s\n.", key.get_str()));
         }
     }
 

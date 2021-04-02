@@ -216,6 +216,38 @@ const UniValue& UniValue::operator[](size_t index) const
     return values.at(index);
 }
 
+std::vector<UniValue>::iterator UniValue::begin()
+{
+    if (typ != VARR)
+        throw std::runtime_error("begin() not defined for non-array types");
+
+    return values.begin();
+}
+
+std::vector<UniValue>::iterator UniValue::end()
+{
+    if (typ != VARR)
+        throw std::runtime_error("end() not defined for non-array types");
+
+    return values.end();
+}
+
+std::vector<UniValue>::const_iterator UniValue::begin() const
+{
+    if (typ != VARR)
+        throw std::runtime_error("begin() not defined for non-array types");
+
+    return values.begin();
+}
+
+std::vector<UniValue>::const_iterator UniValue::end() const
+{
+    if (typ != VARR)
+        throw std::runtime_error("end() not defined for non-array types");
+
+    return values.end();
+}
+
 const char *uvTypeName(UniValue::VType t)
 {
     switch (t) {

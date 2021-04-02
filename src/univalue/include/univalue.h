@@ -72,6 +72,10 @@ public:
     bool checkObject(const std::map<std::string,UniValue::VType>& memberTypes) const;
     const UniValue& operator[](const std::string& key) const;
     const UniValue& operator[](size_t index) const;
+    std::vector<UniValue>::iterator begin();  // Only defined for array type
+    std::vector<UniValue>::iterator end();  // Only defined for array type
+    std::vector<UniValue>::const_iterator begin() const;  // Only defined for array type
+    std::vector<UniValue>::const_iterator end() const;  // Only defined for array type
     bool exists(const std::string& key) const { size_t i; return findKey(key, i); }
 
     bool isNull() const { return (typ == VNULL); }
