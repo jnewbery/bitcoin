@@ -404,24 +404,12 @@ public:
 
     NetPermissionFlags m_permissionFlags{PF_NONE};
     std::atomic<ServiceFlags> nServices{NODE_NONE};
-    SOCKET hSocket GUARDED_BY(cs_hSocket);
-    /** Total size of all vSendMsg entries */
-    size_t nSendSize GUARDED_BY(cs_vSend){0};
-    /** Offset inside the first vSendMsg already sent */
-    size_t nSendOffset GUARDED_BY(cs_vSend){0};
-    uint64_t nSendBytes GUARDED_BY(cs_vSend){0};
-    std::deque<std::vector<unsigned char>> vSendMsg GUARDED_BY(cs_vSend);
-    Mutex cs_vSend;
-    Mutex cs_hSocket;
-    Mutex cs_vRecv;
 
     RecursiveMutex cs_vProcessMsg;
     std::list<CNetMessage> vProcessMsg GUARDED_BY(cs_vProcessMsg);
     size_t nProcessQueueSize{0};
 
     RecursiveMutex cs_sendProcessing;
-
-    uint64_t nRecvBytes GUARDED_BY(cs_vRecv){0};
 
     std::atomic<int64_t> nLastSend{0};
     std::atomic<int64_t> nLastRecv{0};
@@ -758,7 +746,29 @@ private:
     CService addrLocal GUARDED_BY(cs_addrLocal);
     mutable RecursiveMutex cs_addrLocal;
 
+    /** Protects all reads/writes on the socket. */
+    Mutex cs_hSocket;
+    /** Socket for this connection. */
+    SOCKET hSocket GUARDED_BY(cs_hSocket);
+
+    /** Protects send buffer and associated statistics. */
+    Mutex cs_vSend;
+    /** Send buffer */
+    std::deque<std::vector<unsigned char>> vSendMsg GUARDED_BY(cs_vSend);
+    /** Total size of all vSendMsg entries */
+    size_t nSendSize GUARDED_BY(cs_vSend){0};
+    /** Offset inside the first vSendMsg already sent */
+    size_t nSendOffset GUARDED_BY(cs_vSend){0};
+    /** Statistics - number of bytes sent over this connection. */
+    uint64_t nSendBytes GUARDED_BY(cs_vSend){0};
+    /** Statistics - number of bytes sent per message type over this connection. */
     mapMsgCmdSize mapSendBytesPerMsgCmd GUARDED_BY(cs_vSend);
+
+    /** Protects receive buffer statistics. */
+    Mutex cs_vRecv;
+    /** Statistics - number of bytes received over this conncetion. */
+    uint64_t nRecvBytes GUARDED_BY(cs_vRecv){0};
+    /** Statistics - number of bytes recieved per message type over this connection. */
     mapMsgCmdSize mapRecvBytesPerMsgCmd GUARDED_BY(cs_vRecv);
 };
 
