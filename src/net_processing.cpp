@@ -326,6 +326,10 @@ private:
     /** Send `addr` messages on a regular schedule. */
     void MaybeSendAddr(CNode& node, std::chrono::microseconds current_time);
 
+    /** 'Global' PeerManager mutex. Prevents concurrent calls on the NetEvents interface.
+     *  TODO: move net_processing data guarded by cs_main to this mutex. */
+    Mutex m_mutex;
+
     const CChainParams& m_chainparams;
     CConnman& m_connman;
     CAddrMan& m_addrman;
@@ -987,6 +991,7 @@ void UpdateLastBlockAnnounceTime(NodeId node, int64_t time_in_seconds)
 
 void PeerManagerImpl::InitializeNode(CNode *pnode)
 {
+    LOCK(m_mutex);
     NodeId nodeid = pnode->GetId();
     {
         LOCK(cs_main);
@@ -1026,6 +1031,7 @@ void PeerManagerImpl::ReattemptInitialBroadcast(CScheduler& scheduler)
 
 void PeerManagerImpl::FinalizeNode(const CNode& node)
 {
+    LOCK(m_mutex);
     NodeId nodeid = node.GetId();
     int misbehavior{0};
     {
@@ -3852,6 +3858,7 @@ bool PeerManagerImpl::MaybeDiscourageAndDisconnect(CNode& pnode, Peer& peer)
 
 bool PeerManagerImpl::ProcessMessages(CNode* pfrom, std::atomic<bool>& interruptMsgProc)
 {
+    LOCK(m_mutex);
     bool fMoreWork = false;
 
     PeerRef peer = GetPeerRef(pfrom->GetId());
@@ -4239,6 +4246,7 @@ public:
 
 bool PeerManagerImpl::SendMessages(CNode* pto)
 {
+    LOCK(m_mutex);
     PeerRef peer = GetPeerRef(pto->GetId());
     if (!peer) return false;
     const Consensus::Params& consensusParams = m_chainparams.GetConsensus();
