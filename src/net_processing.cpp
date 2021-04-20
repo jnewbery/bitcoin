@@ -311,7 +311,7 @@ private:
      */
     bool MaybeDiscourageAndDisconnect(CNode& pnode, Peer& peer);
 
-    void ProcessOrphanTx(std::set<uint256>& orphan_work_set) EXCLUSIVE_LOCKS_REQUIRED(cs_main, g_cs_orphans);
+    void ProcessOrphanTx(std::set<uint256>& orphan_work_set) EXCLUSIVE_LOCKS_REQUIRED(cs_main, g_cs_orphans, m_mutex_message_handling);
     /** Process a single headers message from a peer. */
     void ProcessHeadersMessage(CNode& pfrom, const Peer& peer,
                                const std::vector<CBlockHeader>& headers,
@@ -486,14 +486,14 @@ private:
     /** Storage for orphan information */
     TxOrphanage m_orphanage;
 
-    void AddToCompactExtraTransactions(const CTransactionRef& tx) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans);
+    void AddToCompactExtraTransactions(const CTransactionRef& tx) EXCLUSIVE_LOCKS_REQUIRED(m_mutex_message_handling);
 
     /** Orphan/conflicted/etc transactions that are kept for compact block reconstruction.
      *  The last -blockreconstructionextratxn/DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN of
      *  these are kept in a ring buffer */
-    std::vector<std::pair<uint256, CTransactionRef>> vExtraTxnForCompact GUARDED_BY(g_cs_orphans);
+    std::vector<std::pair<uint256, CTransactionRef>> vExtraTxnForCompact GUARDED_BY(m_mutex_message_handling);
     /** Offset into vExtraTxnForCompact to insert the next tx */
-    size_t vExtraTxnForCompactIt GUARDED_BY(g_cs_orphans) = 0;
+    size_t vExtraTxnForCompactIt GUARDED_BY(m_mutex_message_handling) = 0;
 
     /** Check whether the last unknown block a peer advertised is not yet known. */
     void ProcessBlockAvailability(NodeId nodeid) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
@@ -1149,6 +1149,8 @@ bool PeerManagerImpl::GetNodeStateStats(NodeId nodeid, CNodeStateStats& stats) c
 
 void PeerManagerImpl::AddToCompactExtraTransactions(const CTransactionRef& tx)
 {
+    AssertLockHeld(m_mutex_message_handling);
+
     size_t max_extra_txn = gArgs.GetArg("-blockreconstructionextratxn", DEFAULT_BLOCK_RECONSTRUCTION_EXTRA_TXN);
     if (max_extra_txn <= 0)
         return;
@@ -2083,6 +2085,7 @@ void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, const Peer& peer,
 void PeerManagerImpl::ProcessOrphanTx(std::set<uint256>& orphan_work_set)
 {
     AssertLockHeld(cs_main);
+    AssertLockHeld(m_mutex_message_handling);
     AssertLockHeld(g_cs_orphans);
 
     while (!orphan_work_set.empty()) {
@@ -2345,6 +2348,8 @@ void PeerManagerImpl::_ProcessMessage(CNode& pfrom, const std::string& msg_type,
                                      const std::chrono::microseconds time_received,
                                      const std::atomic<bool>& interruptMsgProc)
 {
+    AssertLockHeld(m_mutex_message_handling);
+
     LogPrint(BCLog::NET, "received: %s (%u bytes) peer=%d\n", SanitizeString(msg_type), vRecv.size(), pfrom.GetId());
 
     PeerRef peer = GetPeerRef(pfrom.GetId());
