@@ -35,6 +35,10 @@ extern RecursiveMutex cs_main;
 
 /** Fake height value used in Coin to signify they are only in the memory pool (since 0.8) */
 static const uint32_t MEMPOOL_HEIGHT = 0x7FFFFFFF;
+/** Default for -limitancestorcount, max number of in-mempool ancestors */
+static const uint32_t DEFAULT_ANCESTOR_LIMIT{25};
+/** Default for -limitancestorsize, maximum kilobytes of tx + all in-mempool ancestors */
+static const uint32_t DEFAULT_ANCESTOR_SIZE_LIMIT{101};
 
 struct LockPoints
 {
@@ -478,6 +482,12 @@ class CTxMemPool
 {
 private:
     const int m_check_ratio; //!< Value n means that 1 times in n we check.
+    /** A mempool transaction may have no more than this number of ancestors in
+     *  the mempool (including itself). */
+    const uint64_t m_ancestor_count_limit;
+    /** A mempool transaction's set of ancestors in the mempool (including
+     *  itself) may not exceed this total virtual size. */
+    const uint64_t m_ancestor_size_limit;
     std::atomic<unsigned int> nTransactionsUpdated{0}; //!< Used by getblocktemplate to trigger CreateNewBlock() invocation
     CBlockPolicyEstimator* minerPolicyEstimator;
 
@@ -597,7 +607,9 @@ public:
      * @param[in] estimator is used to estimate appropriate transaction fees.
      * @param[in] check_ratio is the ratio used to determine how often sanity checks will run.
      */
-    explicit CTxMemPool(CBlockPolicyEstimator* estimator = nullptr, int check_ratio = 0);
+    explicit CTxMemPool(CBlockPolicyEstimator* estimator = nullptr, int check_ratio = 0,
+                        uint32_t ancestor_count_limit = DEFAULT_ANCESTOR_LIMIT,
+                        uint32_t ancestor_size_limit = DEFAULT_ANCESTOR_SIZE_LIMIT * 1000);
 
     /**
      * If sanity-checking is turned on, check makes sure the pool is

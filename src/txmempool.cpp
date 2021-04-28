@@ -350,8 +350,10 @@ void CTxMemPoolEntry::UpdateAncestorState(int64_t modifySize, CAmount modifyFee,
     assert(int(nSigOpCostWithAncestors) >= 0);
 }
 
-CTxMemPool::CTxMemPool(CBlockPolicyEstimator* estimator, int check_ratio)
-    : m_check_ratio(check_ratio), minerPolicyEstimator(estimator)
+CTxMemPool::CTxMemPool(CBlockPolicyEstimator* estimator, int check_ratio,
+                       uint32_t ancestor_count_limit, uint32_t ancestor_size_limit)
+    : m_check_ratio(check_ratio), m_ancestor_count_limit{ancestor_count_limit}
+    , m_ancestor_size_limit{ancestor_size_limit}, minerPolicyEstimator(estimator)
 {
     _clear(); //lock free clear
 }

@@ -1414,7 +1414,9 @@ bool AppInitMain(const util::Ref& context, NodeContext& node, interfaces::BlockA
 
     assert(!node.mempool);
     int check_ratio = std::min<int>(std::max<int>(args.GetArg("-checkmempool", chainparams.DefaultConsistencyChecks() ? 1 : 0), 0), 1000000);
-    node.mempool = std::make_unique<CTxMemPool>(node.fee_estimator.get(), check_ratio);
+    const uint32_t ancestor_count_limit = gArgs.GetArg("-limitancestorcount", DEFAULT_ANCESTOR_LIMIT);
+    const uint32_t ancestor_size_limit = gArgs.GetArg("-limitancestorsize", DEFAULT_ANCESTOR_SIZE_LIMIT) * 1000;
+    node.mempool = std::make_unique<CTxMemPool>(node.fee_estimator.get(), check_ratio, ancestor_count_limit, ancestor_size_limit);
 
     assert(!node.chainman);
     node.chainman = &g_chainman;
