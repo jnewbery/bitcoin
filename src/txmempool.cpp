@@ -59,7 +59,7 @@ size_t CTxMemPoolEntry::GetTxSize() const
 // Assumes that CTxMemPool::m_children is correct for the given tx and all
 // descendants.
 void CTxMemPool::UpdateForDescendants(txiter updateIt, cacheMap &cachedDescendants, const std::set<uint256> &setExclude,
-        std::set<uint256> &set_should_remove, uint64_t ancestor_size_limit, uint64_t ancestor_limit)
+                                      std::set<uint256> &set_should_remove)
 {
     CTxMemPoolEntry::Children stageEntries, descendants;
     stageEntries = updateIt->GetMemPoolChildrenConst();
@@ -99,7 +99,7 @@ void CTxMemPool::UpdateForDescendants(txiter updateIt, cacheMap &cachedDescendan
             // don't directly remove the transaction here -- doing so would invalidate iterators in
             // cachedDescendants. Mark it for removal by inserting into set_should_remove here as an
             // optimization so we don't have to scan for its removal later.
-            if (descendant.GetCountWithAncestors() > ancestor_limit || descendant.GetSizeWithAncestors() > ancestor_size_limit) {
+            if (descendant.GetCountWithAncestors() > m_ancestor_count_limit || descendant.GetSizeWithAncestors() > m_ancestor_size_limit) {
                 set_should_remove.insert(descendant.GetTx().GetHash());
             }
         }
@@ -112,7 +112,7 @@ void CTxMemPool::UpdateForDescendants(txiter updateIt, cacheMap &cachedDescendan
 // for each entry, look for descendants that are outside vHashesToUpdate, and
 // add fee/size information for such descendants to the parent.
 // for each such descendant, also update the ancestor state to include the parent.
-void CTxMemPool::UpdateTransactionsFromBlock(const std::vector<uint256> &vHashesToUpdate, uint64_t ancestor_size_limit, uint64_t ancestor_limit)
+void CTxMemPool::UpdateTransactionsFromBlock(const std::vector<uint256> &vHashesToUpdate)
 {
     AssertLockHeld(cs);
     // For each entry in vHashesToUpdate, store the set of in-mempool, but not
@@ -155,7 +155,7 @@ void CTxMemPool::UpdateTransactionsFromBlock(const std::vector<uint256> &vHashes
                 }
             }
         } // release epoch guard for UpdateForDescendants
-        UpdateForDescendants(it, mapMemPoolDescendantsToUpdate, setAlreadyIncluded, set_should_remove, ancestor_size_limit, ancestor_limit);
+        UpdateForDescendants(it, mapMemPoolDescendantsToUpdate, setAlreadyIncluded, set_should_remove);
     }
 
     for (auto& txid : set_should_remove) {

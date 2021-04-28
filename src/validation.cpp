@@ -414,9 +414,7 @@ static void UpdateMempoolForReorg(CChainState& active_chainstate, CTxMemPool& me
     // previously-confirmed transactions back to the mempool.
     // UpdateTransactionsFromBlock finds descendants of any transactions in
     // the disconnectpool that were added back and cleans up the mempool state.
-    uint64_t ancestor_limit = gArgs.GetArg("-limitancestorcount", DEFAULT_ANCESTOR_LIMIT);
-    uint64_t ancestor_limit_size = gArgs.GetArg("-limitancestorsize", DEFAULT_ANCESTOR_SIZE_LIMIT) * 1000;
-    mempool.UpdateTransactionsFromBlock(vHashUpdate, ancestor_limit_size, ancestor_limit);
+    mempool.UpdateTransactionsFromBlock(vHashUpdate);
 
     // We also need to remove any now-immature transactions
     mempool.removeForReorg(active_chainstate, STANDARD_LOCKTIME_VERIFY_FLAGS);
