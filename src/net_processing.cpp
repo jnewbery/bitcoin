@@ -178,6 +178,10 @@ struct Peer {
     /** Same id as the CNode object for this peer */
     const NodeId m_id{0};
 
+    /** Reference to the global PeerManagerImpl mutex. Only used for lock
+     *  annotations. Don't lock the mutex through this handle.*/
+    Mutex& m_mutex_message_handling;
+
     /** Protects misbehavior data members */
     Mutex m_misbehavior_mutex;
     /** Accumulated misbehavior score for this peer */
@@ -216,7 +220,13 @@ struct Peer {
     /** Work queue of items requested by this peer **/
     std::deque<CInv> m_getdata_requests GUARDED_BY(m_getdata_requests_mutex);
 
-    explicit Peer(NodeId id) : m_id(id) {}
+    //! Whether we consider this a preferred download peer.
+    bool fPreferredDownload GUARDED_BY(m_mutex_message_handling) {false};
+
+    explicit Peer(NodeId id, Mutex& mutex_message_handling)
+        : m_id(id)
+        , m_mutex_message_handling{mutex_message_handling}
+    {}
 };
 
 using PeerRef = std::shared_ptr<Peer>;
@@ -329,8 +339,8 @@ private:
     /** Register with TxRequestTracker that an INV has been received from a
      *  peer. The announcement parameters are decided in PeerManager and then
      *  passed to TxRequestTracker. */
-    void AddTxAnnouncement(const CNode& node, const GenTxid& gtxid, std::chrono::microseconds current_time)
-        EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+    void AddTxAnnouncement(const CNode& node, const Peer& peer, const GenTxid& gtxid, std::chrono::microseconds current_time)
+        EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mutex_message_handling);
 
     /** Send a version message to a peer */
     void PushNodeVersion(CNode& pnode, int64_t nTime);
@@ -567,15 +577,11 @@ private:
      * @param[in]   vRecv           The raw message received
      */
     void ProcessGetCFCheckPt(CNode& peer, CDataStream& vRecv);
-};
-} // namespace
 
-namespace {
     /** Number of preferable block download peers. */
-    int nPreferredDownload GUARDED_BY(cs_main) = 0;
-} // namespace
+    int nPreferredDownload GUARDED_BY(m_mutex_message_handling) = 0;
+};
 
-namespace {
 /**
  * Maintain validation-specific state about nodes, protected by cs_main, instead
  * by CNode's own locks. This simplifies asynchronous operation, where
@@ -604,8 +610,6 @@ struct CNodeState {
     std::chrono::microseconds m_downloading_since{0us};
     int nBlocksInFlight{0};
     int nBlocksInFlightValidHeaders{0};
-    //! Whether we consider this a preferred download peer.
-    bool fPreferredDownload{false};
     //! Whether this peer wants invs or headers (when possible) for block announcements.
     bool fPreferHeaders{false};
     //! Whether this peer wants invs or cmpctblocks (when possible) for block announcements.
@@ -686,16 +690,6 @@ static CNodeState *State(NodeId pnode) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
     if (it == mapNodeState.end())
         return nullptr;
     return &it->second;
-}
-
-static void UpdatePreferredDownload(const CNode& node, CNodeState* state) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
-{
-    nPreferredDownload -= state->fPreferredDownload;
-
-    // Whether this node should be marked as a preferred download node.
-    state->fPreferredDownload = (!node.IsInboundConn() || node.HasPermission(PF_NOBAN)) && !node.IsAddrFetchConn() && !node.fClient;
-
-    nPreferredDownload += state->fPreferredDownload;
 }
 
 bool PeerManagerImpl::MarkBlockAsReceived(const uint256& hash)
@@ -969,15 +963,15 @@ void PeerManagerImpl::PushNodeVersion(CNode& pnode, int64_t nTime)
     }
 }
 
-void PeerManagerImpl::AddTxAnnouncement(const CNode& node, const GenTxid& gtxid, std::chrono::microseconds current_time)
+void PeerManagerImpl::AddTxAnnouncement(const CNode& node, const Peer& peer, const GenTxid& gtxid, std::chrono::microseconds current_time)
 {
     AssertLockHeld(::cs_main); // For m_txrequest
+    AssertLockHeld(m_mutex_message_handling);
     NodeId nodeid = node.GetId();
     if (!node.HasPermission(PF_RELAY) && m_txrequest.Count(nodeid) >= MAX_PEER_TX_ANNOUNCEMENTS) {
         // Too many queued announcements from this peer
         return;
     }
-    const CNodeState* state = State(nodeid);
 
     // Decide the TxRequestTracker parameters for this announcement:
     // - "preferred": if fPreferredDownload is set (= outbound, or PF_NOBAN permission)
@@ -987,7 +981,7 @@ void PeerManagerImpl::AddTxAnnouncement(const CNode& node, const GenTxid& gtxid,
     //   - OVERLOADED_PEER_TX_DELAY for announcements from peers which have at least
     //     MAX_PEER_TX_REQUEST_IN_FLIGHT requests in flight (and don't have PF_RELAY).
     auto delay = std::chrono::microseconds{0};
-    const bool preferred = state->fPreferredDownload;
+    const bool preferred = peer.fPreferredDownload;
     if (!preferred) delay += NONPREF_PEER_TX_DELAY;
     if (!gtxid.IsWtxid() && m_wtxid_relay_peers > 0) delay += TXID_RELAY_DELAY;
     const bool overloaded = !node.HasPermission(PF_RELAY) &&
@@ -1014,7 +1008,7 @@ void PeerManagerImpl::InitializeNode(CNode *pnode)
         assert(m_txrequest.Count(nodeid) == 0);
     }
     {
-        PeerRef peer = std::make_shared<Peer>(nodeid);
+        PeerRef peer = std::make_shared<Peer>(nodeid, m_mutex_message_handling);
         LOCK(m_peer_mutex);
         m_peer_map.emplace_hint(m_peer_map.end(), nodeid, std::move(peer));
     }
@@ -1046,6 +1040,8 @@ void PeerManagerImpl::ReattemptInitialBroadcast(CScheduler& scheduler)
 
 void PeerManagerImpl::FinalizeNode(const CNode& node)
 {
+    LOCK(m_mutex_message_handling);
+
     NodeId nodeid = node.GetId();
     int misbehavior{0};
     {
@@ -1059,6 +1055,7 @@ void PeerManagerImpl::FinalizeNode(const CNode& node)
         PeerRef peer = RemovePeer(nodeid);
         assert(peer != nullptr);
         misbehavior = WITH_LOCK(peer->m_misbehavior_mutex, return peer->m_misbehavior_score);
+        nPreferredDownload -= peer->fPreferredDownload;
     }
     CNodeState *state = State(nodeid);
     assert(state != nullptr);
@@ -1071,7 +1068,6 @@ void PeerManagerImpl::FinalizeNode(const CNode& node)
     }
     m_orphanage.EraseForPeer(nodeid);
     m_txrequest.DisconnectedPeer(nodeid);
-    nPreferredDownload -= state->fPreferredDownload;
     nPeersWithValidatedDownloads -= (state->nBlocksInFlightValidHeaders != 0);
     assert(nPeersWithValidatedDownloads >= 0);
     m_outbound_peers_with_protect_from_disconnect -= state->m_chain_sync.m_protect;
@@ -2474,10 +2470,8 @@ void PeerManagerImpl::_ProcessMessage(CNode& pfrom, const std::string& msg_type,
         }
 
         // Potentially mark this peer as a preferred download peer.
-        {
-        LOCK(cs_main);
-        UpdatePreferredDownload(pfrom, State(pfrom.GetId()));
-        }
+        peer->fPreferredDownload = (!pfrom.IsInboundConn() || pfrom.HasPermission(PF_NOBAN)) && !pfrom.IsAddrFetchConn() && !pfrom.fClient;
+        nPreferredDownload -= peer->fPreferredDownload;
 
         if (!pfrom.IsInboundConn() && !pfrom.IsBlockOnlyConn()) {
             // For outbound peers, we try to relay our address (so that other
@@ -2799,7 +2793,7 @@ void PeerManagerImpl::_ProcessMessage(CNode& pfrom, const std::string& msg_type,
                     pfrom.fDisconnect = true;
                     return;
                 } else if (!fAlreadyHave && !m_chainman.ActiveChainstate().IsInitialBlockDownload()) {
-                    AddTxAnnouncement(pfrom, gtxid, current_time);
+                    AddTxAnnouncement(pfrom, *peer, gtxid, current_time);
                 }
             } else {
                 LogPrint(BCLog::NET, "Unknown inv type \"%s\" received from peer=%d\n", inv.ToString(), pfrom.GetId());
@@ -3143,7 +3137,7 @@ void PeerManagerImpl::_ProcessMessage(CNode& pfrom, const std::string& msg_type,
                     // protocol for getting all unconfirmed parents.
                     const GenTxid gtxid{/* is_wtxid=*/false, parent_txid};
                     pfrom.AddKnownTx(parent_txid);
-                    if (!AlreadyHaveTx(gtxid)) AddTxAnnouncement(pfrom, gtxid, current_time);
+                    if (!AlreadyHaveTx(gtxid)) AddTxAnnouncement(pfrom, *peer, gtxid, current_time);
                 }
 
                 if (m_orphanage.AddTx(ptx, pfrom.GetId())) {
@@ -4287,7 +4281,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
         // Start block sync
         if (pindexBestHeader == nullptr)
             pindexBestHeader = m_chainman.ActiveChain().Tip();
-        bool fFetch = state.fPreferredDownload || (nPreferredDownload == 0 && !pto->fClient && !pto->IsAddrFetchConn()); // Download if this is a nice peer, or we have no nice peers and this one might do.
+        bool fFetch = peer->fPreferredDownload || (nPreferredDownload == 0 && !pto->fClient && !pto->IsAddrFetchConn()); // Download if this is a nice peer, or we have no nice peers and this one might do.
         if (!state.fSyncStarted && !pto->fClient && !fImporting && !fReindex) {
             // Only actively request headers from a single peer, unless we're close to today.
             if ((nSyncStarted == 0 && fFetch) || pindexBestHeader->GetBlockTime() > GetAdjustedTime() - 24 * 60 * 60) {
@@ -4632,7 +4626,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
         if (state.fSyncStarted && state.m_headers_sync_timeout < std::chrono::microseconds::max()) {
             // Detect whether this is a stalling initial-headers-sync peer
             if (pindexBestHeader->GetBlockTime() <= GetAdjustedTime() - 24 * 60 * 60) {
-                if (current_time > state.m_headers_sync_timeout && nSyncStarted == 1 && (nPreferredDownload - state.fPreferredDownload >= 1)) {
+                if (current_time > state.m_headers_sync_timeout && nSyncStarted == 1 && (nPreferredDownload - peer->fPreferredDownload >= 1)) {
                     // Disconnect a peer (without the noban permission) if it is our only sync peer,
                     // and we have others we could be using instead.
                     // Note: If all our peers are inbound, then we won't
