@@ -340,7 +340,7 @@ private:
      *  peer. The announcement parameters are decided in PeerManager and then
      *  passed to TxRequestTracker. */
     void AddTxAnnouncement(const CNode& node, const Peer& peer, const GenTxid& gtxid, std::chrono::microseconds current_time)
-        EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mutex_message_handling);
+        EXCLUSIVE_LOCKS_REQUIRED(m_mutex_message_handling);
 
     /** Send a version message to a peer */
     void PushNodeVersion(CNode& pnode, int64_t nTime);
@@ -361,7 +361,7 @@ private:
     BanMan* const m_banman;
     ChainstateManager& m_chainman;
     CTxMemPool& m_mempool;
-    TxRequestTracker m_txrequest GUARDED_BY(::cs_main);
+    TxRequestTracker m_txrequest GUARDED_BY(m_mutex_message_handling);
 
     /** The height of the best chain */
     std::atomic<int> m_best_height{-1};
@@ -965,7 +965,6 @@ void PeerManagerImpl::PushNodeVersion(CNode& pnode, int64_t nTime)
 
 void PeerManagerImpl::AddTxAnnouncement(const CNode& node, const Peer& peer, const GenTxid& gtxid, std::chrono::microseconds current_time)
 {
-    AssertLockHeld(::cs_main); // For m_txrequest
     AssertLockHeld(m_mutex_message_handling);
     NodeId nodeid = node.GetId();
     if (!node.HasPermission(PF_RELAY) && m_txrequest.Count(nodeid) >= MAX_PEER_TX_ANNOUNCEMENTS) {
@@ -1001,6 +1000,8 @@ void UpdateLastBlockAnnounceTime(NodeId node, int64_t time_in_seconds)
 
 void PeerManagerImpl::InitializeNode(CNode *pnode)
 {
+    LOCK(m_mutex_message_handling);
+
     NodeId nodeid = pnode->GetId();
     {
         LOCK(cs_main);
@@ -1320,6 +1321,8 @@ PeerManagerImpl::PeerManagerImpl(const CChainParams& chainparams, CConnman& conn
  */
 void PeerManagerImpl::BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindex)
 {
+    LOCK(m_mutex_message_handling);
+
     m_orphanage.EraseForBlock(*pblock);
     m_last_tip_update = GetTime();
 
