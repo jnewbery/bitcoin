@@ -1049,48 +1049,49 @@ void PeerManagerImpl::FinalizeNode(const CNode& node)
     NodeId nodeid = node.GetId();
     int misbehavior{0};
     {
-    LOCK(cs_main);
-    {
-        // We remove the PeerRef from g_peer_map here, but we don't always
-        // destruct the Peer. Sometimes another thread is still holding a
-        // PeerRef, so the refcount is >= 1. Be careful not to do any
-        // processing here that assumes Peer won't be changed before it's
-        // destructed.
-        PeerRef peer = RemovePeer(nodeid);
-        assert(peer != nullptr);
-        misbehavior = WITH_LOCK(peer->m_misbehavior_mutex, return peer->m_misbehavior_score);
-        nPreferredDownload -= peer->fPreferredDownload;
-        m_wtxid_relay_peers -= peer->m_wtxid_relay;
-        assert(m_wtxid_relay_peers >= 0);
-    }
-    CNodeState *state = State(nodeid);
-    assert(state != nullptr);
+        LOCK(cs_main);
+        {
+            // We remove the PeerRef from g_peer_map here, but we don't always
+            // destruct the Peer. Sometimes another thread is still holding a
+            // PeerRef, so the refcount is >= 1. Be careful not to do any
+            // processing here that assumes Peer won't be changed before it's
+            // destructed.
+            PeerRef peer = RemovePeer(nodeid);
+            assert(peer != nullptr);
+            misbehavior = WITH_LOCK(peer->m_misbehavior_mutex, return peer->m_misbehavior_score);
+            nPreferredDownload -= peer->fPreferredDownload;
+            m_wtxid_relay_peers -= peer->m_wtxid_relay;
+            assert(m_wtxid_relay_peers >= 0);
+        }
+        CNodeState *state = State(nodeid);
+        assert(state != nullptr);
 
-    if (state->fSyncStarted)
-        nSyncStarted--;
+        if (state->fSyncStarted)
+            nSyncStarted--;
 
-    for (const QueuedBlock& entry : state->vBlocksInFlight) {
-        mapBlocksInFlight.erase(entry.hash);
-    }
-    m_orphanage.EraseForPeer(nodeid);
-    m_txrequest.DisconnectedPeer(nodeid);
-    nPeersWithValidatedDownloads -= (state->nBlocksInFlightValidHeaders != 0);
-    assert(nPeersWithValidatedDownloads >= 0);
-    m_outbound_peers_with_protect_from_disconnect -= state->m_chain_sync.m_protect;
-    assert(m_outbound_peers_with_protect_from_disconnect >= 0);
+        for (const QueuedBlock& entry : state->vBlocksInFlight) {
+            mapBlocksInFlight.erase(entry.hash);
+        }
+        m_orphanage.EraseForPeer(nodeid);
+        m_txrequest.DisconnectedPeer(nodeid);
+        nPeersWithValidatedDownloads -= (state->nBlocksInFlightValidHeaders != 0);
+        assert(nPeersWithValidatedDownloads >= 0);
+        m_outbound_peers_with_protect_from_disconnect -= state->m_chain_sync.m_protect;
+        assert(m_outbound_peers_with_protect_from_disconnect >= 0);
 
-    mapNodeState.erase(nodeid);
+        mapNodeState.erase(nodeid);
 
-    if (mapNodeState.empty()) {
-        // Do a consistency check after the last peer is removed.
-        assert(mapBlocksInFlight.empty());
-        assert(nPreferredDownload == 0);
-        assert(nPeersWithValidatedDownloads == 0);
-        assert(m_outbound_peers_with_protect_from_disconnect == 0);
-        assert(m_wtxid_relay_peers == 0);
-        assert(m_txrequest.Size() == 0);
-    }
+        if (mapNodeState.empty()) {
+            // Do a consistency check after the last peer is removed.
+            assert(mapBlocksInFlight.empty());
+            assert(nPreferredDownload == 0);
+            assert(nPeersWithValidatedDownloads == 0);
+            assert(m_outbound_peers_with_protect_from_disconnect == 0);
+            assert(m_wtxid_relay_peers == 0);
+            assert(m_txrequest.Size() == 0);
+        }
     } // cs_main
+
     if (node.fSuccessfullyConnected && misbehavior == 0 &&
         !node.IsBlockOnlyConn() && !node.IsInboundConn()) {
         // Only change visible addrman state for full outbound peers.  We don't
