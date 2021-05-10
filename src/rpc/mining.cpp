@@ -845,7 +845,7 @@ static RPCHelpMan getblocktemplate()
     UniValue vbavailable(UniValue::VOBJ);
     for (int j = 0; j < (int)Consensus::MAX_VERSION_BITS_DEPLOYMENTS; ++j) {
         Consensus::DeploymentPos pos = Consensus::DeploymentPos(j);
-        ThresholdState state = versionbitscache.State(pindexPrev, consensusParams, pos);
+        ThresholdState state = VersionBits::State(pindexPrev, consensusParams, pos);
         switch (state) {
             case ThresholdState::DEFINED:
             case ThresholdState::FAILED:
@@ -853,7 +853,7 @@ static RPCHelpMan getblocktemplate()
                 break;
             case ThresholdState::LOCKED_IN:
                 // Ensure bit is set in block version
-                pblock->nVersion |= versionbitscache.Mask(consensusParams, pos);
+                pblock->nVersion |= VersionBits::Mask(consensusParams, pos);
                 // FALL THROUGH to get vbavailable set...
             case ThresholdState::STARTED:
             {
@@ -862,7 +862,7 @@ static RPCHelpMan getblocktemplate()
                 if (setClientRules.find(vbinfo.name) == setClientRules.end()) {
                     if (!vbinfo.gbt_force) {
                         // If the client doesn't support this, don't indicate it in the [default] version
-                        pblock->nVersion &= ~versionbitscache.Mask(consensusParams, pos);
+                        pblock->nVersion &= ~VersionBits::Mask(consensusParams, pos);
                     }
                 }
                 break;

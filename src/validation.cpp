@@ -1702,7 +1702,7 @@ public:
         return pindex->nHeight >= params.MinBIP9WarningHeight &&
                ((pindex->nVersion & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS) &&
                ((pindex->nVersion >> bit) & 1) != 0 &&
-               ((versionbitscache.ComputeBlockVersion(pindex->pprev, params) >> bit) & 1) == 0;
+               ((VersionBits::ComputeBlockVersion(pindex->pprev, params) >> bit) & 1) == 0;
     }
 };
 
@@ -4414,7 +4414,7 @@ void UnloadBlockIndex(CTxMemPool* mempool, ChainstateManager& chainman)
     nLastBlockFile = 0;
     setDirtyBlockIndex.clear();
     setDirtyFileInfo.clear();
-    versionbitscache.Clear();
+    VersionBits::ClearCache();
     for (int b = 0; b < VERSIONBITS_NUM_BITS; b++) {
         warningcache[b].clear();
     }
