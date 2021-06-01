@@ -452,6 +452,8 @@ public:
          * any transaction spending the same inputs as a transaction in the mempool is considered
          * a conflict. */
         const bool m_allow_bip125_replacement{true};
+        /** Whether we are validating as a package */
+        const bool m_package_validation;
     };
 
     // Single transaction acceptance
@@ -1011,7 +1013,10 @@ bool MemPoolAccept::Finalize(const ATMPArgs& args, Workspace& ws)
     m_pool.addUnchecked(*entry, setAncestors, validForFeeEstimation);
 
     // trim mempool and check if tx was trimmed
-    if (!bypass_limits) {
+    // If we are validating a package, don't trim here because we could evict a previous transaction
+    // in the package. LimitMempoolSize() should be called at the very end to make sure the mempool
+    // is still within limits and package submission happens atomically.
+    if (!args.m_package_validation && !bypass_limits) {
         LimitMempoolSize(m_pool, m_active_chainstate.CoinsTip(), gArgs.GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000, std::chrono::hours{gArgs.GetArg("-mempoolexpiry", DEFAULT_MEMPOOL_EXPIRY)});
         if (!m_pool.exists(hash))
             return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "mempool full");
@@ -1122,6 +1127,77 @@ PackageMempoolAcceptResult MemPoolAccept::AcceptMultipleTransactions(const std::
         }
     }
 
+    if (args.m_test_accept) return PackageMempoolAcceptResult(package_state, std::move(results));
+
+    // ConsensusScriptChecks adds to the script cache and is therefore consensus-critical;
+    // CheckInputsFromMempoolAndCache asserts that transactions only spend coins available from the
+    // mempool or UTXO set. Submit each transaction to the mempool immediately after calling
+    // ConsensusScriptChecks to make the outputs available for subsequent transactions.
+    for (Workspace& ws : workspaces) {
+        // It would be a fatal error for ConsensusScriptChecks() to fail here, since
+        // PolicyScriptChecks() passed.
+        if (!ConsensusScriptChecks(args, ws)) {
+            package_state.Invalid(PackageValidationResult::PCKG_TX, "transaction failed");
+            results.emplace(ws.m_ptx->GetWitnessHash(), MempoolAcceptResult::Failure(ws.m_state));
+            break;
+        }
+
+        // Recalculate mempool ancestors because they may have changed since the last calculation
+        // done in PreChecks (i.e. package ancestors have already been submitted). This should
+        // never exceed the limits.
+        std::string err_string;
+        if(!m_pool.CalculateMemPoolAncestors(*ws.m_entry, ws.m_ancestors, m_limit_ancestors,
+                                             m_limit_ancestor_size, m_limit_descendants,
+                                             m_limit_descendant_size, err_string)) {
+            package_state.Invalid(PackageValidationResult::PCKG_TX, "transaction failed");
+            results.emplace(ws.m_ptx->GetWitnessHash(), MempoolAcceptResult::Failure(ws.m_state));
+            break;
+        }
+        // Submission of a package to mempool should be atomic: either all of the transactions are
+        // submitted or there are no changes to the mempool. Do this by allowing the mempool to
+        // temporarily bypass limits while submitting transactions individually, then trimming at
+        // the very end.
+        if (!Finalize(args, ws)) {
+            package_state.Invalid(PackageValidationResult::PCKG_TX, "transaction failed");
+            results.emplace(ws.m_ptx->GetWitnessHash(), MempoolAcceptResult::Failure(ws.m_state));
+            break;
+        }
+    }
+
+    // It may or may not be the case that all the transactions made it into the mempool. Regardless,
+    // make sure we haven't exceeded max mempool size.
+    LimitMempoolSize(m_pool, m_active_chainstate.CoinsTip(),
+                     gArgs.GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000,
+                     std::chrono::hours{gArgs.GetArg("-mempoolexpiry", DEFAULT_MEMPOOL_EXPIRY)});
+
+    // Find the wtxids of the transactions that made it into the mempool.
+    std::set<uint256> submitted_package_wtxids;
+    for (Workspace& ws : workspaces) {
+        auto wtxid = ws.m_ptx->GetWitnessHash();
+        if (m_pool.exists(wtxid)) submitted_package_wtxids.insert(wtxid);
+    }
+
+    if (submitted_package_wtxids.size() != workspaces.size()) {
+        // Not all of the transactions made it into the mempool. Pull them all out.
+        CTxMemPool::setEntries submitted_package_entries = m_pool.GetIterSet(submitted_package_wtxids);
+        // Use updateDescendants=false because it is not possible for any of the package
+        // transactions to have descendants in the mempool that aren't part of the package.
+        m_pool.RemoveStaged(submitted_package_entries, false, MemPoolRemovalReason::SIZELIMIT);
+        for (Workspace& ws : workspaces) {
+            package_state.Invalid(PackageValidationResult::PCKG_TX, "transaction failed");
+            ws.m_state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "mempool full");
+            results.emplace(ws.m_ptx->GetWitnessHash(), MempoolAcceptResult::Failure(ws.m_state));
+        }
+        return PackageMempoolAcceptResult(package_state, std::move(results));
+    }
+
+    // Package submission successful.
+    for (Workspace& ws : workspaces) {
+        results.emplace(ws.m_ptx->GetWitnessHash(),
+                        MempoolAcceptResult::Success(std::move(ws.m_replaced_transactions),
+                                                     ws.m_base_fees));
+        GetMainSignals().TransactionAddedToMempool(ws.m_ptx, m_pool.GetAndIncrementSequence());
+    }
     return PackageMempoolAcceptResult(package_state, std::move(results));
 }
 
@@ -1136,7 +1212,8 @@ static MempoolAcceptResult AcceptToMemoryPoolWithTime(const CChainParams& chainp
 {
     std::vector<COutPoint> coins_to_uncache;
     MemPoolAccept::ATMPArgs args { chainparams, nAcceptTime, bypass_limits, coins_to_uncache,
-                                   test_accept, /* m_allow_bip125_replacement */ true };
+                                   test_accept, /* m_allow_bip125_replacement */ true,
+                                   /* m_package_validation */ false };
 
     const MempoolAcceptResult result = MemPoolAccept(pool, active_chainstate).AcceptSingleTransaction(tx, args);
     if (result.m_result_type != MempoolAcceptResult::ResultType::VALID) {
@@ -1164,20 +1241,25 @@ PackageMempoolAcceptResult ProcessNewPackage(CChainState& active_chainstate, CTx
                                                    const Package& package, bool test_accept)
 {
     AssertLockHeld(cs_main);
-    assert(test_accept); // Only allow package accept dry-runs (testmempoolaccept RPC).
     assert(!package.empty());
     assert(std::all_of(package.cbegin(), package.cend(), [](const auto& tx){return tx != nullptr;}));
 
     std::vector<COutPoint> coins_to_uncache;
     const CChainParams& chainparams = Params();
     MemPoolAccept::ATMPArgs args { chainparams, GetTime(), /* bypass_limits */ false, coins_to_uncache,
-                                   test_accept, /* m_allow_bip125_replacement */ false };
+                                   test_accept, /* m_allow_bip125_replacement */ false,
+                                   /* m_package_validation */ true };
     const PackageMempoolAcceptResult result = MemPoolAccept(pool, active_chainstate).AcceptMultipleTransactions(package, args);
 
-    // Uncache coins pertaining to transactions that were not submitted to the mempool.
-    for (const COutPoint& hashTx : coins_to_uncache) {
-        active_chainstate.CoinsTip().Uncache(hashTx);
+    // Uncache coins pertaining to transactions that were not submitted to the mempool. Ensure the
+    // coins cache is still within limits.
+    if (test_accept || result.m_state.IsInvalid()) {
+        for (const COutPoint& hashTx : coins_to_uncache) {
+            active_chainstate.CoinsTip().Uncache(hashTx);
+        }
     }
+    BlockValidationState state_dummy;
+    active_chainstate.FlushStateToDisk(chainparams, state_dummy, FlushStateMode::PERIODIC);
     return result;
 }
 
