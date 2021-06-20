@@ -727,9 +727,10 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "bad-txns-too-many-sigops",
                 strprintf("%d", nSigOpsCost));
 
-    // No transactions are allowed below minRelayTxFee except from disconnected
-    // blocks
-    if (!bypass_limits && !CheckFeeRate(nSize, nModifiedFees, state)) return false;
+    // No individual transactions are allowed below minRelayTxFee and mempool min fee except from
+    // disconnected blocks and transactions in a package. Package transactions will be checked using
+    // descendant feerates later.
+    if (!bypass_limits && !args.m_package_validation && !CheckFeeRate(nSize, nModifiedFees, state)) return false;
 
     const CTxMemPool::setEntries setIterConflicting = m_pool.GetIterSet(setConflicts);
     // Calculate in-mempool ancestors, up to a limit.
@@ -1143,6 +1144,14 @@ PackageMempoolAcceptResult MemPoolAccept::AcceptMultipleTransactions(const std::
             it->m_package_descendants.cend(),
             GetVirtualTransactionSize(*it->m_ptx),
             [](size_t sum, auto pws) { return sum + GetVirtualTransactionSize(*pws->m_ptx); });
+        // The transaction must meet two minimum feerates, the mempool minimum and min relay fee. If
+        // the transaction does not meet the minimum feerates on its own, try with descendant
+        // feerate (possible CPFP); passing either one is sufficient.
+        if (!CheckFeeRate(GetVirtualTransactionSize(*it->m_ptx), it->m_modified_fees, it->m_state) &&
+            !CheckFeeRate(it->m_package_descendant_vsize, it->m_package_descendant_fees, it->m_state)) {
+            package_state.Invalid(PackageValidationResult::PCKG_TX, "transaction failed");
+            results.emplace(it->m_ptx->GetWitnessHash(), MempoolAcceptResult::Failure(it->m_state));
+            return PackageMempoolAcceptResult(package_state, std::move(results));
         }
     }
 
