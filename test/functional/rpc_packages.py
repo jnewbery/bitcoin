@@ -84,15 +84,16 @@ class RPCPackagesTest(BitcoinTestFramework):
         self.test_rbf()
 
         self.test_submitrawpackage()
+        self.test_package_cpfp()
 
-    def chain_transaction(self, parent_txid, parent_value, n=0, parent_locking_script=None):
+    def chain_transaction(self, parent_txid, parent_value, n=0, parent_locking_script=None, fee=Decimal("0.0001")):
         """Build a transaction that spends parent_txid.vout[n] and produces one output with
         amount = parent_value with a fee deducted.
         Return tuple (CTransaction object, raw hex, nValue, scriptPubKey of the output created).
         """
         node = self.nodes[0]
         inputs = [{"txid": parent_txid, "vout": n}]
-        my_value = parent_value - Decimal("0.0001")
+        my_value = parent_value - fee
         outputs = {self.address : my_value}
         rawtx = node.createrawtransaction(inputs, outputs)
         prevtxs = [{
@@ -586,6 +587,43 @@ class RPCPackagesTest(BitcoinTestFramework):
         # Note that they won't necessarily always be identical (but they should be in this case).
         self.assert_equal_package_results(testres_package, submitres_package)
         node.generate(1)
+
+    def test_package_cpfp(self):
+        node = self.nodes[0]
+        self.log.info("Check that a too-low-fee transaction can be fee-bumped using CPFP in a package")
+        first_coin = self.coins.pop()
+        (parent, parent_hex, value, parent_locking_script) = self.chain_transaction(first_coin["txid"], first_coin["amount"], 0, None, 0)
+        (child, child_hex, _, _) = self.chain_transaction(parent.rehash(), value, 0, parent_locking_script, Decimal("0.0002"))
+        testres_fail = node.testmempoolaccept([parent_hex])
+        assert not testres_fail[0]["allowed"]
+        assert_equal(testres_fail[0]["reject-reason"], "min relay fee not met")
+        submitres_package = node.submitrawpackage(package=[parent_hex, child_hex])
+        expected_parent_result = {
+            "txid": parent.rehash(),
+            "wtxid": parent.getwtxid(),
+            "result": "valid",
+            "vsize": parent.get_vsize(),
+            "fees": {
+                "base": 0,
+                "descendant": Decimal("0.0002"),
+            }
+        }
+        expected_child_result = {
+            "txid": child.rehash(),
+            "wtxid": child.getwtxid(),
+            "result": "valid",
+            "vsize": child.get_vsize(),
+            "fees": {
+                "base": Decimal("0.0002"),
+                "descendant": Decimal("0.0002"),
+            }
+        }
+        assert_equal(submitres_package, {
+            "tx-results": {
+                parent.getwtxid(): expected_parent_result,
+                child.getwtxid(): expected_child_result,
+            }
+        })
 
 
 if __name__ == "__main__":
