@@ -487,6 +487,12 @@ private:
         const uint256& m_hash;
         TxValidationState m_state;
         PrecomputedTransactionData m_precomputed_txdata;
+        /** Pointers to all direct descendants within the same package. */
+        std::set<Workspace*> m_package_descendants;
+        /** Total modified fees including this tx and its direct descendants in the package. */
+        CAmount m_package_descendant_fees;
+        /** Total virtual size including this tx and its direct descendants in the package. */
+        size_t m_package_descendant_vsize;
     };
 
     // Run the policy checks on a given transaction, excluding any script checks.
@@ -1112,6 +1118,34 @@ PackageMempoolAcceptResult MemPoolAccept::AcceptMultipleTransactions(const std::
         }
     }
 
+    // The package must be sorted. Build the descendant sets for each Workspace.
+    std::map<uint256, Workspace*> txid_to_ws;
+    for (Workspace& ws : workspaces) {
+        txid_to_ws.emplace(ws.m_ptx->GetHash(), &ws);
+    }
+    for (auto it = workspaces.rbegin(); it != workspaces.rend(); ++it) {
+        for (const auto& input : it->m_ptx->vin) {
+            if (auto it_parent = txid_to_ws.find(input.prevout.hash); it_parent != txid_to_ws.end()) {
+                // Add me and all of my descendants to my parent's m_package_descendants
+                it_parent->second->m_package_descendants.insert(&*it);
+                it_parent->second->m_package_descendants.insert(it->m_package_descendants.cbegin(),
+                                                                it->m_package_descendants.cend());
+            }
+        }
+        // All descendants must have already been processed.
+        it->m_package_descendant_fees = std::accumulate(
+            it->m_package_descendants.cbegin(),
+            it->m_package_descendants.cend(),
+            it->m_modified_fees,
+            [](CAmount sum, auto pws) { return sum + pws->m_modified_fees; });
+        it->m_package_descendant_vsize = std::accumulate(
+            it->m_package_descendants.cbegin(),
+            it->m_package_descendants.cend(),
+            GetVirtualTransactionSize(*it->m_ptx),
+            [](size_t sum, auto pws) { return sum + GetVirtualTransactionSize(*pws->m_ptx); });
+        }
+    }
+
     for (Workspace& ws : workspaces) {
         if (!PolicyScriptChecks(args, ws)) {
             // Exit early to avoid doing pointless work. Update the failed tx result; the rest are unfinished.
@@ -1123,7 +1157,9 @@ PackageMempoolAcceptResult MemPoolAccept::AcceptMultipleTransactions(const std::
             // When test_accept=true, transactions that pass PolicyScriptChecks are valid because there are
             // no further mempool checks (passing PolicyScriptChecks implies passing ConsensusScriptChecks).
             results.emplace(ws.m_ptx->GetWitnessHash(),
-                            MempoolAcceptResult::Success(std::move(ws.m_replaced_transactions), ws.m_base_fees));
+                            MempoolAcceptResult::Success(std::move(ws.m_replaced_transactions),
+                                                         ws.m_base_fees, ws.m_package_descendant_fees,
+                                                         ws.m_package_descendant_vsize));
         }
     }
 
@@ -1195,7 +1231,8 @@ PackageMempoolAcceptResult MemPoolAccept::AcceptMultipleTransactions(const std::
     for (Workspace& ws : workspaces) {
         results.emplace(ws.m_ptx->GetWitnessHash(),
                         MempoolAcceptResult::Success(std::move(ws.m_replaced_transactions),
-                                                     ws.m_base_fees));
+                                                     ws.m_base_fees, ws.m_package_descendant_fees,
+                                                     ws.m_package_descendant_vsize));
         GetMainSignals().TransactionAddedToMempool(ws.m_ptx, m_pool.GetAndIncrementSequence());
     }
     return PackageMempoolAcceptResult(package_state, std::move(results));
