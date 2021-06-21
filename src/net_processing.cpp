@@ -388,6 +388,13 @@ private:
     bool MaybeDiscourageAndDisconnect(CNode& pnode, Peer& peer);
 
     void ProcessOrphanTx(std::set<uint256>& orphan_work_set) EXCLUSIVE_LOCKS_REQUIRED(cs_main, g_cs_orphans);
+
+    /** If a transaction fails validation due to TX_MISSING_INPUTS, check the cheap pool for
+     *  its missing parents, and if they're found, try validating as a package.
+     *
+     *  Return true if the package is accepted. */
+    bool ReconsiderTransactionAsPackage(const CTransactionRef& ptx, const std::set<uint256>& missing_parents);
+
     /** Process a single headers message from a peer. */
     void ProcessHeadersMessage(CNode& pfrom, const Peer& peer,
                                const std::vector<CBlockHeader>& headers,
@@ -2208,6 +2215,56 @@ void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, const Peer& peer,
     return;
 }
 
+bool PeerManagerImpl::ReconsiderTransactionAsPackage(const CTransactionRef& ptx,
+                                                     const std::set<uint256>& missing_parents)
+{
+    auto package_txs{m_cheappool.GetTransactions(missing_parents)};
+
+    if (!package_txs) {
+        // Not all of the missing parents are in the cheap pool.
+        return false;
+    }
+
+    // All the unknown parents were found in the cheap pool. Try resubmitting as a package.
+    package_txs->push_back(ptx);
+    const auto package_result = ProcessNewPackage(m_chainman.ActiveChainstate(),
+                                                  m_mempool, *package_txs, /*test_accept=*/false);
+
+    if (package_result.m_state.GetResult() == PackageValidationResult::PCKG_RESULT_UNSET) {
+        // Package was accepted.
+
+        // Forget about any requests for the transaction.
+        m_txrequest.ForgetTxHash(ptx->GetHash());
+        m_txrequest.ForgetTxHash(ptx->GetWitnessHash());
+
+        for (auto& package_tx : *package_txs) {
+            // All low fee parents have been added to the mempool. Remove them from the cheap pool.
+            m_cheappool.RemoveTransaction(package_tx->GetHash());
+
+            // Relay all transactions in the package.
+            _RelayTransaction(package_tx->GetHash(), package_tx->GetWitnessHash());
+
+            LogPrint(BCLog::MEMPOOL,
+                     "AcceptToMemoryPool: accepted %s as part of package (poolsz %u txn, %u kB)\n",
+                     package_tx->GetHash().ToString(),
+                     m_mempool.size(), m_mempool.DynamicMemoryUsage() / 1000);
+        }
+
+        for (const auto& tx_result_pair : package_result.m_tx_results) {
+            auto& [hash, tx_result] = tx_result_pair;
+            for (const CTransactionRef& removedTx : tx_result.m_replaced_transactions.value()) {
+                AddToCompactExtraTransactions(removedTx);
+            }
+        }
+        return true;
+    } // else if one of the parent transactions is rejected {
+        // put that parent and the child in recent rejects
+    // } else if one of the parent transactions is rejected for too-low-descendant fee {
+        // put the child in the orphange
+    // }
+    return false;
+}
+
 /**
  * Reconsider orphan transactions after a parent has been accepted to the mempool.
  *
@@ -2245,7 +2302,15 @@ void PeerManagerImpl::ProcessOrphanTx(std::set<uint256>& orphan_work_set)
             // enter the mempool. Remove from the orphanage and put in the cheap pool.
             m_orphanage.EraseTx(orphanHash);
             m_cheappool.AddTransaction(porphanTx);
-        } else if (state.GetResult() != TxValidationResult::TX_MISSING_INPUTS) {
+        } else if (state.GetResult() == TxValidationResult::TX_MISSING_INPUTS) {
+            assert(result.m_unknown_parents);
+            if (ReconsiderTransactionAsPackage(porphanTx, *result.m_unknown_parents)) {
+                m_orphanage.AddChildrenToWorkSet(*porphanTx, orphan_work_set);
+                LogPrint(BCLog::MEMPOOL,
+                         "AcceptToMemoryPool: package accepted (%s transactions)\n",
+                         result.m_unknown_parents->size() + 1);
+            }
+        } else {
             if (state.IsInvalid()) {
                 LogPrint(BCLog::MEMPOOL, "   invalid orphan tx %s from peer=%d. %s\n",
                     orphanHash.ToString(),
@@ -3244,10 +3309,25 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             ProcessOrphanTx(peer->m_orphan_work_set);
         } else if (state.GetResult() == TxValidationResult::TX_LOW_FEE) {
             // Transaction couldn't afford the entry price. Put it in the cheap seats.
-            const CTransactionRef tx_ref{ptx};
-            m_cheappool.AddTransaction(tx_ref);
+            m_cheappool.AddTransaction(ptx);
+
+            // If the transaction has children in the orphanage, reconsider them. The
+            // package logic will kick in if all parents are now available or in the
+            // cheap pool.
+            m_orphanage.AddChildrenToWorkSet(tx, peer->m_orphan_work_set);
             return;
         } else if (state.GetResult() == TxValidationResult::TX_MISSING_INPUTS) {
+            assert(result.m_unknown_parents);
+            if (ReconsiderTransactionAsPackage(ptx, *result.m_unknown_parents)) {
+                LogPrint(BCLog::MEMPOOL,
+                         "AcceptToMemoryPool: package accepted from peer %d (%s transactions)\n",
+                         pfrom.GetId(),
+                         result.m_unknown_parents->size() + 1);
+                m_orphanage.AddChildrenToWorkSet(tx, peer->m_orphan_work_set);
+                pfrom.nLastTXTime = GetTime();
+                return;
+            }
+
             bool fRejectedParents = false; // It may be the case that the orphans parents have all been rejected
 
             // Deduplicate parent txids, so that we don't have to loop over
