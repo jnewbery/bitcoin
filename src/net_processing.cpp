@@ -3309,6 +3309,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             ProcessOrphanTx(peer->m_orphan_work_set);
         } else if (state.GetResult() == TxValidationResult::TX_LOW_FEE) {
             // Transaction couldn't afford the entry price. Put it in the cheap seats.
+            LogPrint(BCLog::MEMPOOL, "JFN: TX_LOW_FEE: %s\n", ptx->GetHash().ToString());
             m_cheappool.AddTransaction(ptx);
 
             // If the transaction has children in the orphanage, reconsider them. The
@@ -4819,9 +4820,9 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                         auto txid = txinfo.tx->GetHash();
                         auto wtxid = txinfo.tx->GetWitnessHash();
                         // Peer told you to not send transactions at that feerate? Don't bother sending it.
-                        if (txinfo.fee < filterrate.GetFee(txinfo.vsize)) {
-                            continue;
-                        }
+                        /* if (txinfo.fee < filterrate.GetFee(txinfo.vsize)) { */
+                        /*     continue; */
+                        /* } */
                         if (pto->m_tx_relay->pfilter && !pto->m_tx_relay->pfilter->IsRelevantAndUpdate(*txinfo.tx)) continue;
                         // Send
                         State(pto->GetId())->m_recently_announced_invs.insert(hash);
