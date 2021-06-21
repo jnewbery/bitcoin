@@ -501,6 +501,10 @@ private:
     // only tests that are fast should be done here (to avoid CPU DoS).
     bool PreChecks(ATMPArgs& args, Workspace& ws) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_pool.cs);
 
+    // Go through all inputs of a transaction and return txids for the ones we can't find. Update
+    // coins_to_uncache for all coins we bring into view. The caller is responsible for uncaching.
+    std::set<uint256> GetUnknownParents(ATMPArgs& args, Workspace& ws) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_pool.cs);
+
     // Run the script checks using our policy flags. As this can be slow, we should
     // only invoke this on transactions that have otherwise passed policy checks.
     bool PolicyScriptChecks(const ATMPArgs& args, Workspace& ws) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_pool.cs);
@@ -925,6 +929,32 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     return true;
 }
 
+std::set<uint256> MemPoolAccept::GetUnknownParents(ATMPArgs& args, Workspace& ws)
+{
+    assert(!args.m_package_validation);
+    assert(ws.m_state.IsInvalid() && ws.m_state.GetResult() == TxValidationResult::TX_MISSING_INPUTS);
+
+    std::set<uint256> unknown_parents;
+    const CCoinsViewCache& coins_cache = m_active_chainstate.CoinsTip();
+
+    m_view.SetBackend(m_viewmempool);
+    for (const CTxIn& txin : ws.m_ptx->vin) {
+        // HaveCoin() may add txin.prevout to the coins cache (coins_cache.cacheCoins) by way of
+        // FetchCoin(). Since this transaction is invalid, these coins should be removed later via
+        // coins_to_uncache to prevent cache thrashing.
+        if (!coins_cache.HaveCoinInCache(txin.prevout)) {
+            args.m_coins_to_uncache.push_back(txin.prevout);
+        }
+        if (!m_view.HaveCoin(txin.prevout)) {
+            // It's possible the coin has already been spent or these inputs truly don't exist.
+            // PreChecks() should have already checked for "txn-already-known." Here, we guess that
+            // the transaction is an orphan and we just haven't seen the parents yet.
+            unknown_parents.insert(txin.prevout.hash);
+        }
+    }
+    m_view.SetBackend(m_dummy);
+    return unknown_parents;
+}
 bool MemPoolAccept::PolicyScriptChecks(const ATMPArgs& args, Workspace& ws)
 {
     const CTransaction& tx = *ws.m_ptx;
@@ -1039,7 +1069,15 @@ MempoolAcceptResult MemPoolAccept::AcceptSingleTransaction(const CTransactionRef
 
     Workspace ws(ptx);
 
-    if (!PreChecks(args, ws)) return MempoolAcceptResult::Failure(ws.m_state);
+    if (!PreChecks(args, ws)) {
+        if (ws.m_state.GetResult() == TxValidationResult::TX_MISSING_INPUTS) {
+            // PreChecks() will have stopped as soon as it couldn't find an input. Pass back all
+            // unknown parents so that orphan handling logic knows when we have sufficient
+            // information to validate this tx.
+            return MempoolAcceptResult::Failure(ws.m_state, GetUnknownParents(args, ws));
+        }
+        return MempoolAcceptResult::Failure(ws.m_state);
+    }
 
     // We perform the inexpensive checks first and avoid hashing and signature verification unless
     // (non-script) policy checks pass to mitigate CPU exhaustion denial-of-service attacks.

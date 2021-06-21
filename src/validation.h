@@ -185,8 +185,18 @@ struct MempoolAcceptResult {
     const std::optional<CAmount> m_descendant_fees;
     /** Total virtual size including this tx and its descendants in the package. */
     const std::optional<size_t> m_descendant_vsize;
+
+    /** A vector of txids for all unknown parents.
+     * Only present when m_result_type = ResultType::INVALID and the transaction is suspected to be
+     * an orphan, i.e. validation result in m_state is TxValidationResult::TX_MISSING_INPUTS */
+    const std::optional<std::set<uint256>> m_unknown_parents;
+
     static MempoolAcceptResult Failure(TxValidationState state) {
         return MempoolAcceptResult(state);
+    }
+
+    static MempoolAcceptResult Failure(TxValidationState state, std::set<uint256>&& txids) {
+        return MempoolAcceptResult(state, std::move(txids));
     }
 
     static MempoolAcceptResult Success(std::list<CTransactionRef>&& replaced_txns, CAmount fees) {
@@ -204,6 +214,13 @@ private:
     explicit MempoolAcceptResult(TxValidationState state)
         : m_result_type(ResultType::INVALID), m_state(state) {
             Assume(!state.IsValid()); // Can be invalid or error
+        }
+
+    /** Constructor for failure case where we suspect the tx may be an orphan. */
+    explicit MempoolAcceptResult(TxValidationState state, std::set<uint256>&& txids)
+        : m_result_type(ResultType::INVALID), m_state(state),
+        m_unknown_parents(std::move(txids)) {
+            Assume(!state.IsValid() && state.GetResult() == TxValidationResult::TX_MISSING_INPUTS);
         }
 
     /** Constructor for success case (single transaction) */
